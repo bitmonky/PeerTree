@@ -21,4 +21,4 @@ of the mkyNetwork object.
 you can check out a working demo of the blockchain app 
 here 
 
-https://www.bitmonky.com/whzon/bitMiner/webConsole.php
+https://www.bitmonky.com/whzon/bitMiner/webConsole.php?git=git
