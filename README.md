@@ -17,3 +17,8 @@ is replaced.
 
 project also includes a proof of concept blockchain application that runs on top
 of the mkyNetwork object.
+
+you can check out a working demo of the blockchain app 
+here 
+
+https://www.bitmonky.com/whzon/bitMiner/webConsole.php
