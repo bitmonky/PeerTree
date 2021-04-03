@@ -42,6 +42,7 @@ class MkyRouting {
      this.rtListener = null;
      this.lnListener = null;
      this.err        = null;
+     this.eTime      = null;
      this.status     = 'startup'
      this.startJoin  = null;
      this.joinTime   = null;
@@ -805,7 +806,7 @@ class MkyRouting {
        this.net.endRes(res,'{"result":"alreadyJoined"}');
        return;
      }
-     if (this.startJoin){
+     if (this.startJoin || this.err){
        this.joinQue.push({jIp:res,j:j});
        return;
      }
@@ -935,6 +936,7 @@ class MkyRouting {
        console.log('got simReplaceNode',j.msg.simReplaceNode);
        this.simReplaceNode(j.msg.simReplaceNode);
        this.err = false;
+       clearTimeout(this.eTime);
        return true;
      }
      if (j.msg.removeNode){
@@ -984,6 +986,10 @@ class MkyRouting {
          
          //console.log('XHR Fail',j);
          this.err = true;
+         this.eTime = setTimeout( ()=>{
+           console.log('Drop Time Out',j);
+           this.err = null;
+         },8000);
          const nbr = this.inMyNodesList(j.toHost); 
          if(nbr){
            var nIp = await this.sendMoveRequestToLastNode(j.toHost,nbr);
@@ -994,11 +1000,14 @@ class MkyRouting {
            else
              console.log('replace attempt fails',j);
 */
-           if(!nIp)
+           if(!nIp){
              this.err = false;
+             clearTimeout(this.eTime);
+           }
          }
          else {
            this.err = false;
+           clearTimeout(this.eTime);
          }
        }
        else { 
@@ -1365,8 +1374,8 @@ class MkyNetObj extends  EventEmitter {
     
         //console.log('heart beat sending ping result req;');
         var pingSent = false;
-        if (this.rnet.r.parent){
-          this.sendMsg(this.rnet.r.parent,{ping : "hello"});
+        if (this.rnet.r.myParent){
+          this.sendMsg(this.rnet.r.myParent,{ping : "hello"});
           pingSent = true;
         }
         if(this.rnet.r.myNodes)

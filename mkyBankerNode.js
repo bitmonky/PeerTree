@@ -13,6 +13,8 @@ Create BitMonky Network Peer
 */
 
   var isRoot = process.argv[3];
+  var rBlockID = process.argv[4];
+
   var reset = null
   if (isRoot == 'rootReset'){
     isRoot == 'root';
@@ -40,7 +42,7 @@ async function main(){
   }
 }
 function startBank(rBranch){
-    var bank = new MkyBank('02',myIp,mkyNet,reset);
+    var bank = new MkyBank('02',myIp,mkyNet,reset,rBlockID);
     if (rBranch){
       console.log('\nNEW>>>SETTING BANKER TO ROOT');
       bank.isRoot = true;

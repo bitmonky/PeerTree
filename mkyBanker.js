@@ -236,8 +236,10 @@ class MkyTransaction {
   }
 }
 class MkyBank {
-  constructor(branchId,branchIp,branchNetwork,reset){
+  constructor(branchId,branchIp,branchNetwork,reset,resetTo=null){
     this.reset      = reset;
+    this.resetBlock = resetTo;
+    console.log('Reset To block: '+resetTo,this.resetBlock);
     this.isRoot     = null;
     this.status     = 'starting';
     this.branchId   = branchId;
@@ -255,11 +257,12 @@ class MkyBank {
     this.maxBlockSize = null;
     this.firstBlock   = null;
     this.init();
+    this.rollover     = null;
     this.startLogRotations();
   }
   async init(){
     if (this.reset)
-      await this.resetDb();
+      await this.resetDb(this.resetBlock);
 
     this.firstBlock = new MkyBlock();
     this.maxBlockSize = this.firstBlock.maxBlockSize(0,this.maxBlockSize);
@@ -345,18 +348,58 @@ class MkyBank {
       resolve (true);
     });
   }
-  resetDb(){
+  reSumerizeDB(){
     return new Promise( (resolve,reject)=>{
-      var SQL = "truncate table mkyBank.tblGoldTranDaySum; ";
-      SQL += "truncate table mkyBank.tblGoldTranMonthSum; ";
-      SQL += "truncate table mkyBank.tblGoldTrans; ";
-      SQL += "truncate table mkyBank.tblGoldTranLog;";
-      SQL += "truncate table mkyBank.tblmkyWallets;";
-      SQL += "truncate table mkyBlockC.tblmkyBlocks;";
-      SQL += "truncate table mkyBlockC.tblmkyBlockTrans;";
-      con.query(SQL, async function (err, result, fields) {
+      console.log('reload day and month sum log');
+      var SQL  = "insert into tblGoldTranDaySum (gtdsDate,gtdsGoldType,gtdsSource,gtdsTycTax, ";
+      SQL += "gtdsAmount,gtdsGoldRate,gtdsMUID) ";
+      SQL += "SELECT date(gtlDate),gtlGoldType,gtlSource,sum(gtlTycTax),sum(gtlAmount) ";
+      SQL += ",avg(gtlGoldRate),gtlMUID ";
+      SQL += "FROM tblGoldTranLog ";
+      SQL += "group by date(gtlDate),gtlMUID,gtlGoldType,gtlSource,gtlSrcID";
+      con.query(SQL, (err, result, fields)=>{
+        if (err) {console.log(err);resolve(false);return;}
+        else console.log( "\nSummerized Days transactions...\n");
+        SQL  = "insert into tblGoldTranMonthSum (gtmsDate,gtmsGoldType,gtmsSource,gtmsTycTax, ";
+        SQL += "gtmsAmount,gtmsGoldRate,gtmsMUID) ";
+        SQL += "SELECT concat(DATE_FORMAT(gtlDate,'%Y-%m'),'-01'),gtlGoldType,gtlSource,sum(gtlTycTax),sum(gtlAmount) ";
+        SQL += ",avg(gtlGoldRate),gtlMUID ";
+        SQL += "FROM tblGoldTranLog ";
+        SQL += "where date(gtlDate) <= DATE(NOW() - INTERVAL 1 MONTH) ";
+        SQL += "group by year(gtlDate),month(gtlDate),gtlMUID,gtlGoldType,gtlSource,gtlSrcID";
+        con.query(SQL, (err, result, fields)=>{
+          this.rollover  = false;
+          if (err) {console.log(err);resolve(false);return;}
+          else console.log( "\nSummerized Month transactions...\n");
+          resolve(true);
+        });
+      });
+    });
+  }
+  resetDb(blockNbr=null){
+    return new Promise( (resolve,reject)=>{
+      var SQL = "";
+      if (!blockNbr){
+        SQL = "truncate table mkyBank.tblGoldTranDaySum; ";
+        SQL += "truncate table mkyBank.tblGoldTranMonthSum; ";
+        SQL += "truncate table mkyBank.tblGoldTrans; ";
+        SQL += "truncate table mkyBank.tblGoldTranLog;";
+        SQL += "truncate table mkyBank.tblmkyWallets;";
+        SQL += "truncate table mkyBlockC.tblmkyBlocks;";
+        SQL += "truncate table mkyBlockC.tblmkyBlockTrans;";
+      }
+      else {
+        SQL  = "truncate table mkyBank.tblGoldTranDaySum; ";
+        SQL += "truncate table mkyBank.tblGoldTranMonthSum; ";
+        SQL += "delete from mkyBank.tblGoldTrans        where gtrnBlockID > "+blockNbr+"; ";
+        SQL += "delete from mkyBank.tblGoldTranLog      where gtlBlockID > "+blockNbr+"; ";
+        SQL += "delete from mkyBlockC.tblmkyBlocks      where blockNbr > "+blockNbr+"; ";
+        SQL += "delete from mkyBlockC.tblmkyBlockTrans  where tranBlockID > "+blockNbr+"; ";
+      }
+      con.query(SQL, async (err, result, fields)=>{
         if (err) {console.log(err);reject(err);}
         else {
+          this.reSumerizeDB();
           resolve("OK");
         }
       });
@@ -407,6 +450,10 @@ class MkyBank {
     }
     if (j.req == 'bitBalance'){
       this.getBalance(j,res);
+      return true;
+    }
+    if (j.req == 'sendLastTick'){
+      this.sendLastTick(res,j.type);
       return true;
     }
     if (j.req == 'sendBlockNbr'){
@@ -562,6 +609,8 @@ class MkyBank {
   }
   async confirmNewBlock(conf,payment){
     const chainHeight = await this.chain.getChainHeight(conf.type);
+    console.log('conf',conf);
+    console.log('payment',payment);
     if (conf.blockID < chainHeight || conf.blockID > chainHeight +1){
       console.log('Block '+conf.blockID+' Rejected type '+conf.type,chainHeight);
       return;
@@ -590,7 +639,7 @@ class MkyBank {
         });
         var transStr = JSON.stringify(trans);
         trans = JSON.parse(transStr);
-        console.log('confirming block '+ conf.blockID,trans.length);
+        console.log('confirming block '+ conf.blockID,trans);
         var prevHash = await bank.getBlockPreviousHash(conf.blockID -1);        
         var chainId = await bank.getBlockChainId(conf.type);
         var block = new MkyBlock(conf.timestamp,conf.blockID,trans,prevHash,null,conf.branchId,conf.type,chainId);    
@@ -931,6 +980,14 @@ class MkyBank {
     }
     this.net.endRes(res,JSON.stringify(myResponse));
   }
+  sendLastTick(res,type){
+    var myResponse = {
+      hrTicker : this.chain.hrTicker,
+      type     : type
+    }
+    console.log('sending lastTick ',myResponse);
+    this.net.endRes(res,JSON.stringify(myResponse));
+  }
   sendBlockNbrRes(res,type,blockNbr){
        var SQL = "select blockHashTime,bchaBranchID,blockHash,blockPrevHash,blockNOnce,blockTimeStamp,blockMinerID,blockDifficulty,tranBlockData ";
        SQL += " from mkyBlockC.tblmkyBlocks ";
@@ -1233,9 +1290,10 @@ class MkyBank {
   //=================================================================
   rotateTransLog(iDay){
     console.log("Start Main");
-    const bank = this;    
+    const bank = this;   
+    
     let SQL = "select count(*)nRec from tblGoldTranLog where DATE(gtlDate) = DATE(NOW() - INTERVAL "+iDay+" DAY)";
-    con.query(SQL, function (err, result, fields) {
+    con.query(SQL, (err, result, fields)=>{
       if (err){console.log(err);}
       else {
         if (result[0].nRec == 0) {
@@ -1244,6 +1302,7 @@ class MkyBank {
             if (err){console.log(err)}
             else {
               if(result[0].nRec > 0){
+                this.rollover = true;
                 SQL = "insert into tblGoldTranLog (gtlDate,gtlGoldType,gtlSource,gtlSrcID,gtlTycTax,gtlAmount,gtlCityID ";
                 SQL += ",gtlTaxHold,gtlGoldRate,syncKey,gtlQApp,gtlMUID,gtlBlockID,gtlSignature) ";
                 SQL += "SELECT gtrnDate,gtrnGoldType,gtrnSource,gtrnSrcID,gtrnTycTax,gtrnAmount,gtrnCityID ";
@@ -1254,7 +1313,7 @@ class MkyBank {
                   if (err){console.log(err);}
                   else {
                     SQL = "delete FROM tblGoldTrans where DATE(gtrnDate) = DATE(NOW() - INTERVAL "+iDay+" DAY)";
-                    con.query(SQL, function (err, result, fields) {
+                    con.query(SQL, (err, result, fields)=>{
                       if (err) console.log(err);
                       else {
                         bank.doDaySum(iDay);
@@ -1265,6 +1324,7 @@ class MkyBank {
                 });
               }
               else {
+                this.rollover = true;
                 SQL = "select count(*)nRec FROM tblGoldTrans where DATE(gtrnDate) = DATE(NOW() - INTERVAL "+iDay+" DAY)";
                 con.query(SQL, (err, result, fields)=>{
                   if (err) console.log(err);
@@ -1293,7 +1353,7 @@ class MkyBank {
     console.log('update day sum log');
     var SQL = "select count(*)nRec FROM tblGoldTranDaySum where  DATE(gtdsDate) = DATE(NOW() - INTERVAL "+iDay+" DAY)";
     con.query(SQL, (err, result, fields)=> {
-      if (err) console.log(err);
+      if (err) {console.log(err);this.rollover = false;}
       else {
         const rec = result[0];
         if (rec.nRec == 0) {
@@ -1306,6 +1366,7 @@ class MkyBank {
           SQL += "where DATE(gtlDate) = DATE(NOW() - INTERVAL "+iDay+" DAY) ";
           SQL += "group by gtlMUID,gtlGoldType,gtlSource,gtlSrcID";
           con.query(SQL, (err, result, fields)=>{
+            this.rollover  = false;
             if (err) console.log(err);
             else console.log( "\nSummerizing Days transactions...\n");
           });
@@ -1326,6 +1387,7 @@ class MkyBank {
       else {
         const rec = result[0];
         if (rec.nRec == 0) {
+          this.rollover = true;
           SQL  = "insert into tblGoldTranMonthSum (gtmsDate,gtmsGoldType,gtmsSource,gtmsTycTax, ";
           SQL += "gtmsAmount,gtmsGoldRate,gtmsMUID) ";
           SQL += "SELECT date_add(now(),interval -1 month), ";
@@ -1335,7 +1397,8 @@ class MkyBank {
           SQL += "where month(gtlDate) = month(NOW() - INTERVAL 1 MONTH) ";
           SQL += "and year(gtlDate) = year(NOW() - INTERVAL 1 MONTH) ";
           SQL += "group by gtlMUID,gtlGoldType,gtlSource,gtlSrcID";
-          con.query(SQL, function (err, result, fields) {
+          con.query(SQL, (err, result, fields)=>{
+            this.rollover = false;
             if (err)console.log(err);
             else console.log( "\nSummerizing Months transactions...\n");
           });

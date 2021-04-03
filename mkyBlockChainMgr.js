@@ -396,6 +396,11 @@ class MkyBlockChainMgr{
       this.pushLastWallet(j.bLastWallets);
       return true;
     }
+    if (j.hrTicker){
+      if (j.type == 'tblGoldTrans' || j.type == 'tblGoldTranLog')
+        this.hrTicker = j.hrTicker;
+      return true;      
+    }
     if (j.bLastTrans) {
       this.pushLastTrans(j.bLastTrans);
       return true;
@@ -956,6 +961,21 @@ class MkyBlockChainMgr{
       lastTimeStamp : this.lastTran
     }
     console.log('requesting block'+to,req);
+    this.bank.net.sendMsg(to,req);
+    this.requestLastTick();
+    return true;
+  }
+  requestLastTick(){
+    if (this.type != 'tblGoldTrans')
+      return;
+    var to = this.chainMgr.bestHost(1);
+    if (!to)
+      return false;
+    var req = {
+      req  : 'sendLastTick',
+      type : this.type
+    }
+    console.log('requesting lastTick'+to,req);
     this.bank.net.sendMsg(to,req);
     return true;
   }
