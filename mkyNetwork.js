@@ -41,6 +41,7 @@ class MkyRouting {
      this.ipListener = null;
      this.rtListener = null;
      this.lnListener = null;
+     this.node       = new MkyErrorMgr();
      this.err        = null;
      this.eTime      = null;
      this.status     = 'startup'
@@ -120,6 +121,25 @@ class MkyRouting {
        console.log('sending mesage to'+ip,req);
        this.net.sendMsg(ip,req);
      });
+   }
+   //***********************************************
+   // Notify Root That A Node Is Dropping
+   //===============================================
+   notifyRootDropingNode(node){
+     if (this.myIp != this.r.rootNodes[0].ip){
+       const req = {
+         req  : 'rootStatusDropNode',
+         node : node
+       }
+       this.net.sendMsg(this.net.getNetRootIp(),req);
+     }
+     else {
+       this.startJoin = 'waitForDrop';
+     }
+   }
+   clearWaitForDrop(){
+     if (this.startJoin == 'waitForDrop')
+       this.startJoin = null;
    }
    //****************************************************
    // handles directly the first 2*maxPeer peers to joing
@@ -508,10 +528,12 @@ class MkyRouting {
        return;
  
      nodes.forEach( (n,index,object)=>{
-       n.pgroup.forEach( (p,pindex,pobject)=>{
-         if(p.nbr == nbr)
-           pobject.splice(pindex,1);
-       }); 
+       if (n.pgroup){
+         n.pgroup.forEach( (p,pindex,pobject)=>{
+           if(p.nbr == nbr)
+             pobject.splice(pindex,1);
+         }); 
+       }
        if (n.nbr == nbr){
          object.splice(index,1);
          console.log('spliced',nbr);
@@ -606,6 +628,7 @@ class MkyRouting {
    sendMoveRequestToLastNode(ip,nbr){
      console.log('Sending lastNodeMoveTo request to'+ip,nbr);
      return new Promise( async (resolve,reject)=>{
+
        if (this.r.nodeNbr == 1 && this.r.lnode == 2 && nbr == 2){
          this.becomeRoot();
          resolve(null);
@@ -806,7 +829,7 @@ class MkyRouting {
        this.net.endRes(res,'{"result":"alreadyJoined"}');
        return;
      }
-     if (this.startJoin || this.err){
+     if (this.startJoin || this.err){  //this.node.isError(res)){
        this.joinQue.push({jIp:res,j:j});
        return;
      }
@@ -838,6 +861,10 @@ class MkyRouting {
      if (j.req == 'joinReq'){
        this.handleJoins(res,j);
        return true;
+     }
+     if (j.req == 'rootStatusDropNode'){
+       this.startJoin = 'waitForDrop';
+       return;
      }
      if (j.req == 'lastNodeMoveTo'){
        this.lastNodeMoveTo(j);
@@ -935,7 +962,8 @@ class MkyRouting {
      if (j.msg.simReplaceNode){
        console.log('got simReplaceNode',j.msg.simReplaceNode);
        this.simReplaceNode(j.msg.simReplaceNode);
-       this.err = false;
+       this.err = false; //this.node.clearError(j.msg.simReplaceNode.ip);
+       this.clearWaitForDrop();
        clearTimeout(this.eTime);
        return true;
      }
@@ -980,33 +1008,35 @@ class MkyRouting {
      if (this.status == 'startup')
        return true;
 
-     if (!this.err){
+     if(j.req == 'bcast'){
+       this.routePastNode(j);
+       return true;
+     }
+     if (!this.err){ //this.node.isError(j.toHost)){
        this.net.incErrorsCnt(j.toHost);
        if (this.net.getNodesErrorCnt(j.toHost) > 2){
          
          //console.log('XHR Fail',j);
-         this.err = true;
+         this.err = true; //this.node.pushError(j.toHost);
+         this.notifyRootDropingNode(j.toHost);
          this.eTime = setTimeout( ()=>{
            console.log('Drop Time Out',j);
-           this.err = null;
+           this.err = false; //this.node.clearError(j.toHost);
          },8000);
          const nbr = this.inMyNodesList(j.toHost); 
          if(nbr){
            var nIp = await this.sendMoveRequestToLastNode(j.toHost,nbr);
            console.log('nIp is now',nIp);
-/*
-           if(nIp)
-             this.net.sendMsg(nIp,j);
-           else
-             console.log('replace attempt fails',j);
-*/
+
            if(!nIp){
-             this.err = false;
+             this.err = false; //this.node.clearError(j.toHost);
+             this.clearWaitForDrop();
              clearTimeout(this.eTime);
            }
          }
          else {
-           this.err = false;
+           this.err = false; //this.node.clearError(j.toHost);
+           this.clearWaitForDrop();
            clearTimeout(this.eTime);
          }
        }
@@ -1014,15 +1044,6 @@ class MkyRouting {
          this.net.queMsg(j);
          //console.log('que message A',j);
        } 
-       return true;
-     }
-     else {
-       if(j.req == 'bcast'){
-         if (!this.routePastNode(j)){
-           this.net.queMsg(j);
-           console.log('que message B');
-         }
-       }
        return true;
      }
      return false;
@@ -1041,6 +1062,32 @@ class MkyRouting {
          resolve(rtab);
        }
        catch {resolve(null);}
+     });
+   }
+}
+//*********************************************************
+// CLASS: MkyErrorMgr
+// Manages list of nodes in error state
+//*********************************************************
+class MkyErrorMgr {
+   constructor(que){
+     this.nodes = [];
+   }
+   isError(ip){
+     this.nodes.forEach( (n)=>{
+       if(n.ip == ip)
+         return true;
+     });
+     return false;
+   }
+   pushError(ip){
+     this.nodes.push(ip);
+   }
+   clearError(ip){
+     this.nodes.forEach( (n, index, object)=>{
+       if (n.ip == ip){
+         object.splice(index,1)
+       }
      });
    }
 }
@@ -1581,13 +1628,13 @@ class MkyNetObj extends  EventEmitter {
          node.errors++;
      });
    }
-   pushNewNode(ip){
+   pushNewNode(j){
      for (var node of this.nodes){
-       if (node.ip == ip){
+       if (node.ip == j.remIp){
          return;
        }
      }
-     const newip = {ip : ip,errors : 0}
+     const newip = {ip : j.remIp,errors : 0,date : Date.now(),pKey : j.remPublicKey}
      console.log('New Network Node Joined: ',newip);
      this.nodes.push(newip);
      const myNodes = this.nodes;
@@ -1599,7 +1646,7 @@ class MkyNetObj extends  EventEmitter {
    }
    handleBcast(j){
      if (j.msg.addMe){
-       this.pushNewNode(j.remIp); 
+       this.pushNewNode(j); 
        return;
      }
      if (this.rnet.handleBcast(j))
@@ -1644,7 +1691,7 @@ class MkyNetObj extends  EventEmitter {
          this.endRes(res,'{"response":"' + error +'"}');
          return;
        }
-       this.pushNewNode(j.remIp);
+       this.pushNewNode(j);
 
        if (this.rnet.handleReq(res,j))
          return;

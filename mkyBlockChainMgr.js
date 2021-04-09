@@ -189,7 +189,7 @@ class MkyBlockChainMgr{
     this.chains   = await this.getChainList();
     console.log(this.chainCtr);
     this.reportChainList();
-    await this.verifyFullChain('tblGoldTranLog',1);
+    //await this.verifyFullChain('tblGoldTranLog',1);
     await this.zeroTransactionPool();
     this.type     = this.chains[this.chainId].bchaSrcTable;
     this.bcount   = await this.getChainHeight(this.type);
@@ -223,7 +223,7 @@ class MkyBlockChainMgr{
     if (chain.bank.bankWallet.status != 'registered')
       this.reqBankAccount();
     else {
-      if (this.bank.isRoot){
+      if (this.bank.isRoot && this.bank.status != 'rebuilding database'){
         this.bank.status = 'Online';
         this.bank.group.changeMyStatus('Online');
         return;
@@ -325,10 +325,11 @@ class MkyBlockChainMgr{
       this.vfchain = false;
     });
   }
-  verifyBlock(SQL,ctype,nblock,branchId,cid){
+  verifyBlock(SQL,ctype,nblock,branchId,cid,rebuild=null){
     const chain = this;
+    //console.log('verify block:'+rebuild,nblock);
     return new Promise( (resolve,reject)=>{
-      chain.db.query(SQL ,async function (err, result,fields) {
+      chain.db.query(SQL ,async (err, result,fields)=>{
         if (err){console.log(err);resolve(false) }
         else {
           if (result.length == 0){
@@ -343,6 +344,24 @@ class MkyBlockChainMgr{
             var vBlock = new MkyBlock(rec.blockTimestamp, nblock, trans, prevHash,null,branchId,ctype,cid);
             if (vBlock.checkSolution(rec.blockDifficulty,rec.blockNOnce,rec.blockTimestamp,rec.blockHash)){
               //console.log('block '+nblock+' for '+ctype+' verified!');
+              if (rebuild){
+                const bInfo = {
+                  blockNbr   : rec.blockNbr,
+                  blockID    : rec.blockNbr,
+                  type       : ctype,
+                  trans      : trans,
+                  nonce      : rec.blockNOnce,
+                  hash       : rec.blockHash,
+                  prevHash   : rec.blockPrevHash,
+                  timestamp  : rec.blockTimestamp,
+                  branchId   : rec.bchaBranchID,
+                  minerId    : rec.blockMinerID,
+                  diff       : rec.blockDifficulty,
+                  hrTicker   : this.hrTicker,
+                  hashTime   : rec.blockHashTime
+                }
+                await this.pushBlock(bInfo,ctype,rebuild);
+              }
               resolve('ok');
             }
             else {
@@ -435,7 +454,7 @@ class MkyBlockChainMgr{
       id    : j.chainId,
       host  : j.host
     }
-   //console.log('pushing Chain height',ch); 
+    console.log('pushing Chain height',ch); 
     this.chainHeights.forEach( (chain)=>{
       if (chain.type == ch.type && chain.host == ch.host){
         chain.height = ch.height;
@@ -555,52 +574,71 @@ class MkyBlockChainMgr{
     this.bank.flushTranBuffer();
 */
   }
-  async pushBlock(conf,type){
-    var chainHeight  = await this.getChainHeight(type);
-    var targetHeight = this.getChainsHeight(type)
-
-    if (targetHeight < chainHeight)
-      targetHeight = chainHeight;
-    
-    if (chainHeight > 0 &&  conf.blockNbr > targetHeight +1){
-      this.startBlockReq = false;
-      return;
-    }
-
-   //console.log ('updating chain '+type+' from network',this.bank.isRoot);
-    if (this.bank.isRoot){
-     //console.log('Banker Is Root');
-      this.bank.status = 'Online';
-      this.bank.group.changeMyStatus('Online');
-      this.startBlockReq = false;
-      return;
-    }
-    const bank = this.bank;
-    conf.type = type;
-    console.log('pushing',conf.blockNbr);
-    var prevHash       = await bank.getBlockPreviousHash(conf.blockNbr -1);
-    var chainId        = await bank.getBlockChainId(conf.type);
-    var block          = new MkyBlock(conf.timestamp,conf.blockNbr,conf.trans,prevHash,null,conf.branchId,conf.type,chainId);
-    block.previousHash = prevHash;
-    block.timestamp    = conf.timestamp;
-    var minerID        = 0;
-
-    if (block.checkSolution(conf.diff,conf.nonce,conf.timestamp,conf.hash)){
-      conf.chainId = chainId;
+  pushBlock(conf,type,rebuild=null){
+    return new Promise( async (resolve,reject)=>{
+      console.log('pushing block'+conf.blockNbr);
       const transStr = JSON.stringify(conf.trans);
-      var sres = await this.storeBlockChainRec(conf,transStr,prevHash,conf.minerId);
-      if (sres){
-        console.log('Sync block confirmed!');
+
+      var chainHeight  = await this.getChainHeight(type);
+      var targetHeight = this.getChainsHeight(type)
+
+      if (targetHeight < chainHeight)
+        targetHeight = chainHeight;
+    
+      if (chainHeight > 0 &&  conf.blockNbr > targetHeight +1){
+        console.log('chainHeight ',chainHeight);
+        console.log('conf.blockNbr',conf.blockNbr);
+        console.log('targetHeight',targetHeight);
+/*      this.startBlockReq = false;
+        resolve(false);
+        return;
+*/
+      }
+
+      //console.log ('updating chain '+type+' from network',this.bank.isRoot);
+      if (this.bank.isRoot && !rebuild){
+       //console.log('Banker Is Root');
+        this.bank.status = 'Online';
+        this.bank.group.changeMyStatus('Online');
+        this.startBlockReq = false;
+        resolve(false);
+        return;
+      }
+      const bank = this.bank;
+      conf.type = type;
+      var prevHash       = await bank.getBlockPreviousHash(conf.blockNbr -1);
+      var chainId        = await bank.getBlockChainId(conf.type);
+      var block          = new MkyBlock(conf.timestamp,conf.blockNbr,conf.trans,prevHash,null,conf.branchId,conf.type,chainId);
+      block.previousHash = prevHash;
+      block.timestamp    = conf.timestamp;
+      var minerID        = 0;
+
+      if (block.checkSolution(conf.diff,conf.nonce,conf.timestamp,conf.hash)){
+        conf.chainId = chainId;
+        //const transStr = JSON.stringify(conf.trans);
+
+        if (rebuild){ 
+          //var res = await bank.storeBlockTransData(transStr,conf.blockID,conf.chainId);
+          var res = await this.storeBlockToTranLog(transStr);
+          await this.setChainDifficulty(conf.diff,conf.type)
+        }
+        else {
+          var sres = await this.storeBlockChainRec(conf,transStr,prevHash,conf.minerId);
+          if (sres){
+            console.log('Sync block confirmed!');
+          }
+          else {
+            console.log('sync data error saving to database');
+          }
+        }
       }
       else {
-        console.log('sync data error saving to database');
+        console.log('Sync block confirmatin FAIL');
       }
-    }
-    else {
-      console.log('Sync block confirmatin FAIL');
-    }
-    this.bcount = this.bcount +1;
-    this.startBlockReq = false;
+      this.bcount = this.bcount +1;
+      this.startBlockReq = false;
+      resolve(true);
+    });
   }
   addTranLogRec(rec){
     var bank = this.bank;
@@ -617,6 +655,7 @@ class MkyBlockChainMgr{
             SQL += "values ('"+rec.gtlDate+"','"+rec.gtlGoldType+"','"+rec.gtlSource+"',"+rec.gtlSrcID+","+rec.gtlTycTax+",";
             SQL += rec.gtlAmount+","+rec.gtlCityID+","+rec.gtlTaxHold+","+rec.gtlGoldRate+",'"+rec.syncKey;
             SQL += "','"+rec.gtlQApp+"','"+rec.gtlMUID+"',"+rec.gtlBlockID+",'"+rec.gtlSignature+"')";
+            console.log(SQL.substr(0,60), rec.gtlBlockID);
             db.query(SQL, async function (err, result, fields) {
               if (err) {console.log(err);reject(false);}
               else {
@@ -625,7 +664,12 @@ class MkyBlockChainMgr{
             });
           }
           else {
-            resolve(true);
+            SQL = "update tblGoldTranLog set gtlBlockID = "+rec.gtlBlockID+" where syncKey = '"+rec.syncKey+"'";
+            db.query(SQL, async function (err, result, fields) {
+              if (err) {console.log(err);reject(false);}
+              else
+                resolve(true);
+            });
           }
         }
       });
@@ -646,6 +690,7 @@ class MkyBlockChainMgr{
             SQL += "values ('"+rec.gtlDate+"','"+rec.gtlGoldType+"','"+rec.gtlSource+"',"+rec.gtlSrcID+","+rec.gtlTycTax+",";
             SQL += rec.gtlAmount+","+rec.gtlCityID+","+rec.gtlTaxHold+","+rec.gtlGoldRate+",'"+rec.syncKey;
             SQL += "','"+rec.gtlQApp+"','"+rec.gtlMUID+"',"+rec.gtlBlockID+",'"+rec.gtlSignature+"',now())";
+            console.log(SQL.substr(0,60), rec.gtlBlockID);
             db.query(SQL, async function (err, result, fields) {
               if (err) {console.log(err);reject(false);}
               else {
@@ -665,16 +710,20 @@ class MkyBlockChainMgr{
       });
     });
   }
-  async storeBlockToTranLog(trans){
-    trans = JSON.parse(trans);
-    var result = false;
-    for (var rec of trans){
-      if (!this.bank.isToday(rec.gtlDate))
-        result = await this.addTranLogRec(rec);
-      else
-        result = await this.addGoldTransRec(rec);
-    }
-    return result;
+  storeBlockToTranLog(trans){
+    return new Promise( async (resolve,reject)=>{
+      trans = JSON.parse(trans);
+
+      var result = false;
+      for (var rec of trans){
+        if (!this.bank.isToday(rec.gtlDate))
+          result = await this.addTranLogRec(rec);
+        else
+          result = await this.addGoldTransRec(rec);
+      }
+      resolve(result);
+      return;
+    }); 
   }
   storeBlockChainRec(conf,trans,prevHash,minerID){
     //console.log(conf);
@@ -689,7 +738,7 @@ class MkyBlockChainMgr{
         else {
           var tRec = result[0];
           if (tRec.nBlocks == 0){
-            SQL = "insert into mkyBlockC.tblmkyBlocks (blockNbr,blockHash,blockPrevHash,blockNOnce,blockTimeStamp,blockChainID,";
+            SQL = "insert into mkyBlockC.tblmkyBlocks (blockNbr,blockHash,blockPrevHash,blockNOnce,blockTimestamp,blockChainID,";
             SQL += "blockMinerID,blockDifficulty,blockHashTime) ";
             SQL += "values ("+conf.blockID+",'"+conf.hash+"','"+prevHash+"',"+conf.nonce+","+conf.timestamp+","+conf.chainId+","+minerID;
             SQL += ","+conf.diff+","+conf.hashTime+")";
@@ -764,12 +813,10 @@ class MkyBlockChainMgr{
         search = " where (bchaSrcTable = 'tblGoldTranLog' or bchaSrcTable = 'tblGoldTrans') ";
       var SQL =  "update mkyBlockC.tblmkyBlockChain set bchaLastTick = "+this.hrTicker+",bchaDifficulty = "+amt;
       SQL += ",bchaMaxBlockSize = "+this.bank.maxBlockSize+" "+search;
-      console.log(SQL);
       this.db.query(SQL , async function (err, result,fields) {
         if (err){console.log(err);resolve(false);}
         else
-        console.log(type+' Chain Difficulty is now',amt);
-        resolve(true);
+          resolve(true);
       });
     });
   }
@@ -790,7 +837,7 @@ class MkyBlockChainMgr{
     if (type == 'tblGoldTrans')
       type = 'tblGoldTranLog';
     return new Promise( (resolve,reject)=>{
-      var SQL =  "SELECT blockTimeStamp as blockHashTime FROM mkyBlockC.tblmkyBlocks ";
+      var SQL =  "SELECT blockTimestamp as blockHashTime FROM mkyBlockC.tblmkyBlocks ";
       SQL += "inner join mkyBlockC.tblmkyBlockChain on blockChainID = bchaID "
       SQL += "where NOT blockHashTime is null and bchaSrcTable = '"+type+"' ";
       SQL += "order by blockNbr desc limit "+hRateTicks;

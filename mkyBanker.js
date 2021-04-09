@@ -262,7 +262,10 @@ class MkyBank {
   }
   async init(){
     if (this.reset)
-      await this.resetDb(this.resetBlock);
+      if (this.reset == 'rebuild')
+        await this.reBuildDb(this.resetBlock);
+      else 
+        await this.resetDb(this.resetBlock);
 
     this.firstBlock = new MkyBlock();
     this.maxBlockSize = this.firstBlock.maxBlockSize(0,this.maxBlockSize);
@@ -373,6 +376,52 @@ class MkyBank {
           else console.log( "\nSummerized Month transactions...\n");
           resolve(true);
         });
+      });
+    });
+  }
+  reBuildFromBlocks(blockNbr){
+    return new Promise( async (resolve,reject)=>{
+      var cid = 1;
+      const ctype = 'tblGoldTrans';
+      console.log('\nVERIFY CHAIN '+cid,ctype);
+      var branchId = this.branchId;
+      var nblocks = await this.chain.getChainHeight(ctype);
+      console.log('rebuild nblocks is: ',nblocks);
+      var tbl = this.type;
+      
+      for (var nblock = blockNbr + 1; nblock <= nblocks;nblock++){
+        var SQL = "select blockNbr,blockHash,blockPrevHash,blockNOnce,blockTimestamp,blockDifficulty,blockMinerID,blockHashTime,bchaBranchID,";
+        SQL += "tranBlockData from mkyBlockC.tblmkyBlocks ";
+        SQL += "inner join mkyBlockC.tblmkyBlockTrans on tranBlockChainID = blockChainID and tranBlockID = blockNbr ";
+        SQL += "inner join mkyBlockC.tblmkyBlockChain on blockChainID = bchaID ";
+        SQL += "where tranBlockID = "+nblock;
+        const rebuild = true;
+        //console.log('\n',SQL);
+        await this.chain.verifyBlock(SQL,ctype,nblock,branchId,cid,rebuild);
+      }
+      console.log('Blocks Verified and Restored: '+nblock+' cid: '+cid,this.chainCtr);
+      resolve('ok')
+    });
+  }
+  reBuildDb(blockNbr=0){
+    if (!blockNbr) blockNbr = 0;
+    this.status = 'rebuilding database';
+    console.log('starting rebuild at:',blockNbr);
+    return new Promise( async (resolve,reject)=>{
+      var SQL = "";
+      SQL  = "truncate table mkyBank.tblGoldTranDaySum; ";
+      SQL += "truncate table mkyBank.tblGoldTranMonthSum; ";
+      SQL += "delete from mkyBank.tblGoldTrans        where gtrnBlockID > "+blockNbr+"; ";
+      SQL += "delete from mkyBank.tblGoldTranLog      where gtlBlockID > "+blockNbr+"; ";
+      
+      con.query(SQL, async (err, result, fields)=>{
+        if (err) {console.log(err);reject(err);this.status='Rebuild Failed';}
+        else {
+          await this.reBuildFromBlocks(blockNbr);
+          this.reSumerizeDB();
+          resolve("OK");
+          this.status = 'Online';
+        }
       });
     });
   }
@@ -989,7 +1038,7 @@ class MkyBank {
     this.net.endRes(res,JSON.stringify(myResponse));
   }
   sendBlockNbrRes(res,type,blockNbr){
-       var SQL = "select blockHashTime,bchaBranchID,blockHash,blockPrevHash,blockNOnce,blockTimeStamp,blockMinerID,blockDifficulty,tranBlockData ";
+       var SQL = "select blockHashTime,bchaBranchID,blockHash,blockPrevHash,blockNOnce,blockTimestamp,blockMinerID,blockDifficulty,tranBlockData ";
        SQL += " from mkyBlockC.tblmkyBlocks ";
        SQL += "inner join mkyBlockC.tblmkyBlockChain on blockChainID = bchaID ";
        SQL += "inner join mkyBlockC.tblmkyBlockTrans on tranBlockChainID = blockChainID and tranBlockID = blockNbr ";
@@ -1021,7 +1070,7 @@ class MkyBank {
                  nonce      : tRec.blockNOnce,
                  hash       : tRec.blockHash,
                  prevHash   : tRec.blockPrevHash,
-                 timestamp  : tRec.blockTimeStamp,
+                 timestamp  : tRec.blockTimestamp,
                  branchId   : tRec.bchaBranchID,
                  minerId    : tRec.blockMinerID,
                  diff       : tRec.blockDifficulty,
@@ -1095,7 +1144,7 @@ class MkyBank {
         else {
           var tRec = result[0];
           if (tRec.nBlocks == 0){
-            SQL = "insert into mkyBlockC.tblmkyBlocks (blockNbr,blockHash,blockPrevHash,blockNOnce,blockTimeStamp,blockChainID,";
+            SQL = "insert into mkyBlockC.tblmkyBlocks (blockNbr,blockHash,blockPrevHash,blockNOnce,blockTimestamp,blockChainID,";
             SQL += "blockMinerID,blockDifficulty,blockHashTime) ";
             SQL += "values ("+conf.blockID+",'"+conf.hash+"','"+prevHash+"',"+conf.nonce+","+conf.timestamp+","+conf.chainId;
             SQL += ","+minerID+","+conf.diff+","+Date.now()+")";

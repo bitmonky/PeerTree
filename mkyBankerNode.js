@@ -20,6 +20,10 @@ Create BitMonky Network Peer
     isRoot == 'root';
     reset = true;
   }
+  if (isRoot == 'rootRebuild'){
+    isRoot == 'root';
+    reset = 'rebuild';
+  }
   const mkyNet = new MkyNetObj(options);
   mkyNet.nodeType = 'Banker';
   const myIp = mkyNet.netIp();

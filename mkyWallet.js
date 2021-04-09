@@ -59,7 +59,7 @@ class MkyPayment{
        gtlAmount    : amt,
        gtlCityID    : "0",
        gtlTaxHold   : null,
-       gtlGoldRate  : ''+rate, //"0.00025967000000000",
+       gtlGoldRate  : rate, //"0.00025967000000000",
        syncKey      : null,
        gtlQApp      : btype,
        gtlMUID      : MUID
