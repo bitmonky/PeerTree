@@ -22,3 +22,6 @@ you can check out a working demo of the blockchain app
 here 
 
 https://www.bitmonky.com/whzon/bitMiner/webConsole.php?git=git
+
+If you would like to support the projet financially concider 
+purchasing some coin from the <a href='/whzon/wzApp.php?furl=https://www.bitmonky.com/whzon/gold/mrkViewGJEX.php'>GJEX</a> market place on bitmonky.com
