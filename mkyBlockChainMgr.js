@@ -189,7 +189,7 @@ class MkyBlockChainMgr{
     this.chains   = await this.getChainList();
     console.log(this.chainCtr);
     this.reportChainList();
-    //await this.verifyFullChain('tblGoldTranLog',1);
+    await this.verifyFullChain('tblGoldTranLog',1);
     await this.zeroTransactionPool();
     this.type     = this.chains[this.chainId].bchaSrcTable;
     this.bcount   = await this.getChainHeight(this.type);
@@ -716,7 +716,7 @@ class MkyBlockChainMgr{
 
       var result = false;
       for (var rec of trans){
-        if (!this.bank.isToday(rec.gtlDate))
+        if (!this.bank.isToday(rec.gtlDate) && rec.gtlBlockID)
           result = await this.addTranLogRec(rec);
         else
           result = await this.addGoldTransRec(rec);

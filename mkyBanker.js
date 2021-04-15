@@ -8,6 +8,7 @@ const EC           = require('elliptic').ec;
 const ec           = new EC('secp256k1');
 const crypto       = require('crypto');
 const mysql        = require('mysql');
+const schedule     = require('node-schedule');
 const {MkyBlock}   = require('./mkyBlock');
 const {MkyWallet}  = require('./mkyWallet');
 const {BranchList} = require('./mkyBranchList.js');
@@ -258,6 +259,9 @@ class MkyBank {
     this.firstBlock   = null;
     this.init();
     this.rollover     = null;
+    this.logsRotating = null;
+    this.rLogTimer    = null;
+    this.rotateTransLog(1);
     this.startLogRotations();
   }
   async init(){
@@ -566,9 +570,9 @@ class MkyBank {
 
     if (this.status != 'Online'){
       console.log('Service Not Ready... buffering Transactions');
-      if (msg.procBitMonkTran){
-        this.bufferTransactions(msg);
-      }
+      //if (msg.procBitMonkTran){
+      this.bufferTransactions(msg,to);
+      //}
       return;
     }
     if (msg.blockConf){
@@ -594,7 +598,7 @@ class MkyBank {
 
       var SQL = "select gtrnID,gtrnMUID from mkyBank.tblGoldTrans where gtrnSource = 'BMiner Reward' and gtrnSrcID = "+blockId+" and "+typeSearch;
       con.query(SQL , function (err, result,fields) {
-        if (err){console.log(err),resolve(false);}
+        if (err){console.log(err),process.exit();resolve(false);}
         else {
           if (result.length == 0){
             resolve(false);
@@ -633,7 +637,7 @@ class MkyBank {
       SQL += "where blockNbr = "+conf.blockID+" and blockChainID = "+chainId;
       const bank = this;
       con.query(SQL , async (err, result,fields)=>{
-        if (err){console.log(err),resolve(false);}
+        if (err){console.log(err),process.exit();resolve(false);}
         else {
           if (result.length == 0){
             resolve(true);
@@ -748,24 +752,16 @@ class MkyBank {
       con.query(SQL, (err, result, fields)=>{
         if (err) {console.log(err); resolve(false);}
         else {
-          //SQL = "update tblGoldTrans set gtrnBlockID = "+nextBlockID+" where gtrnBlockConfirmed is null and concat(gtrnDate,gtrnSyncKey) > '"+confKey.end+"' ";
-          //SQL += "order by gtrnDate desc,gtrnSyncKey desc limit "+this.maxBlockSize; 
-          //console.log(SQL);
-          //con.query(SQL, (err, result, fields)=>{
-          //  if (err) {console.log(err); resolve(false);}
-          //  else {
-              SQL = "update tblGoldTrans set gtrnBlockID = "+blockID+", gtrnBlockConfirmed = now() where gtrnBlockConfirmed is null and "+key;
-              SQL += "order by gtrnDate desc,gtrnSyncKey desc limit "+this.maxBlockSize;
-              con.query(SQL, async (err, result, fields)=>{
-                if (err) {console.log(err); resolve(false);}
-                bc.nbr++; 
-                bc.nRec = 0;             
-                //console.log('bc is now',this.blockCtr);
-                //this.blockRemainingTransaction(nextBlockID);
-                resolve(true);
-              });
-          //  }
-          //});
+          SQL = "update tblGoldTrans set gtrnBlockID = "+blockID+", gtrnBlockConfirmed = now() where gtrnBlockConfirmed is null and "+key;
+          SQL += "order by gtrnDate desc,gtrnSyncKey desc limit "+this.maxBlockSize;
+          con.query(SQL, async (err, result, fields)=>{
+            if (err) {console.log(err); resolve(false);}
+            bc.nbr++; 
+            bc.nRec = 0;             
+            //console.log('bc is now',this.blockCtr);
+            //this.blockRemainingTransaction(nextBlockID);
+            resolve(true);
+          });
         }     
       }); 
     }); 
@@ -826,15 +822,19 @@ class MkyBank {
       this.net.sendMsg(to,req);
     }
   } 
-  bufferTransactions(j){
-     this.tranBuffer.push(j);
+  bufferTransactions(j,to){
+     const req = {
+       msg : j,
+       to : to
+     }
+     this.tranBuffer.push(req);
   }
   flushTranBuffer(){
-   //console.log('start flush  tranBuffer');
+    console.log('start flush tranBuffer');
 
     for (var j of this.tranBuffer){
-      this.procBitMonkTran(j);
-     //console.log('Flushing Transaction Buffer',j); 
+      this.procBranchReq(j.msg,j.to);
+      console.log('Flushing Transaction Buffer',j); 
     }
     this.tranBuffer = [];
   }
@@ -1329,26 +1329,34 @@ class MkyBank {
   // Start Rotations For the transaction log,day sum and month sum files
   //=================================================================
   startLogRotations(){
-    var iDay = 1;
-    const rLog = setInterval( ()=>{
+    schedule.scheduleJob('0 0 * * *', () => {
+      var iDay = 1;
+      console.log('Midnight Roll');
       this.rotateTransLog(iDay);
-    },60*60*1000);
+      if (this.rLogTimer)clearInterval(this.rLogTimer);
+      this.rLogTimer = setInterval( ()=>{
+        this.rotateTransLog(iDay);
+      },120*1000);
+    });
   }
   //*****************************************************************
   // Rotate Days Transactions to the log 
   //=================================================================
   rotateTransLog(iDay){
+    if (this.logsRotating)
+      return;
+    this.logsRotating = true;
     console.log("Start Main");
     const bank = this;   
     
     let SQL = "select count(*)nRec from tblGoldTranLog where DATE(gtlDate) = DATE(NOW() - INTERVAL "+iDay+" DAY)";
     con.query(SQL, (err, result, fields)=>{
-      if (err){console.log(err);}
+      if (err){this.logsRotating = false;console.log(err);}
       else {
         if (result[0].nRec == 0) {
           SQL = "SELECT count(*)nRec FROM tblGoldTrans where DATE(gtrnDate) = DATE(NOW() - INTERVAL "+iDay+" DAY)";
           con.query(SQL, async (err, result, fields)=>{
-            if (err){console.log(err)}
+            if (err){this.logsRotating = false;console.log(err)}
             else {
               if(result[0].nRec > 0){
                 this.rollover = true;
@@ -1356,14 +1364,15 @@ class MkyBank {
                 SQL += ",gtlTaxHold,gtlGoldRate,syncKey,gtlQApp,gtlMUID,gtlBlockID,gtlSignature) ";
                 SQL += "SELECT gtrnDate,gtrnGoldType,gtrnSource,gtrnSrcID,gtrnTycTax,gtrnAmount,gtrnCityID ";
                 SQL += ",gtrnTaxHold,gtrnGoldRate,gtrnSyncKey,gtrnQApp,gtrnMUID,gtrnBlockID,gtrnSignature ";
-                SQL += "FROM tblGoldTrans where DATE(gtrnDate) = DATE(NOW() - INTERVAL "+iDay+" DAY)";
+                SQL += "FROM tblGoldTrans where NOT (gtrnBlockID is null or gtrnBlockConfirmed is null)" ;
+                SQL += " and  DATE(gtrnDate) = DATE(NOW() - INTERVAL "+iDay+" DAY)";
                 console.log(SQL);
                 con.query(SQL, (err, result, fields)=> {
-                  if (err){console.log(err);}
+                  if (err){this.logsRotating = false;console.log(err);}
                   else {
                     SQL = "delete FROM tblGoldTrans where DATE(gtrnDate) = DATE(NOW() - INTERVAL "+iDay+" DAY)";
                     con.query(SQL, (err, result, fields)=>{
-                      if (err) console.log(err);
+                      if (err){this.logsRotating = false;console.log(err);}
                       else {
                         bank.doDaySum(iDay);
                         console.log('Done '+SQL);
@@ -1376,12 +1385,12 @@ class MkyBank {
                 this.rollover = true;
                 SQL = "select count(*)nRec FROM tblGoldTrans where DATE(gtrnDate) = DATE(NOW() - INTERVAL "+iDay+" DAY)";
                 con.query(SQL, (err, result, fields)=>{
-                  if (err) console.log(err);
+                  if (err) {this.logsRotating = false;console.log(err);}
                   else {
                     if (result[0].nRec > 0) {
                       SQL = "delete FROM tblGoldTrans where DATE(gtrnDate) = DATE(NOW() - INTERVAL "+iDay+" DAY)";
                       con.query(SQL, (err, result, fields)=> {
-                        if (err) console.log(err);
+                        if (err) {this.logsRotating = false;console.log(err);}
                         else  console.log('Remove Undeleted Records  '+SQL);
                       });
                     }
@@ -1392,6 +1401,9 @@ class MkyBank {
             }
           });
         }
+        else {
+          this.logsRotating = false;
+        }
       }
     });
   }
@@ -1399,10 +1411,12 @@ class MkyBank {
   // Create Days Sum of transactions
   //=================================================================
   doDaySum(iDay){
+    if (!this.logsRotating)
+      return;
     console.log('update day sum log');
     var SQL = "select count(*)nRec FROM tblGoldTranDaySum where  DATE(gtdsDate) = DATE(NOW() - INTERVAL "+iDay+" DAY)";
     con.query(SQL, (err, result, fields)=> {
-      if (err) {console.log(err);this.rollover = false;}
+      if (err) {console.log(err);this.logsRotating = false;this.rollover = false;}
       else {
         const rec = result[0];
         if (rec.nRec == 0) {
@@ -1416,7 +1430,7 @@ class MkyBank {
           SQL += "group by gtlMUID,gtlGoldType,gtlSource,gtlSrcID";
           con.query(SQL, (err, result, fields)=>{
             this.rollover  = false;
-            if (err) console.log(err);
+            if (err) {this.logsRotating = false;console.log(err);}
             else console.log( "\nSummerizing Days transactions...\n");
           });
         }
@@ -1428,11 +1442,13 @@ class MkyBank {
   // Create Month sum of transactions
   //=================================================================
   doMonthSum(){
+    if (!this.logsRotating)
+      return;
     console.log('update Month sum log');
     var SQL = "select count(*)nRec FROM tblGoldTranMonthSum where DATE(gtmsDate) = DATE(NOW() - INTERVAL 1 MONTH)";
     console.log(SQL)
     con.query(SQL, (err, result, fields)=>{
-      if (err) console.log(err);
+      if (err) {console.log(err); this.logsRotating = false;}
       else {
         const rec = result[0];
         if (rec.nRec == 0) {
@@ -1448,9 +1464,15 @@ class MkyBank {
           SQL += "group by gtlMUID,gtlGoldType,gtlSource,gtlSrcID";
           con.query(SQL, (err, result, fields)=>{
             this.rollover = false;
-            if (err)console.log(err);
-            else console.log( "\nSummerizing Months transactions...\n");
+            if (err){this.logsRotating = false;console.log(err);}
+            else {
+              this.logsRotating = false;
+              console.log( "\nSummerizing Months transactions...\n");
+            }
           });
+        }
+        else {
+          this.logsRotating = false;
         }
       }
     });

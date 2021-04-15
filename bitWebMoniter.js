@@ -65,7 +65,8 @@ class MkyDbMonitor {
                 dbTime : time,
                 bstat  : bstat,
                 nRec   : nRec,
-                maxBlockSize : this.bank.maxBlockSize
+                maxBlockSize : this.bank.maxBlockSize,
+                logsRotating  : this.bank.logsRotating
               }
               resolve(JSON.stringify(response));
             }

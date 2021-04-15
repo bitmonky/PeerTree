@@ -1493,7 +1493,7 @@ class MkyNetObj extends  EventEmitter {
      const r = this.rnet.r.rootNodes[0]; 
      if (!r) 
        return this.rootIp;
-     return r;
+     return r.ip;
    }
    sendMsg(toHost,msg){
       if (!toHost) {console.log('Send Message Host '+toHost+' Missing',msg);return;}
