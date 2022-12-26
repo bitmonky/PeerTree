@@ -1,10 +1,20 @@
 # The PeerTree Project
 
-[![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://raw.githubusercontent.com/whzon/PeerTree/master/LICENSE)
-[![GitHub issues](https://img.shields.io/github/issues/whzon/PeerTree.svg)](
+
 ## An open source self-organizing peer-to-peer shard storage solution for digital assets
 
 ![main](images/main.png)
+
+<div align = 'center'>
+[![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://raw.githubusercontent.com/whzon/PeerTree/master/LICENSE)
+[![GitHub issues](https://img.shields.io/github/issues/whzon/PeerTree.svg)](https://github.com/bitmonky/PeerTree)
+[![GitHub forks](https://img.shields.io/github/forks/whzon/PeerTree.svg)](https://github.com/bitmonky/PeerTree)
+[![GitHub stars](https://img.shields.io/github/stars/whzon/PeerTree.svg)](https://github.com/bitmonky/PeerTree)
+[![GitHub watchers](https://img.shields.io/github/watchers/whzon/PeerTree.svg)](https://github.com/bitmonky/PeerTree)
+[![GitHub contributors](https://img.shields.io/github/contributors/whzon/PeerTree.svg)](https://github.com/bitmonky/PeerTree)
+[![GitHub last commit](https://img.shields.io/github/last-commit/whzon/PeerTree.svg)](https://github.com/bitmonky/PeerTree)
+
+</div>
 
 # Table of Contents
 
