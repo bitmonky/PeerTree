@@ -40,10 +40,14 @@ To read the detailed whitepaper see [this link](whitepaper.md)
 The project also includes a proof-of-concept blockchain application that runs on top of the PeerTree object. We include a working demo of the project [here](https://www.bitmonky.com/whzon/bitMiner/webConsole.php?git=git).
 
 If you would like to support the project financially, consider
-purchasing some coins from our coin store by clicking the badge below!
+purchasing some coins from our coin store by clicking the link(s) below!
 
 <div align='center'>
 
-[![Support](https://img.shields.io/badge/support-financing-green.svg)(https://bitmonky.com/whzon/wzApp.php?furl=https://www.bitmonky.com/whzon/gold/mrkViewGJEX.php)
+![Support](https://img.shields.io/badge/support-financing-green.svg)
+
+https://bitmonky.com/whzon/wzApp.php?furl=https://www.bitmonky.com/whzon/gold/mrkViewGJEX.php
+
+[![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/bitmonky)
 
 </div>
