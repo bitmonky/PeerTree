@@ -6,13 +6,17 @@
 ![main](images/main.png)
 
 <div align = 'center'>
-[![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://raw.githubusercontent.com/whzon/PeerTree/master/LICENSE)
-[![GitHub issues](https://img.shields.io/github/issues/whzon/PeerTree.svg)](https://github.com/bitmonky/PeerTree)
-[![GitHub forks](https://img.shields.io/github/forks/whzon/PeerTree.svg)](https://github.com/bitmonky/PeerTree)
-[![GitHub stars](https://img.shields.io/github/stars/whzon/PeerTree.svg)](https://github.com/bitmonky/PeerTree)
-[![GitHub watchers](https://img.shields.io/github/watchers/whzon/PeerTree.svg)](https://github.com/bitmonky/PeerTree)
-[![GitHub contributors](https://img.shields.io/github/contributors/whzon/PeerTree.svg)](https://github.com/bitmonky/PeerTree)
-[![GitHub last commit](https://img.shields.io/github/last-commit/whzon/PeerTree.svg)](https://github.com/bitmonky/PeerTree)
+
+![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)
+![GitHub Issues](https://img.shields.io/bitbucket/issues/bitmonky/PeerTree)
+![GitHub last commit](https://img.shields.io/github/last-commit/bitmonky/PeerTree)
+![GitHub repo size](https://img.shields.io/github/repo-size/bitmonky/PeerTree)
+![GitHub language count](https://img.shields.io/github/languages/count/bitmonky/PeerTree)
+![GitHub top language](https://img.shields.io/github/languages/top/bitmonky/PeerTree)
+![GitHub contributors](https://img.shields.io/github/contributors/bitmonky/PeerTree)
+![GitHub stars](https://img.shields.io/github/stars/bitmonky/PeerTree?style=social)
+![GitHub forks](https://img.shields.io/github/forks/bitmonky/PeerTree?style=social)
+
 
 </div>
 
@@ -40,6 +44,6 @@ purchasing some coins from our coin store by clicking the badge below!
 
 <div align='center'>
 
-[![Support](https://img.shields.io/badge/support-financing-green.svg)](https://bitmonky.com/whzon/wzApp.php?furl=https://www.bitmonky.com/whzon/gold/mrkViewGJEX.php)
+[![Support](https://img.shields.io/badge/support-financing-green.svg)(https://bitmonky.com/whzon/wzApp.php?furl=https://www.bitmonky.com/whzon/gold/mrkViewGJEX.php)
 
 </div>
