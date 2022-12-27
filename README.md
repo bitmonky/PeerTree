@@ -61,6 +61,6 @@ purchasing some coins from Peter's coin store by clicking the link(s) below!
 
 https://bitmonky.com/whzon/wzApp.php?furl=https://www.bitmonky.com/whzon/gold/mrkViewGJEX.php
 
-[![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/bitmonky)
+[![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/petergs6)
 
 </div>
