@@ -1,3 +1,7 @@
+/*
+Dust Removed: Date: Dec 28, 2022
+*/
+
 const fs = require('fs');
 const crypto = require('crypto');
 const mkyPubKey = '04a5dc8478989c0122c3eb6750c08039a91abf175c458ff5d64dbf448df8f1ba6ac4a6839e5cb0c9c711b15e85dae98f04697e4126186c4eab425064a97910dedc';
@@ -8,7 +12,7 @@ const options = {
 };
 const {MkyWallet}     = require('./mkyWallet');
 var   {MkyBlock}      = require('./mkyBlock');
-const {MkyNetObj}     = require('./mkyNetwork');
+const {MkyNetObj}     = require('./peerTree');
 const {BranchList}    = require('./mkyBranchList.js');
 const {MkyWebConsole} = require('./networkWebConsole.js');
 
@@ -131,7 +135,7 @@ class MkyMiner {
   }
 }
 /*******************
-Create BitMonky Network Peer
+Create PeerTree Network Peer
 *******************
 */
 console.log('starting miner rig');

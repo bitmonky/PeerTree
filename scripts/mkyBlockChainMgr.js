@@ -1,3 +1,7 @@
+/*
+Dust Removed: Date: Dec 28, 2022
+*/
+
 const EC           = require('elliptic').ec;
 const ec           = new EC('secp256k1');
 const crypto       = require('crypto');
@@ -401,8 +405,10 @@ class MkyBlockChainMgr{
       }
       else {
         this.pushBlock(j.bInfo,this.type);
-        if (this.type == 'tblGoldTrans' || this.type == 'tblGoldTranLog')
+        if (this.type == 'tblGoldTrans' || this.type == 'tblGoldTranLog'){
           this.hrTicker = j.bInfo.hrTicker;
+          this.bank.maxBlockSize = j.bInfo.maxBlockSize;
+        }
         return true;
       }
     }
@@ -416,8 +422,10 @@ class MkyBlockChainMgr{
       return true;
     }
     if (j.hrTicker){
-      if (j.type == 'tblGoldTrans' || j.type == 'tblGoldTranLog')
+      if (j.type == 'tblGoldTrans' || j.type == 'tblGoldTranLog'){
         this.hrTicker = j.hrTicker;
+        this.bank.maxBlockSize = j.maxBlockSize;
+      }
       return true;      
     }
     if (j.bLastTrans) {

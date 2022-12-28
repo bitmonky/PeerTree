@@ -1,5 +1,8 @@
+/*
+Dust Removed: Date: Dec 28, 2022
+*/
 //const config       = require('./config.js');
-var dateFormat     = require('dateformat');
+var dateFormat     = require('./mkyDatef');
 const EventEmitter = require('events');
 const https        = require('https');
 const fs           = require('fs');
@@ -225,7 +228,7 @@ class MkyTransaction {
     });
   }
   isValid() {
-   //console.log('checking BitMonky Transaction For Signatures');
+   //console.log('checking PeerTree Transaction For Signatures');
     if (this.fromWallet === null) return false;
 
     if (!this.gtrnSignature || this.gtrnSignature.length === 0) {
@@ -258,11 +261,22 @@ class MkyBank {
     this.maxBlockSize = null;
     this.firstBlock   = null;
     this.init();
+    this.setNetErrHandle();
     this.rollover     = null;
     this.logsRotating = null;
     this.rLogTimer    = null;
     this.rotateTransLog(1);
     this.startLogRotations();
+  }
+  setNetErrHandle(){
+    this.net.on('mkyRejoin',(j)=>{
+      console.log('Network Drop Detected',j);
+      this.status = 'starting';
+      this.rollover = null;
+      this.logsRotating = null;
+      this.init();
+      this.rotateTransLog(1);
+    });
   }
   async init(){
     if (this.reset)
@@ -1031,8 +1045,9 @@ class MkyBank {
   }
   sendLastTick(res,type){
     var myResponse = {
-      hrTicker : this.chain.hrTicker,
-      type     : type
+      hrTicker     : this.chain.hrTicker,
+      maxBlockSize : this.maxBlockSize,
+      type         : type
     }
     console.log('sending lastTick ',myResponse);
     this.net.endRes(res,JSON.stringify(myResponse));
@@ -1075,6 +1090,7 @@ class MkyBank {
                  minerId    : tRec.blockMinerID,
                  diff       : tRec.blockDifficulty,
                  hrTicker   : this.chain.hrTicker,
+                 maxBlockSize : this.maxBlockSize,
                  hashTime   : tRec.blockHashTime
                }
              }

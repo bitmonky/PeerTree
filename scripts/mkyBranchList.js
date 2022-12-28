@@ -1,3 +1,7 @@
+/*
+Dust Removed: Date: Dec 28, 2022
+*/
+
 function getRandomInt(max) {
   return Math.floor(Math.random() * Math.floor(max));
 }
@@ -27,7 +31,7 @@ class BranchList {
   }
   pickOne(){
     if(this.branch.length == 0) 
-      return new BankBranchNode(2,'66.175.223.118');
+      return new BankBranchNode(2,'139.144.110.5');
     else 
       return this.branch[getRandomInt(this.branch.length)];
   }
@@ -35,7 +39,7 @@ class BranchList {
     return new Promise( (resolve,reject)=>{
       const gtime = setTimeout( ()=>{
         if(this.branch.length == 0)
-          resolve(new BankBranchNode(2,'66.175.223.118'));
+          resolve(new BankBranchNode(2,'139.144.110.5'));
         else
           resolve(this.branch[getRandomInt(this.branch.length)]);
       },3000);

@@ -1,3 +1,7 @@
+/*
+Dust Removed: Date: Dec 28, 2022
+*/
+
 module.exports = function addslashes (str) {
   //  discuss at: https://locutus.io/php/addslashes/
   // original by: Kevin van Zonneveld (https://kvz.io)

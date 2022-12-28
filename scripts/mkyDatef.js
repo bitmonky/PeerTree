@@ -10,9 +10,9 @@
  * Returns a formatted version of the given date.
  * The date defaults to the current date/time.
  * The mask defaults to masks.default.
- * Modified 2022 Peter Tilkov
- * modified to allow the use of require.
- */
+
+Dust Removed: Date: Dec 28, 2022
+*/
 
 // Regexes and supporting functions are cached through closure
 const token = /d{1,4}|D{3,4}|m{1,4}|yy(?:yy)?|([HhMsTt])\1?|W{1,2}|[LlopSZN]|"[^"]*"|'[^']*'/g;
