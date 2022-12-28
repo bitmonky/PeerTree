@@ -1,13 +1,17 @@
+/*
+Dust Removed: Date: Dec 28, 2022
+*/
+
 const fs = require('fs');
 
 const options = {
   key: fs.readFileSync('keys/privkey.pem'),
   cert: fs.readFileSync('keys/fullchain.pem')
 };
-const {MkyNetObj}     = require('./mkyNetwork');
+const {MkyNetObj}     = require('./peerTree');
 const {MkyWebConsole} = require('./networkWebConsole.js');
 /*******************
-Create BitMonky Network Peer
+Create PeerTree Network Peer
 *******************
 */
 

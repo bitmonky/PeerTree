@@ -1,8 +1,9 @@
 const {MkyDbMonitor} = require('./bitWebMoniter.js');
 
 /****************************
-BitMonky Web Moniter Tool
+PeerTree Web Moniter Tool
 ****************************
+Dust Removed: Date: Dec 28, 2022
 */
 
 const webCon = require('http');
@@ -53,14 +54,14 @@ class MkyWebConsole {
           }
         }
         else {
-          var welcome = 'Welcome To The BitMonky KeyGEN Server\nUse end point /keyGEN to request key pair';
+          var welcome = 'Welcome To The PeerTree KeyGEN Server\nUse end point /keyGEN to request key pair';
           welcome += '\n\nUse end point /netREQ/msg={json string} for bitGold Moniter';
           res.end(welcome);
         }
       }
     });
     this.srv.listen(this.net.wmon);
-    console.log('BitMonky networkWebConsole Server running at admin.bitmonky.com:'+this.net.wmon);
+    console.log('PeerTree networkWebConsole Server running at admin.bitmonky.com:'+this.net.wmon);
   }
   sendReport(){
     var node = {

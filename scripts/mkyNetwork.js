@@ -803,12 +803,29 @@ class MkyRouting {
    //*****************************************************************
    // Send Rejoin request if this node has dettached from the network
    //=================================================================
-   rejoinNetwork(){
-       const msg = {
-         req : 'joinReq'
-       }
-       console.log("Detached Node Sending Re-join.. req");
-       this.net.sendMsg(this.net.rootIp,msg);
+   async rejoinNetwork(){
+     this.net.emit('mkyRejoin','networkDrop');
+     this.r = {
+       rootNodes  : [],
+       myNodes    : [],
+       lastNode   : this.myIp,
+       myParent   : null,
+       mylayer    : 1,
+       nodeNbr    : 1,
+       nlayer     : 1,
+       lnode      : 1
+     }
+     this.r.rootNodes.push({ip:this.myIp,nbr:1,pgroup : []});
+     const cRoot = await this.findWhoIsRoot();
+     console.log(cRoot);
+     this.net.rootIp = cRoot.rip;
+     this.status = 'rejoining';
+
+     const msg = {
+       req : 'joinReq'
+     }
+     console.log("Detached Node Sending Re-join.. req",this.net.rootIp);
+     this.net.sendMsg(this.net.rootIp,msg);
    }
    //*****************************************************************
    // Handles all network join requests
@@ -817,8 +834,8 @@ class MkyRouting {
      if (this.joinQue.length){
        const req = this.joinQue[0];
        this.joinQue.shift();
-       console.log('Sending Join Req from que '+req.jIp,req.j);
-       this.handleJoins(req.toHost,req.j);
+       console.log('Sending Join Req from que ',req);
+       this.handleJoins(req.jIp,req.j);
      }
      const jqTime = setTimeout( ()=>{
         this.procJoinQue();
@@ -830,7 +847,9 @@ class MkyRouting {
        return;
      }
      if (this.startJoin || this.err){  //this.node.isError(res)){
-       this.joinQue.push({jIp:res,j:j});
+       if (this.startJoin != res)
+         this.joinQue.push({jIp:res,j:j});
+       this.net.endRes(res,'{"result":"reJoinQued"}');
        return;
      }
      this.joinTime = setTimeout( ()=>{
@@ -838,7 +857,7 @@ class MkyRouting {
        this.startJoin = false;
      },8000);
 
-     this.startJoin = true;
+     this.startJoin = res;
      const addRes = this.addNewNodeReq(j.remIp);
 
      if (addRes){
@@ -939,14 +958,13 @@ class MkyRouting {
      }
      if (j.pingResult){
        //console.log('Ping Result '+j.status,this.status);
-/*     
-       if (!j.status && this.r.nodeNbr > 1){
+     
+       if (!j.status && this.r.myParent == j.remIp && this.r.nodeNbr > 1){
          if(this.status != 'detached')
            this.rejoinNetwork();
-         this.status = 'detached';
        }
        return true;
-*/
+
      }    
      return false;
    }
@@ -1380,13 +1398,13 @@ class MkyNetObj extends  EventEmitter {
           }
         }
         else {
-          this.endRes(res,'Welcome To BitMonky Network Sevices\nWaiting...\n' + decodeURI(req.url) + ' You Are: ' + this.remIp );
+          this.endRes(res,'Welcome To PeerTree Network Sevices\nWaiting...\n' + decodeURI(req.url) + ' You Are: ' + this.remIp );
           clearTimeout(this.svtime);
           this.resHandled = true;
         }}}
       });
       this.server.listen(this.port);
-      console.log('Server MkyNetwork7.2 running at ' + this.netIp() + ':' + this.port);
+      console.log('Server PeerTree7.2 running at ' + this.netIp() + ':' + this.port);
    }
    netStarted(){
      console.log('Net Started');
