@@ -1,5 +1,5 @@
 /*
-Dust Removed: Date: Dec 28, 2022
+Dust Removed: Date: Dec 28, 2022.
 */
 
 module.exports = function addslashes (str) {
