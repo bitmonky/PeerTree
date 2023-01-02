@@ -70,8 +70,6 @@ if (attachReceptor == true){
   console.log('ATTACHING - cellReceptor on port'+recPort);
 
   const options = {
-    //key: fs.readFileSync('/etc/letsencrypt/live/admin.bitmonky.com/privkey.pem'),
-    //cert: fs.readFileSync('/etc/letsencrypt/live/admin.bitmonky.com/fullchain.pem')
     key: fs.readFileSync('keys/privkey.pem'),
     cert: fs.readFileSync('keys/fullchain.pem')
   };
