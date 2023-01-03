@@ -70,6 +70,8 @@ if (attachReceptor == true){
   console.log('ATTACHING - cellReceptor on port'+recPort);
 
   const options = {
+    //key: fs.readFileSync('/etc/letsencrypt/live/admin.bitmonky.com/privkey.pem'),
+    //cert: fs.readFileSync('/etc/letsencrypt/live/admin.bitmonky.com/fullchain.pem')
     key: fs.readFileSync('keys/privkey.pem'),
     cert: fs.readFileSync('keys/fullchain.pem')
   };
@@ -108,22 +110,24 @@ if (attachReceptor == true){
         if (j.req == 'storeMemory'){
 	  j.memory.token = openMemKeyFile(j);
 	  signMemRequest(j);
-          res.end('{"result":"memOK","memory":"'+j.memory+'"}');
+          res.end('{"result":"memOK","memory":'+JSON.stringify(j.memory)+'}');
           return;
         }   
         res.end('OK');
       }
       else {
-        res.end('Wellcome To The BitMonky KeyGEN Server\nUse end point /keyGEN to request key pair');
+        res.end('Wellcome To The PeerTree KeyGEN Server\nUse end point /keyGEN to request key pair');
       }
     }
   });
   function openMemKeyFile(j){
-    var memToken = {
-      publicKey   : 'test',
-      ownMUID     : 'f188ssd8x-d'  // create from public key using bitcoin wallet algorythm.
+      const bitToken = bitcoin.payments.p2pkh({ pubkey: new Buffer(''+memToken.publicKey, 'hex') }); 
+      var mToken = {
+      publicKey   : memToken.publicKey,
+      ownMUID     : bitToken.address,
+      privateKey  : memToken.privateKey  // create from public key using bitcoin wallet algorythm.
     };
-    return memToken;
+    return mToken;
   }
   function signMemRequest(j){
     return;
@@ -260,58 +264,14 @@ class peerMemoryObj {
       });
     });	    
   }	  
-  reSumerizeDB(){
-    return new Promise( (resolve,reject)=>{
-      console.log('reload day and month sum log');
-      var SQL  = "insert into tblGoldTranDaySum (gtdsDate,gtdsGoldType,gtdsSource,gtdsTycTax, ";
-      SQL += "gtdsAmount,gtdsGoldRate,gtdsMUID) ";
-      SQL += "SELECT date(gtlDate),gtlGoldType,gtlSource,sum(gtlTycTax),sum(gtlAmount) ";
-      SQL += ",avg(gtlGoldRate),gtlMUID ";
-      SQL += "FROM tblGoldTranLog ";
-      SQL += "group by date(gtlDate),gtlMUID,gtlGoldType,gtlSource,gtlSrcID";
-      con.query(SQL, (err, result, fields)=>{
-        if (err) {console.log(err);resolve(false);return;}
-        else console.log( "\nSummerized Days transactions...\n");
-        SQL  = "insert into tblGoldTranMonthSum (gtmsDate,gtmsGoldType,gtmsSource,gtmsTycTax, ";
-        SQL += "gtmsAmount,gtmsGoldRate,gtmsMUID) ";
-        SQL += "SELECT concat(DATE_FORMAT(gtlDate,'%Y-%m'),'-01'),gtlGoldType,gtlSource,sum(gtlTycTax),sum(gtlAmount) ";
-        SQL += ",avg(gtlGoldRate),gtlMUID ";
-        SQL += "FROM tblGoldTranLog ";
-        SQL += "where date(gtlDate) <= DATE(NOW() - INTERVAL 1 MONTH) ";
-        SQL += "group by year(gtlDate),month(gtlDate),gtlMUID,gtlGoldType,gtlSource,gtlSrcID";
-        con.query(SQL, (err, result, fields)=>{
-          this.rollover  = false;
-          if (err) {console.log(err);resolve(false);return;}
-          else console.log( "\nSummerized Month transactions...\n");
-          resolve(true);
-        });
-      });
-    });
-  }
   resetDb(blockNbr=null){
     return new Promise( (resolve,reject)=>{
       var SQL = "";
-      if (!blockNbr){
-        SQL = "truncate table mkyBank.tblGoldTranDaySum; ";
-        SQL += "truncate table mkyBank.tblGoldTranMonthSum; ";
-        SQL += "truncate table mkyBank.tblGoldTrans; ";
-        SQL += "truncate table mkyBank.tblGoldTranLog;";
-        SQL += "truncate table mkyBank.tblmkyWallets;";
-        SQL += "truncate table mkyBlockC.tblmkyBlocks;";
-        SQL += "truncate table mkyBlockC.tblmkyBlockTrans;";
-      }
-      else {
-        SQL  = "truncate table mkyBank.tblGoldTranDaySum; ";
-        SQL += "truncate table mkyBank.tblGoldTranMonthSum; ";
-        SQL += "delete from mkyBank.tblGoldTrans        where gtrnBlockID > "+blockNbr+"; ";
-        SQL += "delete from mkyBank.tblGoldTranLog      where gtlBlockID > "+blockNbr+"; ";
-        SQL += "delete from mkyBlockC.tblmkyBlocks      where blockNbr > "+blockNbr+"; ";
-        SQL += "delete from mkyBlockC.tblmkyBlockTrans  where tranBlockID > "+blockNbr+"; ";
-      }
+      SQL =  "truncate table peerBrain.peerMemCells; ";
+      SQL += "truncate table peerBrain.peerMemoryCell; ";
       con.query(SQL, async (err, result, fields)=>{
         if (err) {console.log(err);reject(err);}
         else {
-          this.reSumerizeDB();
           resolve("OK");
         }
       });
@@ -381,36 +341,6 @@ class peerMemoryObj {
     } 
     return;
   }
-  procBranchReq(msg,to){
-    if (msg.joinGroup){
-      this.group.addPeer(msg.joinGroup);
-      this.group.replyGotUAddMe(to);
-      this.group.listGroup();
-      return;
-    }
-
-    if (this.status != 'Online'){
-      console.log('Service Not Ready... buffering Transactions');
-      //if (msg.procBitMonkTran){
-      this.bufferTransactions(msg,to);
-      //}
-      return;
-    }
-    if (msg.blockConf){
-      this.confirmNewBlock(msg.blockConf,msg.payment);
-      return;
-      //this.net.sendMsg(to,req);
-    }
-    if (msg.createAcc){
-      var wal = msg.createAcc
-      this.createAccount(wal.pubKey,wal.MUID,to);
-      return;
-    }
-    if (msg.procBitMonkTran){
-      this.procBitMonkTran(msg);
-      return;
-    }
-  }
   procBankersReq(msg,to){
     //console.log('\nProcBankersReq to '+ to,msg,to);
     if (msg.send == 'blistInfo'){
@@ -471,98 +401,7 @@ class peerMemoryObj {
       }
     });
   }
-  createAccount(pubKey,wMUID,to){
-    var net = this.net;
-    let SQL = "select mwalID from tblmkyWallets where mwalMUID = '" + wMUID + "'";
-    let branchId = this.branchId;
-    console.log('create wallet acc send result to ',to);
-    con.query(SQL, function (err, result, fields) {
-      if (err)
-        net.sendMsg(to,{bankResult:{newWallet:null,error:"database failed"}});
-      else {
-        if (result.length)
-          net.sendMsg(to,{bankResult:{newWallet: result[0].mwalID ,status:"onFile"}});
-        else {
-          let SQL = "insert into tblmkyWallets (mwalPubKey,mwalGBranchID,mwalDate,mwalMUID) ";
-          SQL += "values('" + pubKey + "'," + branchId + ",now(),'" + wMUID + "')";
-          con.query(SQL, function (err, result, fields) {
-            if (err)
-              net.sendMsg(to,{bankResult:{newWallet:null,error:"database failed: "+SQL}});
-            else {
-              let SQL = "select mwalID from tblmkyWallets where mwalMUID = '"+ wMUID +"'";
-              con.query(SQL, function (err, result, fields) {
-                if (err) 
-                  net.sendMsg(to,{bankResult:{newWallet:null,error:"database failed: "+SQL}});
-                else {
-                  net.sendMsg(to,{bankResult:{newWallet: result[0].mwalID }});
-                }
-              });
-            }
-          });
-        }
-      }
-    });
-  }
-  sendLastWallets(res,lastWalMUID){
-    var SQL = "select * from tblmkyWallets where mwalMUID > '"+lastWalMUID+"' order by mwalMUID ";
-    var SQL = "select * from tblmkyWallets ";
-   //console.log(SQL);
-    con.query(SQL , (err, result,fields)=>{
-      if (err){
-        this.net.endRes(res,'"blockErr":' + JSON.stringify(err)+'}');
-       //console.log('db error',SQL);
-      }
-      else {
-        var trans = [];
-        const dbres = Object.keys(result);
-        dbres.forEach(function(key) {
-          var tRec = result[key];
-          trans.push(tRec);
-        });
-        if (trans.length == 0){
-          this.net.endRes(res,'{"result":"No More Wallets To Send."}');
-         //console.log('no wallets to send');
-        }
-        else {
-          var myResponse = {
-            bLastWallets : trans
-          }
-         //console.log('sending wallets',myResponse);
-          this.net.endRes(res,JSON.stringify(myResponse));
-        }
-      }
-    });
-  }
-  storeBlockChainRec(conf,trans,prevHash,minerID){
-    var bank = this;
-    return new Promise( (resolve,reject)=>{
-      var SQL = "select count(*)nBlocks from mkyBlockC.tblmkyBlocks where blockChainID = "+conf.chainId+" and blockNbr = "+conf.blockID;
-      con.query(SQL, async function (err, result, fields) {
-        if (err) {console.log(err);reject(false);}
-        else {
-          var tRec = result[0];
-          if (tRec.nBlocks == 0){
-            SQL = "insert into mkyBlockC.tblmkyBlocks (blockNbr,blockHash,blockPrevHash,blockNOnce,blockTimestamp,blockChainID,";
-            SQL += "blockMinerID,blockDifficulty,blockHashTime) ";
-            SQL += "values ("+conf.blockID+",'"+conf.hash+"','"+prevHash+"',"+conf.nonce+","+conf.timestamp+","+conf.chainId;
-            SQL += ","+minerID+","+conf.diff+","+Date.now()+")";
-            con.query(SQL, async function (err, result, fields) {
-              if (err) {console+log(err);reject(false);}
-              else {
-                var res = await bank.storeBlockTransData(trans,conf.blockID,conf.chainId);
-                resolve(res);
-              }
-            });
-          }
-          else {
-           //console.log('Block Already Exists'); 
-            resolve(false);
-          }
-        }
-      });
-    });
-  }
-}
+};
 function sleep(ms){
     return new Promise(resolve=>{
         setTimeout(resolve,ms)
