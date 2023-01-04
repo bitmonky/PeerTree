@@ -69,7 +69,7 @@ const recPort = 1335;
 
 class peerMemCellReceptor{
   constructor(peerTree){
-    this.net = peerTree;
+    this.peer = peerTree;
     console.log('ATTACHING - cellReceptor on port'+recPort);
 
     const options = {
@@ -109,8 +109,7 @@ class peerMemCellReceptor{
           console.log('mkyReq',j);
 
           if (j.req == 'storeMemory'){
-	    j.memory.token = this.openMemKeyFile(j);
-	    this.signMemRequest(j);
+	    this.prepMemoryReq(j);
             res.end('{"result":"memOK","memory":'+JSON.stringify(j.memory)+'}');
             return;
           }   
@@ -133,6 +132,10 @@ class peerMemCellReceptor{
       privateKey  : this.memToken.privateKey  // create from public key using bitcoin wallet algorythm.
     };
     return mToken;
+  }
+  prepMemoryReq(j){
+    j.memory.token = this.openMemKeyFile(j);
+    this.peer.receptorReqStoreMem(j);
   }
   signMemRequest(j){
     return;
@@ -381,6 +384,9 @@ class peerMemoryObj {
     else
       return false;
   }
+  receptorReqStoreMem(j){
+    console.log('receptorReqStoreMem',j);
+  }	  
   storeMemory(j,res){
     const mUID = j.mUID;
     var memories = j.mem.qry.split(' ');
