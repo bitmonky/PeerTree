@@ -78,8 +78,8 @@ class peerMemCellReceptor{
       key: fs.readFileSync('keys/privkey.pem'),
       cert: fs.readFileSync('keys/fullchain.pem')
     };
-    const memToken = new peerMemToken();
-    console.log(memToken);
+    this.memToken = new peerMemToken();
+    console.log(this.memToken);
     var bserver = https.createServer(options, (req, res) => {
 
       res.writeHead(200);
@@ -126,11 +126,11 @@ class peerMemCellReceptor{
     console.log('BitMonkyBanker Server running at admin.bitmonky.com:'+recPort);
   }
   openMemKeyFile(j){
-    const bitToken = bitcoin.payments.p2pkh({ pubkey: new Buffer(''+memToken.publicKey, 'hex') }); 
+    const bitToken = bitcoin.payments.p2pkh({ pubkey: new Buffer(''+this.memToken.publicKey, 'hex') }); 
     var mToken = {
-      publicKey   : memToken.publicKey,
+      publicKey   : this.memToken.publicKey,
       ownMUID     : bitToken.address,
-      privateKey  : memToken.privateKey  // create from public key using bitcoin wallet algorythm.
+      privateKey  : this.memToken.privateKey  // create from public key using bitcoin wallet algorythm.
     };
     return mToken;
   }
