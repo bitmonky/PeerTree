@@ -5,7 +5,7 @@ const options = {
   cert: fs.readFileSync('keys/fullchain.pem')
 };
 const {MkyNetNode,MkyNetObj,MkyNetTab}   = require('./peerTree');
-const {peerMemoryObj} = require('./peerMemoryObj.js');
+const {peerMemoryObj,peerMemCellReceptor} = require('./peerMemoryObj.js');
 
 /*******************
 Create PeerTree Network Peer
@@ -47,6 +47,8 @@ async function main(){
 }
 function startMemoryCell(rBranch){
     var mcell = new peerMemoryObj('02',myIp,mkyNet,reset,rBlockID);
+    const mcellReceptor = new peerMemCellReceptor(mcell);
+
     if (rBranch){
       console.log('\nNEW>>>SETTING memCell TO ROOT');
       mcell.isRoot = true;

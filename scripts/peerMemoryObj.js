@@ -15,7 +15,7 @@ const {MkyWebConsole}                   = require('./networkWebConsole.js');
 addslashes  = require ('./addslashes');
 
 /*********************************************
- PeerTree Receptor Node: listens on port 1335
+PeerTree Receptor Node: listens on port 1335
 ==============================================
 This port is used for your regular apps to interact
 with a memoryCell on the PeerTree Memory network;
@@ -64,77 +64,80 @@ class peerMemToken{
       } 
     } 
 }; 
-const attachReceptor = true;
-if (attachReceptor == true){
-  const recPort = 1335;
-  console.log('ATTACHING - cellReceptor on port'+recPort);
 
-  const options = {
-    //key: fs.readFileSync('/etc/letsencrypt/live/admin.bitmonky.com/privkey.pem'),
-    //cert: fs.readFileSync('/etc/letsencrypt/live/admin.bitmonky.com/fullchain.pem')
-    key: fs.readFileSync('keys/privkey.pem'),
-    cert: fs.readFileSync('keys/fullchain.pem')
-  };
-  const memToken = new peerMemToken();
-  console.log(memToken);
-  var bserver = https.createServer(options, (req, res) => {
+const recPort = 1335;
 
-    res.writeHead(200);
-    if (req.url == '/keyGEN'){
-      // Generate a new key pair and convert them to hex-strings
-      const key = ec.genKeyPair();
-      const publicKey = key.getPublic('hex');
-      const privateKey = key.getPrivate('hex');
-      console.log('pub key length' + publicKey.length,publicKey);
-      console.log('priv key length' + privateKey.length,publicKey);
-      res.end('{"publicKey":"' + publicKey + '","privateKey":"' + privateKey + '"}');
-    }
-    else {
-      if (req.url.indexOf('/netREQ/msg=') == 0){
-        var msg = req.url.replace('/netREQ/msg=','');
+class peerMemCellReceptor{
+  constructor(peerTree){
+    this.net = peerTree;
+    console.log('ATTACHING - cellReceptor on port'+recPort);
 
+    const options = {
+      //key: fs.readFileSync('/etc/letsencrypt/live/admin.bitmonky.com/privkey.pem'),
+      //cert: fs.readFileSync('/etc/letsencrypt/live/admin.bitmonky.com/fullchain.pem')
+      key: fs.readFileSync('keys/privkey.pem'),
+      cert: fs.readFileSync('keys/fullchain.pem')
+    };
+    const memToken = new peerMemToken();
+    console.log(memToken);
+    var bserver = https.createServer(options, (req, res) => {
 
-        msg = msg.replace(/\+/g,' ');
-        msg = decodeURI(msg);
-        msg = msg.replace(/%3A/g,':');
-        msg = msg.replace(/%2C/g,',');
-        msg = msg.replace(/\\%2F/g,'/');
-        var j = null;
-        try {j = JSON.parse(msg);}
-        catch {
-           console.log("json parse error:",msg);
-           process.exit();
-        }
-        console.log('mkyReq',j);
-
-        if (j.req == 'storeMemory'){
-	  j.memory.token = openMemKeyFile(j);
-	  signMemRequest(j);
-          res.end('{"result":"memOK","memory":'+JSON.stringify(j.memory)+'}');
-          return;
-        }   
-        res.end('OK');
+      res.writeHead(200);
+      if (req.url == '/keyGEN'){
+        // Generate a new key pair and convert them to hex-strings
+        const key = ec.genKeyPair();
+        const publicKey = key.getPublic('hex');
+        const privateKey = key.getPrivate('hex');
+        console.log('pub key length' + publicKey.length,publicKey);
+        console.log('priv key length' + privateKey.length,publicKey);
+         res.end('{"publicKey":"' + publicKey + '","privateKey":"' + privateKey + '"}');
       }
       else {
-        res.end('Wellcome To The PeerTree KeyGEN Server\nUse end point /keyGEN to request key pair');
+        if (req.url.indexOf('/netREQ/msg=') == 0){
+          var msg = req.url.replace('/netREQ/msg=','');
+          msg = msg.replace(/\+/g,' ');
+          msg = decodeURI(msg);
+          msg = msg.replace(/%3A/g,':');
+          msg = msg.replace(/%2C/g,',');
+          msg = msg.replace(/\\%2F/g,'/');
+          var j = null;
+          try {j = JSON.parse(msg);}
+          catch {
+             console.log("json parse error:",msg);
+             process.exit();
+          }
+          console.log('mkyReq',j);
+
+          if (j.req == 'storeMemory'){
+	    j.memory.token = this.openMemKeyFile(j);
+	    this.signMemRequest(j);
+            res.end('{"result":"memOK","memory":'+JSON.stringify(j.memory)+'}');
+            return;
+          }   
+          res.end('OK');
+        }
+        else {
+          res.end('Wellcome To The PeerTree KeyGEN Server\nUse end point /keyGEN to request key pair');
+        }
       }
-    }
-  });
-  function openMemKeyFile(j){
-      const bitToken = bitcoin.payments.p2pkh({ pubkey: new Buffer(''+memToken.publicKey, 'hex') }); 
-      var mToken = {
+    });
+  
+    bserver.listen(recPort);
+    console.log('BitMonkyBanker Server running at admin.bitmonky.com:'+recPort);
+  }
+  openMemKeyFile(j){
+    const bitToken = bitcoin.payments.p2pkh({ pubkey: new Buffer(''+memToken.publicKey, 'hex') }); 
+    var mToken = {
       publicKey   : memToken.publicKey,
       ownMUID     : bitToken.address,
       privateKey  : memToken.privateKey  // create from public key using bitcoin wallet algorythm.
     };
     return mToken;
   }
-  function signMemRequest(j){
+  signMemRequest(j){
     return;
   }
-  bserver.listen(recPort);
-  console.log('BitMonkyBanker Server running at admin.bitmonky.com:'+recPort);
-}
+};
 /*----------------------------
 End Receptor Code
 ==============================
@@ -409,4 +412,4 @@ function sleep(ms){
 }
 
 module.exports.peerMemoryObj = peerMemoryObj;
-
+module.exports.peerMemCellReceptor = peerMemCellReceptor;
