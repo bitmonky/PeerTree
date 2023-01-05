@@ -122,7 +122,7 @@ class peerMemCellReceptor{
     });
   
     bserver.listen(recPort);
-    console.log('BitMonkyBanker Server running at admin.bitmonky.com:'+recPort);
+    console.log('peerTree Memory Receptor running on port:'+recPort);
   }
   openMemKeyFile(j){
     const bitToken = bitcoin.payments.p2pkh({ pubkey: new Buffer.from(''+this.memToken.publicKey, 'hex') }); 
@@ -169,11 +169,10 @@ class peerMemoryObj {
     this.isRoot     = null;
     this.status     = 'starting';
     this.net        = branchNetwork;
-    this.net.broadcast("Hello Bit Monky Miners");
-    this.wcon         = new MkyWebConsole(this.net,con,this);
+    this.wcon       = new MkyWebConsole(this.net,con,this);
     this.init();
     this.setNetErrHandle();
-    this.doNodesDBMaint();
+    this.sayHelloPeerGroup();
   }
   setNetErrHandle(){
     this.net.on('mkyRejoin',(j)=>{
@@ -252,6 +251,30 @@ class peerMemoryObj {
       resolve (true);
     });
   }
+  updatePMemcellDB(j){
+    console.log('Reviewing PeerTree Nodes DB',j);
+    var SQL = "SELECT count(*)nRec FROM peerBrain.peerMemCells where pcelAddress = '"+j.remIp+"'";
+    con.query(SQL,(err, result, fields)=> {
+      if (err) console.log(err);
+      else {
+        if (result[0].nRec == 0){
+          SQL = "insert into peerBrain.peerMemCells (pcelAddress,pcelLastStatus,pcelLastMsg)";
+          SQL += "values ('"+j.remIp+"','New',now())";
+          con.query(SQL,(err, result, fields)=>{
+            if (err) console.log(err);
+          });
+        }
+	else {
+          SQL = "update peerBrain.peerMemCells set pcelLastStatus = 'online',pcelLastMsg = now() ";
+          SQL += "where pcelAddress = '"+j.remIp+"'";
+          console.log(SQL);
+          con.query(SQL,(err, result, fields)=>{
+            if (err) console.log(err);
+          });
+	}		
+      }
+    });
+  }	  
   doNodesDBMaint(){
     console.log('Reviewing PeerTree Nodes DB',this.net.nodes);
     this.net.nodes.forEach((node) => {
@@ -298,7 +321,7 @@ class peerMemoryObj {
     }   
   }
   handleReq(res,j){
-    //console.log(j);
+    //console.log('root recieved: ',j);
     if (j.req == 'gotUAddMe'){
       this.group.addPeer(j.me);
       this.net.endRes(res,'');
@@ -336,8 +359,10 @@ class peerMemoryObj {
    //console.log('\nNo Bank Reply Handler Found For: ',j);
   }
   handleBCast(j){
+    //console.log('bcast received: ',j);
     if (!j.msg.to) {return;}
     if (j.msg.to == 'peerMemCells'){
+      this.updatePMemcellDB(j);  
       if (j.msg.qry){
         if (j.msg.qry.qryType == 'bestMatch')
           this.doBestMatchQry(j.msg,j.remIp);
@@ -347,20 +372,14 @@ class peerMemoryObj {
     } 
     return;
   }
-  procBankersReq(msg,to){
-    //console.log('\nProcBankersReq to '+ to,msg,to);
-    if (msg.send == 'blistInfo'){
-      var req = {
-        req : 'bcReply',
-        blistInfo : {
-          ip  : this.branchIp,
-          id  : this.branchId
-        }
-      }
-      //console.log('response to banker node: ',req.blistInfo);
-      this.net.sendMsg(to,req);
+  sayHelloPeerGroup(){
+    var breq = {
+      to : 'peerMemCells',
+      token : 'some token'
     }
-  } 
+    console.log('bcast greeting to memoryCell group: ',breq);
+    this.net.broadcast(breq);
+  }
   bufferTransactions(j,to){
      const req = {
        msg : j,
