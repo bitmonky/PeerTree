@@ -322,6 +322,10 @@ class peerMemoryObj {
   }
   handleReq(res,j){
     //console.log('root recieved: ',j);
+    if (j.req == 'storeMemory'){
+      this.storeMemory(j,res);
+      return true;
+    }
     if (j.req == 'gotUAddMe'){
       this.group.addPeer(j.me);
       this.net.endRes(res,'');
@@ -339,10 +343,6 @@ class peerMemoryObj {
     }
     if (!this.isRoot && this.status != 'Online'){
       this.net.endRes(res,'');
-      return true;
-    }
-    if (j.req == 'storeMemory'){
-      this.storeMemory(j,res);
       return true;
     }
     return false;
@@ -379,6 +379,9 @@ class peerMemoryObj {
     }
     console.log('bcast greeting to memoryCell group: ',breq);
     this.net.broadcast(breq);
+    const gtime = setTimeout( ()=>{
+      this.sayHelloPeerGroup();
+    },50*1000);
   }
   bufferTransactions(j,to){
      const req = {
@@ -405,34 +408,40 @@ class peerMemoryObj {
   }
   receptorReqStoreMem(j){
     console.log('receptorReqStoreMem',j);
-    var SQL = "SELECT pcelAddress FROM peerBrain.peerMemCells order by rand() limit 1";
+    var SQL = "SELECT pcelAddress FROM peerBrain.peerMemCells ";
+    SQL += "where pcelLastStatus = 'online' and  timestampdiff(second,pcelLastMsg,now()) < 50 order by rand() limit 1";
     console.log(SQL);
     con.query(SQL, (err, result, fields)=> {
       if (err) console.log(err);
       else {
-        console.log('Store Memory To: ',result[0].pcelAddress);
-        const to = result[0].pcelAddress;
-	var req = {
-          req : 'storeMemory',
-          memory : j.memory
-        }
-        //console.log('response to banker node: ',req.blistInfo);
-        this.net.sendMsg(to,req);
+        if (result.length > 0){
+	  console.log('Store Memory To: ',result[0].pcelAddress);
+          const to = result[0].pcelAddress;
+	  var req = {
+            req : 'storeMemory',
+            memory : j.memory
+          }
+
+          this.net.sendMsg(to,req);
+        }		
+	else {
+          console.log('No Memory Nodes Online');		
+	}
       }
     });
   }	  
   storeMemory(j,res){
     console.log('got request store memory',j);
     var m = j.memory;
-    const mUID = m.mUID;
-    var memories = m.mem.qry.split(' ');
+    const mUID = m.from;
+    var memories = m.memStr.split(' ');
     var nwords   = memories.length;  
-    var SQLr = "insert into peerBrain.peerMemoryCell (pmcMownerID,pmcMemObjID,pmcMemType,pmcMemObjNWords,pmcMemWord,pmcWordSequence) ";
+    var SQLr = "insert into peerBrain.peerMemoryCell (pmcMownerID,pmcMemObjID,pmcMemObjType,pmcMemObjNWords,pmcMemWord,pmcWordSequence) ";
     var SQL = "";
     var n = 1;
     memories.forEach( (word) =>{
       if (word != ''){
-        SQL += SQLr + "values ('"+m.mem.owner+"','"+m.mem.memID+"','"+m.mem.memType+"',"+nwords+",'"+word+"',"+n+");";
+        SQL += SQLr + "values ('"+m.from+"','"+m.memID+"','"+m.memType+"',"+nwords+",'"+word+"',"+n+");";
         n = n + 1;
       }
     });	    
@@ -442,7 +451,8 @@ class peerMemoryObj {
         this.net.endRes(res,JSON.stringify(err));
       }
       else {
-        this.net.endRes(res,'{"memStorRes":true,"memStorHash":' + hash + '}');
+        const hash = 'write hash function for memstore';
+	this.net.endRes(res,'{"memStorRes":true,"memStorHash":"' + hash + '"}');
       }
     });
   }
