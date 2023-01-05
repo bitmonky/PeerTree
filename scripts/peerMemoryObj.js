@@ -298,7 +298,7 @@ class peerMemoryObj {
     }   
   }
   handleReq(res,j){
-    console.log(j);
+    //console.log(j);
     if (j.req == 'gotUAddMe'){
       this.group.addPeer(j.me);
       this.net.endRes(res,'');
@@ -392,7 +392,7 @@ class peerMemoryObj {
       if (err) console.log(err);
       else {
         console.log('Store Memory To: ',result[0].pcelAddress);
-        const to = result[0].pcellAdress;
+        const to = result[0].pcelAddress;
 	var req = {
           req : 'storeMemory',
           memory : j.memory
