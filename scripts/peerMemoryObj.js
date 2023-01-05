@@ -125,7 +125,7 @@ class peerMemCellReceptor{
     console.log('BitMonkyBanker Server running at admin.bitmonky.com:'+recPort);
   }
   openMemKeyFile(j){
-    const bitToken = bitcoin.payments.p2pkh({ pubkey: new Buffer(''+this.memToken.publicKey, 'hex') }); 
+    const bitToken = bitcoin.payments.p2pkh({ pubkey: new Buffer.from(''+this.memToken.publicKey, 'hex') }); 
     var mToken = {
       publicKey   : this.memToken.publicKey,
       ownMUID     : bitToken.address,
@@ -298,7 +298,7 @@ class peerMemoryObj {
     }   
   }
   handleReq(res,j){
-
+    console.log(j);
     if (j.req == 'gotUAddMe'){
       this.group.addPeer(j.me);
       this.net.endRes(res,'');
@@ -386,17 +386,34 @@ class peerMemoryObj {
   }
   receptorReqStoreMem(j){
     console.log('receptorReqStoreMem',j);
+    var SQL = "SELECT pcelAddress FROM peerBrain.peerMemCells order by rand() limit 1";
+    console.log(SQL);
+    con.query(SQL, (err, result, fields)=> {
+      if (err) console.log(err);
+      else {
+        console.log('Store Memory To: ',result[0].pcelAddress);
+        const to = result[0].pcellAdress;
+	var req = {
+          req : 'storeMemory',
+          memory : j.memory
+        }
+        //console.log('response to banker node: ',req.blistInfo);
+        this.net.sendMsg(to,req);
+      }
+    });
   }	  
   storeMemory(j,res){
-    const mUID = j.mUID;
-    var memories = j.mem.qry.split(' ');
+    console.log('got request store memory',j);
+    var m = j.memory;
+    const mUID = m.mUID;
+    var memories = m.mem.qry.split(' ');
     var nwords   = memories.length;  
     var SQLr = "insert into peerBrain.peerMemoryCell (pmcMownerID,pmcMemObjID,pmcMemType,pmcMemObjNWords,pmcMemWord,pmcWordSequence) ";
     var SQL = "";
     var n = 1;
     memories.forEach( (word) =>{
       if (word != ''){
-        SQL += SQLr + "values ('"+j.mem.owner+"','"+j.mem.memID+"','"+j.mem.memType+"',"+nwords+",'"+word+"',"+n+");";
+        SQL += SQLr + "values ('"+m.mem.owner+"','"+m.mem.memID+"','"+m.mem.memType+"',"+nwords+",'"+word+"',"+n+");";
         n = n + 1;
       }
     });	    
