@@ -162,18 +162,20 @@ function getRandomInt(max) {
   return Math.floor(Math.random() * Math.floor(max));
 }
 class peerMemoryObj {
-  constructor(branchId,branchIp,branchNetwork,reset,resetTo=null){
+  constructor(peerTree,reset){
     this.reset      = reset;
-    this.resetBlock = resetTo;
-    console.log('Reset To block: '+resetTo,this.resetBlock);
     this.isRoot     = null;
     this.status     = 'starting';
-    this.net        = branchNetwork;
+    this.net        = peerTree;
+    this.receptor   = null;
     this.wcon       = new MkyWebConsole(this.net,con,this);
     this.init();
     this.setNetErrHandle();
     this.sayHelloPeerGroup();
   }
+  attachReceptor(inReceptor){
+    this.recptor = inReceptor;
+  }	  
   setNetErrHandle(){
     this.net.on('mkyRejoin',(j)=>{
       console.log('Network Drop Detected',j);
@@ -434,6 +436,20 @@ class peerMemoryObj {
      SQL += "having score >= "+msg.reqScore+" ";
      SQL += "order by score desc";
      console.log(SQL);
+     con.query(SQL, (err, result, fields)=> {
+       if (err) console.log(err);
+       else {
+         if (result.length > 0){
+           var qres = {
+             msg : 'pMemQryResult',
+	     nRec : result.length,
+             result : result,
+             qry : msg		   
+           }
+           this.net.sendMsg(ip,qres);
+         }
+       }
+     });
   }
   receptorReqStoreMem(j){
     console.log('receptorReqStoreMem',j);

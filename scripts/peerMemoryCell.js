@@ -13,7 +13,6 @@ Create PeerTree Network Peer
 */
 
   var isRoot = process.argv[3];
-  var rBlockID = process.argv[4];
 
   var reset = null
   if (isRoot == 'rootReset'){
@@ -26,7 +25,6 @@ Create PeerTree Network Peer
   }
   const mkyNet = new MkyNetObj(options);
   mkyNet.nodeType = 'memoryCell';
-  const myIp = mkyNet.netIp();
 
   if (isRoot == 'reset'){
     isRoot = null;
@@ -46,9 +44,9 @@ async function main(){
   }
 }
 function startMemoryCell(rBranch){
-    var mcell = new peerMemoryObj('02',myIp,mkyNet,reset,rBlockID);
+    var mcell = new peerMemoryObj(mkyNet,reset);
     const mcellReceptor = new peerMemCellReceptor(mcell);
-
+    mcell.attachReceptor(mcellReceptor);
     if (rBranch){
       console.log('\nNEW>>>SETTING memCell TO ROOT');
       mcell.isRoot = true;
