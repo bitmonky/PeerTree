@@ -112,6 +112,11 @@ class peerMemCellReceptor{
 	    this.prepMemoryReq(j,res);
             return;
           }   
+          if (j.req == 'searchMemory'){
+            //this.prepMemoryReq(j,res);
+            this.doSearch(j,res);
+	    return;
+          }
           res.end('OK');
         }
         else {
@@ -134,6 +139,15 @@ class peerMemCellReceptor{
       privateKey  : this.memToken.privateKey  // create from public key using bitcoin wallet algorythm.
     };
     return mToken;
+  }
+  doSearch(j,res){
+    var breq = {
+      to : 'peerMemCells',
+      qry : j.qry
+    }
+    console.log('bcast search request to memoryCell group: ',breq);
+    this.peer.net.broadcast(breq);
+    res.end('search Function does not exist yet.');
   }
   prepMemoryReq(j,res){
     j.memory.token = this.openMemKeyFile(j);
@@ -158,7 +172,7 @@ class peerMemCellReceptor{
             console.log('memeory storage failed on:',rec.pcelAddress);
           }
           if (n==result.length -1){
-            res.end('{"result":"memOK","nRecs":'+nStored+'","memory":'+JSON.stringify(j)+'}');
+            res.end('{"result":"memOK","nRecs":'+nStored+',"memory":'+JSON.stringify(j)+'}');
 	  }	
 	});
       } 		  
@@ -392,9 +406,9 @@ class peerMemoryObj {
     if (j.msg.to == 'peerMemCells'){
       this.updatePMemcellDB(j);  
       if (j.msg.qry){
-        if (j.msg.qry.qryType == 'bestMatch')
+        if (j.msg.qry.qryStyle == 'bestMatch')
           this.doBestMatchQry(j.msg,j.remIp);
-        else if (j.msg.qry.qryType == 'seqMatch')
+        else if (j.msg.qry.qryStyle == 'seqMatch')
 	  this.doSeqMatchQry(j.msg,j.remIp);
       }
     } 
@@ -438,28 +452,29 @@ class peerMemoryObj {
     //remove eny extra spaces from string
     return str;
   }	  
-  doBestMatchQry(msg,ip){
+  doBestMatchQry(j,ip){
+     console.log('here is the search..',j);
      var qtype = '';
-     if (msg.qryType){
-       qtype = " and pmcMemObjType = '"+qtype+"'";
+     if (j.qry.qryType){
+       qtype = " and pmcMemObjType = '"+j.qry.qryType+"'";
      }
      var SQLr = "select pmcMownerID,pmcMemObjID,pmcMemObjNWords,count(*)nMatches,count(*)/pmcMemObjNWords score from peerBrain.peerMemoryCell ";
-     SQLr += "where pmcMownerID = '"+msq.ownerID+"' "+qtype+" and (";
-     qry = this.singleSpaceOnly(msg.qryStr);
+     SQLr += "where pmcMownerID = '"+j.qry.ownerID+"' "+qtype+" and (";
+     var qry = this.singleSpaceOnly(j.qry.qryStr);
      var words = qry.split(' ');
-     var nwords   = memories.length;
-     var SQL = "";
+     var nwords   = words.length;
+     var SQL = SQLr;
      var n = 1;
      var or = 'or ';
      words.forEach( (word) =>{
-       if ($n == nwords){
+       if (n == nwords){
 	 or = '';
        }
        SQL += "pmcMemWord = '"+word+"' "+or; 
-       $n = $n+1;
+       n = n+1;
      });
      SQL += ")group by pmcMownerID,pmcMemObjID,pmcMemObjNWords ";
-     SQL += "having score >= "+msg.reqScore+" ";
+     SQL += "having score >= "+j.qry.reqScore+" ";
      SQL += "order by score desc";
      console.log(SQL);
      con.query(SQL, (err, result, fields)=> {
@@ -470,7 +485,7 @@ class peerMemoryObj {
              req : 'pMemQryResult',
 	     nRec : result.length,
              result : result,
-             qry : msg		   
+             qry : j		   
            }
            this.net.sendMsg(ip,qres);
          }
