@@ -225,12 +225,9 @@ class peerMemoryObj {
     });
   }
   async init(){
-    if (this.reset)
-      if (this.reset == 'rebuild')
-        await this.reBuildDb(this.resetBlock);
-      else 
-        await this.resetDb(this.resetBlock);
-
+    if (this.reset){
+      await this.resetDb(this.resetBlock);
+    }
   }
   getGoldRate(){
     return new Promise( (resolve,reject)=>{
@@ -273,29 +270,8 @@ class peerMemoryObj {
       req.end();
     });
   }
-  getBlockCtr(type){
-    for (var bc of this.blockCtr)
-     if (bc.type == type);
-       return bc;
-  } 
-  resetBlockCtrs(){
-    return new Promise( async (resolve,reject)=>{
-      this.blockCtr = [];
-      for (var btype of bcTypes){
-        const block = await this.checkLastBlockNbr(btype);
-        var blockCtr = {
-          nbr  : block.nbr,
-          nRec : block.nRec + 0,
-          type : btype,
-          maxBlockSize : this.maxBlockSize
-        }
-        this.blockCtr.push(blockCtr);
-      }
-      resolve (true);
-    });
-  }
   updatePMemcellDB(j){
-    console.log('Reviewing PeerTree Nodes DB',j);
+    //console.log('Reviewing PeerTree Nodes DB',j);
     var SQL = "SELECT count(*)nRec FROM peerBrain.peerMemCells where pcelAddress = '"+j.remIp+"'";
     con.query(SQL,(err, result, fields)=> {
       if (err) console.log(err);
@@ -310,7 +286,7 @@ class peerMemoryObj {
 	else {
           SQL = "update peerBrain.peerMemCells set pcelLastStatus = 'online',pcelLastMsg = now() ";
           SQL += "where pcelAddress = '"+j.remIp+"'";
-          console.log(SQL);
+          //console.log(SQL);
           con.query(SQL,(err, result, fields)=>{
             if (err) console.log(err);
           });
@@ -336,7 +312,7 @@ class peerMemoryObj {
       });
     });	    
   }	  
-  resetDb(blockNbr=null){
+  resetDb(){
     return new Promise( (resolve,reject)=>{
       var SQL = "";
       SQL =  "truncate table peerBrain.peerMemCells; ";
@@ -395,10 +371,6 @@ class peerMemoryObj {
       this.group.updateGroup(j.statusUpdate);
       return;
     }
-    //if (this.chain.handleReply(j))
-    //  return;
-
-   //console.log('\nNo Bank Reply Handler Found For: ',j);
   }
   handleBCast(j){
     //console.log('bcast received: ',j);
@@ -419,7 +391,7 @@ class peerMemoryObj {
       to : 'peerMemCells',
       token : 'some token'
     }
-    console.log('bcast greeting to memoryCell group: ',breq);
+    //console.log('bcast greeting to memoryCell group: ',breq);
     this.net.broadcast(breq);
     const gtime = setTimeout( ()=>{
       this.sayHelloPeerGroup();
@@ -453,6 +425,7 @@ class peerMemoryObj {
     return str;
   }	  
   doBestMatchQry(j,ip){
+     console.log('search from: ',ip);
      console.log('here is the search..',j);
      var qtype = '';
      if (j.qry.qryType){
