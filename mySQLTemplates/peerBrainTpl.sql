@@ -67,7 +67,7 @@ CREATE TABLE `peerMemoryCell` (
   KEY `ndxPmcWord` (`pmcMemWord`),
   KEY `ndxPmcWordSeqID` (`pmcWordSequence`),
   KEY `ndxPmcMemObjType` (`pmcMemObjType`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -76,6 +76,7 @@ CREATE TABLE `peerMemoryCell` (
 
 LOCK TABLES `peerMemoryCell` WRITE;
 /*!40000 ALTER TABLE `peerMemoryCell` DISABLE KEYS */;
+INSERT INTO `peerMemoryCell` VALUES (1,'1NWobwMyHtu3Qv4NdvoVXX69zv7e6xxM14','ba95cbdd0685fa186f137b0aea6126a879e08298d87130b4a68f8b720c5196db','klizaliste',1,7,'acHashTag');
 /*!40000 ALTER TABLE `peerMemoryCell` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -89,9 +90,10 @@ DROP TABLE IF EXISTS `peerSearchResults`;
 CREATE TABLE `peerSearchResults` (
   `psrchID` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `psrchHash` varchar(64) DEFAULT NULL,
-  `psrchScore` decimal(10,9) DEFAULT NULL,
+  `psrchScore` decimal(14,9) DEFAULT NULL,
   `psrchMemoryID` varchar(64) DEFAULT NULL,
   `psrchDate` datetime DEFAULT NULL,
+  `psrchConfirmations` int(11) DEFAULT NULL,
   PRIMARY KEY (`psrchID`),
   KEY `ndxPsrcHash` (`psrchHash`),
   KEY `ndxPsrcScore` (`psrchScore`),
@@ -117,4 +119,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2023-01-04  0:23:57
+-- Dump completed on 2023-01-07 11:02:48
