@@ -71,7 +71,7 @@ class peerMemCellReceptor{
   constructor(peerTree){
     this.peer = peerTree;
     console.log('ATTACHING - cellReceptor on port'+recPort);
-
+    this.results = ['empty'];
     const options = {
       //key: fs.readFileSync('/etc/letsencrypt/live/admin.bitmonky.com/privkey.pem'),
       //cert: fs.readFileSync('/etc/letsencrypt/live/admin.bitmonky.com/fullchain.pem')
@@ -140,14 +140,22 @@ class peerMemCellReceptor{
     };
     return mToken;
   }
-  doSearch(j,res){
+  async doSearch(j,res){
+    this.results = {result : 0, msg : 'no results found'};
     var breq = {
       to : 'peerMemCells',
       qry : j.qry
     }
     console.log('bcast search request to memoryCell group: ',breq);
     this.peer.net.broadcast(breq);
-    res.end('search Function does not exist yet.');
+    const qres = await this.getSearchResults(j);
+    res.end(JSON.stringify(qres));
+  }
+  getSearchResults(j){
+    return new Promise( async(resolve,reject)=>{
+      await sleep(2*1000);
+      resolve('{"result": 1,"data":'+JSON.stringify(this.results)+'}');
+    });
   }
   prepMemoryReq(j,res){
     j.memory.token = this.openMemKeyFile(j);
@@ -468,6 +476,7 @@ class peerMemoryObj {
   pushQryResult(j,res) {
     this.net.endRes(res,'{"result":"ok"}');
     this.receptor.procQryResult(j);
+    this.receptor.results = j.result;
   }	  
   receptorReqStoreMem(j,toIp){
     console.log('receptorReqStoreMem',j);
