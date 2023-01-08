@@ -42,6 +42,7 @@ class peerMemToken{
           this.publicKey    = j.publicKey;
           this.privateKey   = j.privateKey;
           this.memOwnMUID   = j.memOwnMUID;
+	  this.memCipher    = j.memCipher;
           this.signingKey   = ec.keyFromPrivate(this.privateKey);
         }
         catch {console.log('wallet file not valid');process.exit();}
@@ -52,11 +53,18 @@ class peerMemToken{
         this.privateKey = key.getPrivate('hex');
 
         console.log('Generate a new wallet key pair and convert them to hex-strings');
-        const mkybc = bitcoin.payments.p2pkh({ pubkey: new Buffer(''+this.publicKey, 'hex') });
+        var mkybc = bitcoin.payments.p2pkh({ pubkey: new Buffer(''+this.publicKey, 'hex') });
         this.branchMUID = mkybc.address;
 
-        const wallet = '{"memOwnMUID":"'+ this.branchMUID+'","publicKey":"' + this.publicKey + '","privateKey":"' + this.privateKey + '"}';
+        const pmc = ec.genKeyPair();
+        this.pmCipherKey  = pmc.getPublic('hex');
 
+        console.log('Generate a new wallet cipher key');
+        mkybc = bitcoin.payments.p2pkh({ pubkey: new Buffer(''+this.pmCipherKey, 'hex') });
+        this.memCipher = mkybc.address;
+
+        var wallet = '{"memOwnMUID":"'+ this.branchMUID+'","publicKey":"' + this.publicKey + '","privateKey":"' + this.privateKey + '",';
+        wallet += '"memCipher","'+this.memCipher+'"}';
         fs.writeFile('keys/peerMemToken.key', wallet, function (err) {
           if (err) throw err;
          //console.log('Wallet Created And Saved!');
