@@ -51,11 +51,13 @@ CREATE TABLE `shards` (
   `shardOwnerID` bigint(20) DEFAULT NULL,
   `shardHash` varchar(84) DEFAULT NULL,
   `shardDate` datetime DEFAULT NULL,
+  `shardExpire` datetime DEFAULT NULL,
   `shardData` blob,
   PRIMARY KEY (`shardID`),
   KEY `ndxShardDate` (`shardDate`),
   KEY `ndxShardHash` (`shardHash`),
-  KEY `ndxShardOwnerID` (`shardOwnerID`)
+  KEY `ndxShardOwnerID` (`shardOwnerID`),
+  KEY `jndxShardExpire` (`shardExpire`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -77,4 +79,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2023-01-09 10:54:15
+-- Dump completed on 2023-01-09 13:42:03
