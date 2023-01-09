@@ -47,6 +47,30 @@ LOCK TABLES `peerMemCells` WRITE;
 UNLOCK TABLES;
 
 --
+-- Table structure for table `peerMemOwners`
+--
+
+DROP TABLE IF EXISTS `peerMemOwners`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `peerMemOwners` (
+  `permID` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `permMUID` varchar(84) DEFAULT NULL,
+  PRIMARY KEY (`permID`),
+  UNIQUE KEY `ndxPermMUID` (`permMUID`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `peerMemOwners`
+--
+
+LOCK TABLES `peerMemOwners` WRITE;
+/*!40000 ALTER TABLE `peerMemOwners` DISABLE KEYS */;
+/*!40000 ALTER TABLE `peerMemOwners` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `peerMemoryCell`
 --
 
@@ -67,7 +91,7 @@ CREATE TABLE `peerMemoryCell` (
   KEY `ndxPmcWord` (`pmcMemWord`),
   KEY `ndxPmcWordSeqID` (`pmcWordSequence`),
   KEY `ndxPmcMemObjType` (`pmcMemObjType`)
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -76,7 +100,6 @@ CREATE TABLE `peerMemoryCell` (
 
 LOCK TABLES `peerMemoryCell` WRITE;
 /*!40000 ALTER TABLE `peerMemoryCell` DISABLE KEYS */;
-INSERT INTO `peerMemoryCell` VALUES (1,'1NWobwMyHtu3Qv4NdvoVXX69zv7e6xxM14','ba95cbdd0685fa186f137b0aea6126a879e08298d87130b4a68f8b720c5196db','klizaliste',1,7,'acHashTag');
 /*!40000 ALTER TABLE `peerMemoryCell` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -119,4 +142,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2023-01-07 11:02:48
+-- Dump completed on 2023-01-09 16:11:52
