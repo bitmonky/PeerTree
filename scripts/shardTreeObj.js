@@ -123,10 +123,6 @@ class shardTreeCellReceptor{
               var j = null;
               try {
                 j = JSON.parse(body);
-                if (!j.msg.remIp) j.msg.remIp = this.remIp;
-                if (j.req == 'storeMemory'){
-            this.prepMemoryReq(j,res);
-            return;
               }
               catch {j = JSON.parse('{"result":"json parse error:"}');console.log('POST Reply Error: ',j)}
               res.setHeader('Content-Type', 'application/json');
@@ -220,7 +216,7 @@ var con = mysql.createConnection({
   host: "localhost",
   user: "username",
   password: "password",
-  database: "peerBrain",
+  database: "shardTree",
   dateStrings: "date",
   multipleStatements: true,
   supportBigNumbers : true
