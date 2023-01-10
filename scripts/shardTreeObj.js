@@ -108,31 +108,37 @@ class shardTreeCellReceptor{
       }
       else {
         if (req.url.indexOf('/netREQ/msg=') == 0){
-          var msg = req.url.replace('/netREQ/msg=','');
-          msg = msg.replace(/\+/g,' ');
-          msg = decodeURI(msg);
-          msg = msg.replace(/%3A/g,':');
-          msg = msg.replace(/%2C/g,',');
-          msg = msg.replace(/\\%2F/g,'/');
-          var j = null;
-          try {j = JSON.parse(msg);}
-          catch {
-             console.log("json parse error:",msg);
-             process.exit();
-          }
-          console.log('mkyReq',j);
-
-          if (j.req == 'storeMemory'){
-	    this.prepMemoryReq(j,res);
+	  if (req.method == 'POST') {
+            var body = '';
+            req.on('data', (data)=>{
+              body += data;
+              // Too much POST data, kill the connection!
+              //console.log('body.length',body.length);
+              if (body.length > 300000000){
+                console.log('max datazize exceeded');
+                req.connection.destroy();
+              }
+            });
+            req.on('end', ()=>{
+              var j = null;
+              try {
+                j = JSON.parse(body);
+                if (!j.msg.remIp) j.msg.remIp = this.remIp;
+                if (j.req == 'storeMemory'){
+            this.prepMemoryReq(j,res);
             return;
-          }   
-          if (j.req == 'searchMemory'){
-            //this.prepMemoryReq(j,res);
-            this.doSearch(j,res);
-	    return;
+              }
+              catch {j = JSON.parse('{"result":"json parse error:"}');console.log('POST Reply Error: ',j)}
+              res.setHeader('Content-Type', 'application/json');
+              res.writeHead(200);
+              if (j.req == 'storeShard'){
+                this.reqStoreShard(j,res);
+                return;
+	      }	      
+	      res.end('{"netReq":"action '+j.req+' not found"}');
+            });
           }
-          res.end('OK');
-        }
+	}	
         else {
           res.end('Wellcome To The PeerTree KeyGEN Server\nUse end point /keyGEN to request key pair');
         }
@@ -171,7 +177,7 @@ class shardTreeCellReceptor{
       resolve('{"result": 1,"data":'+JSON.stringify(this.results)+'}');
     });
   }
-  prepMemoryReq(j,res){
+  reqStoreShard(j,res){
     j.memory.token = this.openMemKeyFile(j);
     var SQL = "SELECT pcelAddress FROM peerBrain.peerMemCells ";
     SQL += "where pcelLastStatus = 'online' and  timestampdiff(second,pcelLastMsg,now()) < 50 order by rand() limit 1";
@@ -214,7 +220,7 @@ var con = mysql.createConnection({
   host: "localhost",
   user: "username",
   password: "password",
-  database: "shardTree",
+  database: "peerBrain",
   dateStrings: "date",
   multipleStatements: true,
   supportBigNumbers : true
