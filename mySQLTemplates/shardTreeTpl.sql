@@ -16,6 +16,37 @@
 /*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
 
 --
+-- Table structure for table `shardCells`
+--
+
+DROP TABLE IF EXISTS `shardCells`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `shardCells` (
+  `scelID` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `scelAddress` varchar(64) DEFAULT NULL,
+  `scelLastStatus` varchar(20) DEFAULT NULL,
+  `scelLastMsg` datetime DEFAULT NULL,
+  `scelPubKey` varchar(145) DEFAULT NULL,
+  `scelOwnMUID` varchar(84) DEFAULT NULL,
+  PRIMARY KEY (`scelID`),
+  UNIQUE KEY `scellID_UNIQUE` (`scelID`),
+  UNIQUE KEY `scellAddress_UNIQUE` (`scelAddress`),
+  KEY `ndxPcelLastStatus` (`scelLastStatus`),
+  KEY `ndxPcelLastMsg` (`scelLastMsg`)
+) ENGINE=InnoDB DEFAULT CHARSET=latin1;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `shardCells`
+--
+
+LOCK TABLES `shardCells` WRITE;
+/*!40000 ALTER TABLE `shardCells` DISABLE KEYS */;
+/*!40000 ALTER TABLE `shardCells` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `shardOwners`
 --
 
@@ -79,4 +110,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2023-01-09 13:42:03
+-- Dump completed on 2023-01-10 16:04:29
