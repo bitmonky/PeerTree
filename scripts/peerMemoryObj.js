@@ -64,7 +64,7 @@ class peerMemToken{
         this.memCipher = mkybc.address;
 
         var wallet = '{"memOwnMUID":"'+ this.branchMUID+'","publicKey":"' + this.publicKey + '","privateKey":"' + this.privateKey + '",';
-        wallet += '"memCipher","'+this.memCipher+'"}';
+        wallet += '"memCipher":"'+this.memCipher+'"}';
         fs.writeFile('keys/peerMemToken.key', wallet, function (err) {
           if (err) throw err;
          //console.log('Wallet Created And Saved!');
@@ -188,7 +188,9 @@ class peerMemCellReceptor{
             console.log('memeory storage failed on:',rec.pcelAddress);
           }
           if (n==result.length -1){
-            res.end('{"result":"memOK","nRecs":'+nStored+',"memory":'+JSON.stringify(j)+'}');
+            j.memory.token.privateKey = '**********';
+            j.memory.token.publicKey  = '**********';
+            res.end('{"result":"memOK","nStored":'+nStored+',"memory":'+JSON.stringify(j)+'}');
 	  }	
 	});
       } 		  
