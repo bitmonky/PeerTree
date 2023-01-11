@@ -10,7 +10,8 @@ const bitcoin      = require('bitcoinjs-lib');
 const crypto       = require('crypto');
 const mysql        = require('mysql');
 const schedule     = require('node-schedule');
-const {MkyWebConsole}                   = require('./networkWebConsole.js');
+const {MkyWebConsole} = require('./networkWebConsole.js');
+const {pcrypt}        = require('./peerCrypt');
 
 addslashes  = require ('./addslashes');
 
@@ -43,7 +44,8 @@ class peerMemToken{
           this.privateKey   = j.privateKey;
           this.memOwnMUID   = j.memOwnMUID;
 	  this.memCipher    = j.memCipher;
-          this.signingKey   = ec.keyFromPrivate(this.privateKey);
+          this.crypt        = new pcrypt(this.memCipher);
+  	  this.signingKey   = ec.keyFromPrivate(this.privateKey);
         }
         catch {console.log('wallet file not valid');process.exit();}
       }
