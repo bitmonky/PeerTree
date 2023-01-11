@@ -27,7 +27,7 @@ This port is used for your regular apps to interact
 with a shardTreeCell on the PeerTree File Store network;
 */
 
-class peerMemToken{
+class peerShardToken{
    constructor(){
       this.publicKey   = null;
       this.privateKey  = null;
@@ -37,7 +37,7 @@ class peerMemToken{
 
    openWallet(){
       var keypair = null;
-      try {keypair =  fs.readFileSync('keys/peerMemToken.key');}
+      try {keypair =  fs.readFileSync('keys/peerShardToken.key');}
       catch {console.log('no wallet file found');}
       this.publicKey = null;
       if (keypair){
@@ -45,11 +45,11 @@ class peerMemToken{
           const pair = keypair.toString();
           const j = JSON.parse(pair);
           console.log(j);
-          this.publicKey    = j.publicKey;
-          this.privateKey   = j.privateKey;
-          this.memOwnMUID   = j.memOwnMUID;
-	  this.memCipher    = j.memCipher;
-          this.signingKey   = ec.keyFromPrivate(this.privateKey);
+          this.publicKey     = j.publicKey;
+          this.privateKey    = j.privateKey;
+          this.shardOwnMUID  = j.shardOwnMUID;
+	  this.shardCipher   = j.shardCipher;
+          this.signingKey    = ec.keyFromPrivate(this.privateKey);
         }
         catch {console.log('wallet file not valid');process.exit();}
       }
@@ -67,11 +67,11 @@ class peerMemToken{
 
         console.log('Generate a new wallet cipher key');
         mkybc = bitcoin.payments.p2pkh({ pubkey: new Buffer(''+this.pmCipherKey, 'hex') });
-        this.memCipher = mkybc.address;
+        this.shardCipher = mkybc.address;
 
-        var wallet = '{"memOwnMUID":"'+ this.branchMUID+'","publicKey":"' + this.publicKey + '","privateKey":"' + this.privateKey + '",';
-        wallet += '"memCipher","'+this.memCipher+'"}';
-        fs.writeFile('keys/peerMemToken.key', wallet, function (err) {
+        var wallet = '{"shardOwnMUID":"'+ this.branchMUID+'","publicKey":"' + this.publicKey + '","privateKey":"' + this.privateKey + '",';
+        wallet += '"shardCipher":"'+this.shardCipher+'"}';
+        fs.writeFile('keys/peerShardToken.key', wallet, function (err) {
           if (err) throw err;
          //console.log('Wallet Created And Saved!');
         });
@@ -92,8 +92,8 @@ class shardTreeCellReceptor{
       key: fs.readFileSync('keys/privkey.pem'),
       cert: fs.readFileSync('keys/fullchain.pem')
     };
-    this.memToken = new peerMemToken();
-    console.log(this.memToken);
+    this.shardToken = new peerShardToken();
+    console.log(this.shardToken);
     var bserver = https.createServer(options, (req, res) => {
 
       res.writeHead(200);
@@ -142,27 +142,27 @@ class shardTreeCellReceptor{
     });
   
     bserver.listen(recPort);
-    console.log('peerTree Memory Receptor running on port:'+recPort);
+    console.log('peerTree Shard Receptor running on port:'+recPort);
   }
   procQryResult(j){
     console.log('incoming search result:',j);
   }
-  openMemKeyFile(j){
-    const bitToken = bitcoin.payments.p2pkh({ pubkey: new Buffer.from(''+this.memToken.publicKey, 'hex') }); 
+  openShardKeyFile(j){
+    const bitToken = bitcoin.payments.p2pkh({ pubkey: new Buffer.from(''+this.shardToken.publicKey, 'hex') }); 
     var mToken = {
-      publicKey   : this.memToken.publicKey,
+      publicKey   : this.shardToken.publicKey,
       ownMUID     : bitToken.address,
-      privateKey  : this.memToken.privateKey  // create from public key using bitcoin wallet algorythm.
+      privateKey  : this.shardToken.privateKey  // create from public key using bitcoin wallet algorythm.
     };
     return mToken;
   }
   async doSearch(j,res){
     this.results = {result : 0, msg : 'no results found'};
     var breq = {
-      to : 'peerMemCells',
+      to : 'shardTreeCells',
       qry : j.qry
     }
-    console.log('bcast search request to memoryCell group: ',breq);
+    console.log('bcast search request to shardCell group: ',breq);
     this.peer.net.broadcast(breq);
     const qres = await this.getSearchResults(j);
     res.end(JSON.stringify(qres));
@@ -174,37 +174,37 @@ class shardTreeCellReceptor{
     });
   }
   reqStoreShard(j,res){
-    j.memory.token = this.openMemKeyFile(j);
-    var SQL = "SELECT pcelAddress FROM peerBrain.peerMemCells ";
-    SQL += "where pcelLastStatus = 'online' and  timestampdiff(second,pcelLastMsg,now()) < 50 order by rand() limit 1";
+    j.shard.token = this.openShardKeyFile(j);
+    var SQL = "SELECT scelAddress FROM shardTree.shardCells ";
+    SQL += "where scelLastStatus = 'online' and  timestampdiff(second,scelLastMsg,now()) < 50 order by rand() limit 1";
     console.log(SQL);
     var nStored = 0;
     con.query(SQL, (err, result, fields)=> {
       if (err) {console.log(err);}
       else {
         if (result.length == 0){
-          res.end('{"result":"memOK","nRecs":0,"memory":"No Nodes Available"}');
+          res.end('{"result":"shardOK","nRecs":0,"shard":"No Nodes Available"}');
 	}	
 	result.forEach(async(rec,n) =>{ 
           try {
-            var qres = await this.peer.receptorReqStoreMem(j,rec.pcelAddress);
+            var qres = await this.peer.receptorReqStoreShard(j,rec.scelAddress);
             if (qres){
 	      nStored = nStored +1;
 	    }    
           }
 	  catch(err) {
-            console.log('memeory storage failed on:',rec.pcelAddress);
+            console.log('shard storage failed on:',rec.scelAddress);
           }
           if (n==result.length -1){
-            j.memory.token.privateKey = '**********';
-            j.memory.token.publicKey  = '**********';
-            res.end('{"result":"memOK","nStored":'+nStored+',"memory":'+JSON.stringify(j)+'}');
+            j.shard.token.privateKey = '**********';
+            j.shard.token.publicKey  = '**********';
+            res.end('{"result":"shardOK","nStored":'+nStored+',"shard":'+JSON.stringify(j)+'}');
 	  }	
 	});
       } 		  
     });
   }
-  signMemRequest(j){
+  signShardRequest(j){
     return;
   }
 };
@@ -296,21 +296,21 @@ class shardTreeObj {
       req.end();
     });
   }
-  updatePMemcellDB(j){
+  updatePShardcellDB(j){
     //console.log('Reviewing PeerTree Nodes DB',j);
-    var SQL = "SELECT count(*)nRec FROM peerBrain.peerMemCells where pcelAddress = '"+j.remIp+"'";
+    var SQL = "SELECT count(*)nRec FROM peerBrain.peerShardCells where pcelAddress = '"+j.remIp+"'";
     con.query(SQL,(err, result, fields)=> {
       if (err) console.log(err);
       else {
         if (result[0].nRec == 0){
-          SQL = "insert into peerBrain.peerMemCells (pcelAddress,pcelLastStatus,pcelLastMsg)";
+          SQL = "insert into peerBrain.peerShardCells (pcelAddress,pcelLastStatus,pcelLastMsg)";
           SQL += "values ('"+j.remIp+"','New',now())";
           con.query(SQL,(err, result, fields)=>{
             if (err) console.log(err);
           });
         }
 	else {
-          SQL = "update peerBrain.peerMemCells set pcelLastStatus = 'online',pcelLastMsg = now() ";
+          SQL = "update peerBrain.peerShardCells set pcelLastStatus = 'online',pcelLastMsg = now() ";
           SQL += "where pcelAddress = '"+j.remIp+"'";
           //console.log(SQL);
           con.query(SQL,(err, result, fields)=>{
@@ -323,12 +323,12 @@ class shardTreeObj {
   doNodesDBMaint(){
     console.log('Reviewing PeerTree Nodes DB',this.net.nodes);
     this.net.nodes.forEach((node) => {
-      var SQL = "SELECT count(*)nRec FROM peerBrain.peerMemCells where pcelAddress = '"+node.ip+"'";
+      var SQL = "SELECT count(*)nRec FROM peerBrain.peerShardCells where pcelAddress = '"+node.ip+"'";
       con.query(SQL, function (err, result, fields) {
         if (err) console.log(err);
         else {
           if (result[0].nRec == 0){
-            SQL = "insert into peerBrain.peerMemCells (pcelAddress,pcelLastStatus,pcelLastMsg)";
+            SQL = "insert into peerBrain.peerShardCells (pcelAddress,pcelLastStatus,pcelLastMsg)";
             SQL += "values ('"+node.ip+"','New',now())";
             con.query(SQL, function (err, result, fields) {
               if (err) console.log(err);
@@ -341,8 +341,8 @@ class shardTreeObj {
   resetDb(){
     return new Promise( (resolve,reject)=>{
       var SQL = "";
-      SQL =  "truncate table peerBrain.peerMemCells; ";
-      SQL += "truncate table peerBrain.peerMemoryCell; ";
+      SQL =  "truncate table peerBrain.peerShardCells; ";
+      SQL += "truncate table peerBrain.peerShardCell; ";
       con.query(SQL, async (err, result, fields)=>{
         if (err) {console.log(err);reject(err);}
         else {
@@ -367,12 +367,12 @@ class shardTreeObj {
   }
   handleReq(res,j){
     //console.log('root recieved: ',j);
-    if (j.req == 'pMemQryResult'){
+    if (j.req == 'pShardQryResult'){
       this.pushQryResult(j,res);
       return true;
     }
-    if (j.req == 'storeMemory'){
-      this.storeMemory(j,res);
+    if (j.req == 'storeShard'){
+      this.storeShard(j,res);
       return true;
     }
     if (j.req == 'gotUAddMe'){
@@ -392,7 +392,7 @@ class shardTreeObj {
     return false;
   }
   handleReply(j){
-    //console.log('\n====================\memCell reply handler',j);
+    //console.log('\n====================\shardCell reply handler',j);
     if (j.statusUpdate){
       this.group.updateGroup(j.statusUpdate);
       return;
@@ -401,8 +401,8 @@ class shardTreeObj {
   handleBCast(j){
     //console.log('bcast received: ',j);
     if (!j.msg.to) {return;}
-    if (j.msg.to == 'peerMemCells'){
-      this.updatePMemcellDB(j);  
+    if (j.msg.to == 'peerShardCells'){
+      this.updatePShardcellDB(j);  
       if (j.msg.qry){
         if (j.msg.qry.qryStyle == 'bestMatch')
           this.doBestMatchQry(j.msg,j.remIp);
@@ -414,10 +414,10 @@ class shardTreeObj {
   }
   sayHelloPeerGroup(){
     var breq = {
-      to : 'peerMemCells',
+      to : 'peerShardCells',
       token : 'some token'
     }
-    //console.log('bcast greeting to memoryCell group: ',breq);
+    //console.log('bcast greeting to shardCell group: ',breq);
     this.net.broadcast(breq);
     const gtime = setTimeout( ()=>{
       this.sayHelloPeerGroup();
@@ -455,9 +455,9 @@ class shardTreeObj {
      console.log('here is the search..',j);
      var qtype = '';
      if (j.qry.qryType){
-       qtype = " and pmcMemObjType = '"+j.qry.qryType+"'";
+       qtype = " and pmcShardObjType = '"+j.qry.qryType+"'";
      }
-     var SQLr = "select pmcMownerID,pmcMemObjID,pmcMemObjNWords,count(*)nMatches,count(*)/pmcMemObjNWords score from peerBrain.peerMemoryCell ";
+     var SQLr = "select pmcMownerID,pmcShardObjID,pmcShardObjNWords,count(*)nMatches,count(*)/pmcShardObjNWords score from peerBrain.peerShardCell ";
      SQLr += "where pmcMownerID = '"+j.qry.ownerID+"' "+qtype+" and (";
      var qry = this.singleSpaceOnly(j.qry.qryStr);
      var words = qry.split(' ');
@@ -469,10 +469,10 @@ class shardTreeObj {
        if (n == nwords){
 	 or = '';
        }
-       SQL += "pmcMemWord = '"+word+"' "+or; 
+       SQL += "pmcShardWord = '"+word+"' "+or; 
        n = n+1;
      });
-     SQL += ")group by pmcMownerID,pmcMemObjID,pmcMemObjNWords ";
+     SQL += ")group by pmcMownerID,pmcShardObjID,pmcShardObjNWords ";
      SQL += "having score >= "+j.qry.reqScore+" ";
      SQL += "order by score desc";
      console.log(SQL);
@@ -481,7 +481,7 @@ class shardTreeObj {
        else {
          if (result.length > 0){
            var qres = {
-             req : 'pMemQryResult',
+             req : 'pShardQryResult',
 	     nRec : result.length,
              result : result,
              qry : j		   
@@ -496,42 +496,42 @@ class shardTreeObj {
     this.receptor.procQryResult(j);
     this.receptor.results = j.result;
   }	  
-  receptorReqStoreMem(j,toIp){
-    console.log('receptorReqStoreMem',j);
+  receptorReqStoreShard(j,toIp){
+    console.log('receptorReqStoreShard',j);
     return new Promise( (resolve,reject)=>{	  
       const gtime = setTimeout( ()=>{
         console.log('Store Request Timeout:');
         resolve(null);
       },10*1000);  
-      console.log('Store Memory To: ',toIp);
+      console.log('Store Shard To: ',toIp);
       var req = {
-        req : 'storeMemory',
-        memory : j.memory
+        req : 'storeShard',
+        shard : j.shard
       }
 
       this.net.sendMsg(toIp,req);
       this.net.on('mkyReply', r =>{
-        if (r.memStoreRes){
-          console.log('memStoreRes OK!!',r);
+        if (r.shardStoreRes){
+          console.log('shardStoreRes OK!!',r);
           clearTimeout(gtime);
 	  resolve(r);
         }		    
       });
     });
   }	  
-  storeMemory(j,res){
-    console.log('got request store memory',j);
-    var m = j.memory;
+  storeShard(j,res){
+    console.log('got request store shard',j);
+    var m = j.shard;
     const mUID = m.from;
-    var memory = this.singleSpaceOnly(m.memStr);
-    var memories = memory.split(' ');
-    var nwords   = memories.length;  
-    var SQLr = "insert into peerBrain.peerMemoryCell (pmcMownerID,pmcMemObjID,pmcMemObjType,pmcMemObjNWords,pmcMemWord,pmcWordSequence) ";
+    var shard = this.singleSpaceOnly(m.shardStr);
+    var shardories = shard.split(' ');
+    var nwords   = shardories.length;  
+    var SQLr = "insert into peerBrain.peerShardCell (pmcMownerID,pmcShardObjID,pmcShardObjType,pmcShardObjNWords,pmcShardWord,pmcWordSequence) ";
     var SQL = "";
     var n = 1;
-    memories.forEach( (word) =>{
+    shardories.forEach( (word) =>{
       if (word != ''){
-        SQL += SQLr + "values ('"+m.from+"','"+m.memID+"','"+m.memType+"',"+nwords+",'"+word+"',"+n+");";
+        SQL += SQLr + "values ('"+m.from+"','"+m.shardID+"','"+m.shardType+"',"+nwords+",'"+word+"',"+n+");";
         n = n + 1;
       }
     });	    
@@ -541,8 +541,8 @@ class shardTreeObj {
         this.net.endRes(res,JSON.stringify(err));
       }
       else {
-        const hash = 'write hash function for memstore';
-	this.net.endRes(res,'{"memStoreRes":true,"memStorHash":"' + hash + '"}');
+        const hash = 'write hash function for shardstore';
+	this.net.endRes(res,'{"shardStoreRes":true,"shardStorHash":"' + hash + '"}');
       }
     });
   }

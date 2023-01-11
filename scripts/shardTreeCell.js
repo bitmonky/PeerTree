@@ -10,7 +10,7 @@ const options = {
   cert: fs.readFileSync('keys/fullchain.pem')
 };
 const {MkyNetNode,MkyNetObj,MkyNetTab}   = require('./peerTree');
-const {peerMemoryObj,peerMemCellReceptor} = require('./shardTreeObj.js');
+const {shardTreeObj,shardTreeCellReceptor} = require('./shardTreeObj.js');
 
 /*******************
 Create PeerTree Network Peer
@@ -48,24 +48,25 @@ async function main(){
     startShardCell(rootBranch);
   }
 }
-function startStartShardCell(){
+var rBranch = null;
+function startShardCell(){
     var scell = new shardTreeObj(mkyNet,reset);
-    const scellReceptor = new shardCellReceptor(scell);
+    const scellReceptor = new shardTreeCellReceptor(scell);
     scell.attachReceptor(scellReceptor);
     if (rBranch){
       console.log('\nNEW>>>SETTING shardCell TO ROOT');
       scell.isRoot = true;
     }
-    mcell.net.on('mkyReq',(res,j)=>{
+    scell.net.on('mkyReq',(res,j)=>{
       scell.handleReq(res,j);
     });
-    mcell.net.on('bcastMsg',j =>{
+    scell.net.on('bcastMsg',j =>{
       scell.handleBCast(j);
     });
-    mcell.net.on('mkyReply', j =>{
+    scell.net.on('mkyReply', j =>{
       scell.handleReply(j);
     });
-    mcell.net.on('xhrFail', j =>{
+    scell.net.on('xhrFail', j =>{
       scell.handleXhrError(JSON.parse(j));
     });
 }
