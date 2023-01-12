@@ -1334,15 +1334,23 @@ class MkyNetObj extends  EventEmitter {
               var j = null;
               try {
                 j = JSON.parse(body);
-                if (!j.msg.remIp) j.msg.remIp = this.remIp;
+                if (j.hasOwnProperty('msg') === false) throw 'invalid request no msg body found';
+		if (!j.msg.remIp) j.msg.remIp = this.remIp;
+                res.setHeader('Content-Type', 'application/json');
+                res.writeHead(200);
+                res.end('{"netReq":"OK"}');
+                this.resHandled = true;
+                clearTimeout(this.svtime);
+                this.emit('mkyReq',this.remIp,j.msg);
               }
-              catch {j = JSON.parse('{"result":"json parse error:"}');console.log('POST Repley Error: ',j)}
-              res.setHeader('Content-Type', 'application/json');
-              res.writeHead(200);
-              res.end('{"netReq":"OK"}');
-              this.resHandled = true;
-              clearTimeout(this.svtime);
-              this.emit('mkyReq',this.remIp,j.msg);
+              catch (err) {
+		console.log('POST Repley Error: ',j)
+                res.setHeader('Content-Type', 'application/json');
+                res.writeHead(500);
+                res.end('{"netReq":"Fail","error":"'+err+'"}');
+                this.resHandled = true;
+                clearTimeout(this.svtime);
+	      }
             });
           }
         }
@@ -1479,7 +1487,9 @@ class MkyNetObj extends  EventEmitter {
      return hexSig;
    }
    isValidSig(j) {
-    if (!j.remPublicKey) {console.log('pubkey is missing',j);return false;}
+     if (!j){console.log('remPublicKey is null',j);return false;}
+     if (j.hasOwnProperty('remPublicKey') === false) {console.log('remPublicKey is undefined',j);return false;}
+     if (!j.remPublicKey) {console.log('remPublickey is missing',j);return false;}
 
      if (!j.signature || j.signature.length === 0) {
         return false;
