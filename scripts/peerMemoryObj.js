@@ -83,8 +83,6 @@ class peerMemCellReceptor{
     console.log('ATTACHING - cellReceptor on port'+recPort);
     this.results = ['empty'];
     const options = {
-      //key: fs.readFileSync('/etc/letsencrypt/live/admin.bitmonky.com/privkey.pem'),
-      //cert: fs.readFileSync('/etc/letsencrypt/live/admin.bitmonky.com/fullchain.pem')
       key: fs.readFileSync('keys/privkey.pem'),
       cert: fs.readFileSync('keys/fullchain.pem')
     };
@@ -123,7 +121,6 @@ class peerMemCellReceptor{
             return;
           }   
           if (j.req == 'searchMemory'){
-            //this.prepMemoryReq(j,res);
             this.doSearch(j,res);
 	    return;
           }
@@ -535,7 +532,7 @@ class peerMemoryObj {
         this.net.endRes(res,JSON.stringify(err));
       }
       else {
-        const hash = 'write hash function for memstore';
+        const hash = crypto.createHash('sha256').update(SQL).digest('hex');
 	this.net.endRes(res,'{"memStoreRes":true,"memStorHash":"' + hash + '"}');
       }
     });
