@@ -82,6 +82,7 @@ class peerMemCellReceptor{
     this.peer = peerTree;
     console.log('ATTACHING - cellReceptor on port'+recPort);
     this.results = ['empty'];
+    this.searches = [];
     const options = {
       key: fs.readFileSync('keys/privkey.pem'),
       cert: fs.readFileSync('keys/fullchain.pem')
@@ -135,6 +136,21 @@ class peerMemCellReceptor{
     bserver.listen(recPort);
     console.log('peerTree Memory Receptor running on port:'+recPort);
   }
+  isThere(inId){
+    var i = null;
+    this.searches.every((item,n) =>{
+      if (item.id == inId){
+        i = n;
+        return false;
+      }
+      return true;
+    });
+    if(i === null){
+      this.searches.push({id:inId,data : []});
+      return this.searches.length -1;
+    }
+    return i;
+  } 
   procQryResult(j){
     console.log('incoming search result:',j);
   }
@@ -148,6 +164,8 @@ class peerMemCellReceptor{
     return mToken;
   }
   async doSearch(j,res){
+    console.log('doSearch qkey is: ',j.qry.key);
+    //this.searchIndex = this.isThere(j.qry.key);
     this.results = {result : 0, msg : 'no results found'};
     var breq = {
       to : 'peerMemCells',
@@ -205,8 +223,8 @@ End Receptor Code
 */
 var con = mysql.createConnection({
   host: "localhost",
-  user: "username",
-  password: "password",
+  user: "mkyBanker",
+  password: "d2b9f7c5e4ef899a57b0c0e3c30b7892aa43",
   database: "peerBrain",
   dateStrings: "date",
   multipleStatements: true,

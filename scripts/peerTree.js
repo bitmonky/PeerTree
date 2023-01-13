@@ -1416,7 +1416,7 @@ class MkyNetObj extends  EventEmitter {
 		console.log('POST Repley Error: ',j);
                 res.setHeader('Content-Type', 'application/json');
                 res.writeHead(500);
-                res.end('{"webREPLY":"fail","error":"'+err+'"}');
+                res.end('{"webREQ":"fail","error":"'+err+'"}');
               }
             });
           }

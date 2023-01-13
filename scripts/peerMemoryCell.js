@@ -61,6 +61,7 @@ function startMemoryCell(rBranch){
       mcell.handleReply(j);
     });
     mcell.net.on('xhrFail', j =>{
+      console.log('xhrFail is->',j);
       mcell.handleXhrError(JSON.parse(j));
     });
 }
