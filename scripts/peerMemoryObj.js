@@ -223,8 +223,8 @@ End Receptor Code
 */
 var con = mysql.createConnection({
   host: "localhost",
-  user: "mkyBanker",
-  password: "d2b9f7c5e4ef899a57b0c0e3c30b7892aa43",
+  user: "username",
+  password: "password",
   database: "peerBrain",
   dateStrings: "date",
   multipleStatements: true,
