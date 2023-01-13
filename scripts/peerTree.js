@@ -1334,7 +1334,7 @@ class MkyNetObj extends  EventEmitter {
               var j = null;
               try {
                 j = JSON.parse(body);
-                if (j.hasOwnProperty('msg') === false) throw 'invalid request no msg body found';
+                if (j.hasOwnProperty('msg') === false) throw 'invalid netREQ no msg body found';
 		if (!j.msg.remIp) j.msg.remIp = this.remIp;
                 res.setHeader('Content-Type', 'application/json');
                 res.writeHead(200);
@@ -1344,7 +1344,7 @@ class MkyNetObj extends  EventEmitter {
                 this.emit('mkyReq',this.remIp,j.msg);
               }
               catch (err) {
-		console.log('POST Repley Error: ',j)
+		console.log('POST Repley Error: ',j);
                 res.setHeader('Content-Type', 'application/json');
                 res.writeHead(500);
                 res.end('{"netReq":"Fail","error":"'+err+'"}');
@@ -1371,14 +1371,20 @@ class MkyNetObj extends  EventEmitter {
               var j = null;
               try {
                 j = JSON.parse(body);
+                if (j.hasOwnProperty('msg') === false) throw 'invalid netREPLY no msg body found';
                 if (!j.msg.remIp) j.msg.remIp = this.remIp;
+                res.setHeader('Content-Type', 'application/json');
+                res.writeHead(200);
+                res.end('{"netREPLY":"OK"}');
+                clearTimeout(this.svtime);
+                this.emit('mkyReply',j.msg);
               }
-              catch {j = JSON.parse('{"result":"json parse error:"}');console.log('POST Repley Error: ',j)}
-              res.setHeader('Content-Type', 'application/json');
-              res.writeHead(200);
-              res.end('{"netREPLY":"OK"}');
-              clearTimeout(this.svtime);
-              this.emit('mkyReply',j.msg);
+              catch(err) {
+                res.setHeader('Content-Type', 'application/json');
+                res.writeHead(500);
+                res.end('{"netREPLY":"fail","error":"'+err+'"}');
+                clearTimeout(this.svtime);
+              } 
             });
           }
         }
@@ -1400,12 +1406,18 @@ class MkyNetObj extends  EventEmitter {
               var j = null;
               try {
                 j = JSON.parse(body);
+                if (j.hasOwnProperty('msg') === false) throw 'invalid webREQ no msg body found';
                 if (!j.msg.remIp) j.msg.remIp = this.remIp;
+                res.setHeader('Content-Type', 'application/json');
+                res.writeHead(200);
+                this.emit('mkyWebReq',res,j.msg);
               }
-              catch {j = JSON.parse('{"result":"json parse error:"}');console.log('POST Repley Error: ',j)}
-              res.setHeader('Content-Type', 'application/json');
-              res.writeHead(200);
-              this.emit('mkyWebReq',res,j.msg);
+              catch (err) {
+		console.log('POST Repley Error: ',j);
+                res.setHeader('Content-Type', 'application/json');
+                res.writeHead(500);
+                res.end('{"webREPLY":"fail","error":"'+err+'"}');
+              }
             });
           }
         }
