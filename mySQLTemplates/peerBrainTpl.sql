@@ -116,11 +116,12 @@ CREATE TABLE `peerSearchResults` (
   `psrchScore` decimal(14,9) DEFAULT NULL,
   `psrchMemoryID` varchar(64) DEFAULT NULL,
   `psrchDate` datetime DEFAULT NULL,
-  `psrchConfirmations` int(11) DEFAULT NULL,
+  `psrchNodeIP` varchar(64) DEFAULT NULL,
   PRIMARY KEY (`psrchID`),
   KEY `ndxPsrcHash` (`psrchHash`),
   KEY `ndxPsrcScore` (`psrchScore`),
-  KEY `ndxPsrcDate` (`psrchDate`)
+  KEY `ndxPsrcDate` (`psrchDate`),
+  KEY `ndxPsrcNodeIP` (`psrchNodeIP`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -142,4 +143,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2023-01-09 16:11:52
+-- Dump completed on 2023-01-14 11:07:21
