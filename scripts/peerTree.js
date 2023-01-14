@@ -1389,43 +1389,10 @@ class MkyNetObj extends  EventEmitter {
           }
         }
         else {
-        if (req.url.indexOf('/webREQ') == 0){
-          if (req.method == 'POST') {
-            var body = '';
-            req.on('data', (data)=>{
-              body += data;
-              // Too much POST data, kill the connection!
-              //console.log('body.length',body.length);
-              if (body.length > 300000){
-                console.log('max datazize exceeded');
-                req.connection.destroy();
-              }
-            });
-            req.on('end', ()=>{
-              console.log('got /webREQ ..........');
-              var j = null;
-              try {
-                j = JSON.parse(body);
-                if (j.hasOwnProperty('msg') === false) throw 'invalid webREQ no msg body found';
-                if (!j.msg.remIp) j.msg.remIp = this.remIp;
-                res.setHeader('Content-Type', 'application/json');
-                res.writeHead(200);
-                this.emit('mkyWebReq',res,j.msg);
-              }
-              catch (err) {
-		console.log('POST Repley Error: ',j);
-                res.setHeader('Content-Type', 'application/json');
-                res.writeHead(500);
-                res.end('{"webREQ":"fail","error":"'+err+'"}');
-              }
-            });
-          }
-        }
-        else {
           this.endRes(res,'Welcome To PeerTree Network Sevices\nWaiting...\n' + decodeURI(req.url) + ' You Are: ' + this.remIp );
           clearTimeout(this.svtime);
           this.resHandled = true;
-        }}}
+        }}
       });
       this.server.listen(this.port);
       console.log('Server PeerTree7.2 running at ' + this.netIp() + ':' + this.port);
@@ -1603,7 +1570,7 @@ class MkyNetObj extends  EventEmitter {
         msg.remPublicKey = this.publicKey;
       }
       this.sendingReply = true;
-      this.sendPostRequest(toHost,msg);
+      this.sendPostRequest(toHost,msg,'/netREPLY');
       return;
    }
    sendPostRequest(toHost,msg,endPoint='/netREPLY',qmsg){
@@ -1726,30 +1693,29 @@ class MkyNetObj extends  EventEmitter {
          this.rootIp = j.netRootIp;
        }
      });
-     this.on('mkyReq',(res,j)=>{
+     this.on('mkyReq',(remIp,j)=>{
 
        var error = null;       
        if (!this.isValidSig(j)){
          error = '400';
          console.log('invalid signature message refused',j);
-         this.endRes(res,'{"response":"' + error +'"}');
+         this.endRes(remIp,'{"response":"' + error +'"}');
          return;
        }
        this.pushNewNode(j);
 
-       if (this.rnet.handleReq(res,j))
+       if (this.rnet.handleReq(remIp,j))
          return;
 
        if (j.ping == 'hello'){
          var result = this.rnet.checkPeerStatus(j.remIp);
-         //console.log('Ping Result returning a:',result);
-         this.endRes(res,'{"pingResult":"hello back","status":'+result+'}');
+         this.endRes(remIp,'{"pingResult":"hello back","status":'+result+'}');
          return;
        }      
        if (j.req == 'bcast'){
          this.emit('bcastMsg',j);
          this.rnet.forwardMsg(j);
-         this.endRes(res,'');
+         this.endRes(remIp,'');
          this.handleBcast(j);
          return;
        }
