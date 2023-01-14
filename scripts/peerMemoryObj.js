@@ -153,7 +153,16 @@ class peerMemCellReceptor{
   } 
   procQryResult(j){
     console.log('incoming search result:',j);
-  }
+    var SQL = null;
+    j.result.forEach((rec) =>{
+      SQL = "insert into peerBrain.peerSearchResults ";
+      SQL += "(psrchHash,psrchScore,psrchMemoryID,psrchDate,psrchNodeIP) ";
+      SQL += "values ('"+j.qry.qry.key+"',"+rec.score+",'"+rec.pmcMemObjID+"',now(),'"+j.remIp+"');";
+      con.query(SQL,(err, result, fields)=>{
+        if (err) console.log(err);
+      });
+    });
+}
   openMemKeyFile(j){
     const bitToken = bitcoin.payments.p2pkh({ pubkey: new Buffer.from(''+this.memToken.publicKey, 'hex') }); 
     var mToken = {
@@ -223,8 +232,8 @@ End Receptor Code
 */
 var con = mysql.createConnection({
   host: "localhost",
-  user: "username",
-  password: "password",
+  user: "peerMemDBA",
+  password: "9f32570fea8411268cab287bc455b156880c",
   database: "peerBrain",
   dateStrings: "date",
   multipleStatements: true,

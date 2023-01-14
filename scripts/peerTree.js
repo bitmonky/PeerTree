@@ -1336,15 +1336,16 @@ class MkyNetObj extends  EventEmitter {
                 j = JSON.parse(body);
                 if (j.hasOwnProperty('msg') === false) throw 'invalid netREQ no msg body found';
 		if (!j.msg.remIp) j.msg.remIp = this.remIp;
-                res.setHeader('Content-Type', 'application/json');
-                res.writeHead(200);
-                res.end('{"netReq":"OK"}');
                 this.resHandled = true;
                 clearTimeout(this.svtime);
                 this.emit('mkyReq',this.remIp,j.msg);
+                res.setHeader('Content-Type', 'application/json');
+                res.writeHead(200);
+                res.end('{"netReq":"OK"}');
               }
               catch (err) {
-		console.log('POST Repley Error: ',j);
+		console.log('POST netREQ Error: ',err);
+                console.log('POST msg was ->',j);
                 res.setHeader('Content-Type', 'application/json');
                 res.writeHead(500);
                 res.end('{"netReq":"Fail","error":"'+err+'"}');
@@ -1373,13 +1374,15 @@ class MkyNetObj extends  EventEmitter {
                 j = JSON.parse(body);
                 if (j.hasOwnProperty('msg') === false) throw 'invalid netREPLY no msg body found';
                 if (!j.msg.remIp) j.msg.remIp = this.remIp;
+                clearTimeout(this.svtime);
+                this.emit('mkyReply',j.msg);
                 res.setHeader('Content-Type', 'application/json');
                 res.writeHead(200);
                 res.end('{"netREPLY":"OK"}');
-                clearTimeout(this.svtime);
-                this.emit('mkyReply',j.msg);
               }
               catch(err) {
+                console.log('POST netREPLY Error: ',err);
+                console.log('POST msg was ->',j);
                 res.setHeader('Content-Type', 'application/json');
                 res.writeHead(500);
                 res.end('{"netREPLY":"fail","error":"'+err+'"}');
