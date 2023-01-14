@@ -4,7 +4,8 @@ Example code for connecting to your local peerMemory or peerShard cell receptor.
 function ptreeMakeSearchKey($j){
   return hash('sha256',json_encode($j));
 }
-$PTC_myRECEPTOR = "https://<Your Nodes IP>:1335";
+<?php
+$PTC_myRECEPTOR = "https://".$yourNodesIP.":1335";
 
 function ptreeStoreShard($muid,$hash,$shard,$nCopys=3,$expires=null){
    $j = new stdClass;
@@ -90,3 +91,4 @@ function tryJFetchURL($j,$method='GET',$timeout=5){
     curl_close($crl);
     return $resp;
 }
+?>
