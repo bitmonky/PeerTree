@@ -115,7 +115,7 @@ class peerMemCellReceptor{
              console.log("json parse error:",msg);
              process.exit();
           }
-          console.log('mkyReq',j);
+          //console.log('mkyReq',j);
 
           if (j.req == 'storeMemory'){
 	    this.prepMemoryReq(j,res);
@@ -187,15 +187,31 @@ class peerMemCellReceptor{
   }
   getSearchResults(j){
     return new Promise( async(resolve,reject)=>{
+      var skey = j.qry.key;
       await sleep(2*1000);
-      resolve('{"result": 1,"data":'+JSON.stringify(this.results)+'}');
+      var SQL = "select '"+skey+"' as pmcMownerID,psrchMemoryID as pmcMemObjID,0 as pmcMemObjNWords,0 as nMatches,psrchScore score ";
+      SQL += "from peerBrain.peerSearchResults where psrchHash = '"+skey+"' group by psrchMemoryID, psrchScore order by psrchScore desc";
+      con.query(SQL, (err, result, fields)=> {
+        if (err) {
+ 	  console.log(err);
+          resolve('{"result": 1,"data":'+JSON.stringify(this.results)+'}');
+        } 
+        else {
+          if (result.length > 0){
+            resolve('{"result": 1,"data":'+JSON.stringify(result)+'}');
+          }
+	  else {
+            resolve('{"result": 1,"data":'+JSON.stringify(this.results)+'}');
+          }
+	}
+      });
     });
   }
   prepMemoryReq(j,res){
     j.memory.token = this.openMemKeyFile(j);
     var SQL = "SELECT pcelAddress FROM peerBrain.peerMemCells ";
     SQL += "where pcelLastStatus = 'online' and  timestampdiff(second,pcelLastMsg,now()) < 50 order by rand() limit 1";
-    console.log(SQL);
+    //console.log(SQL);
     var nStored = 0;
     con.query(SQL, (err, result, fields)=> {
       if (err) {console.log(err);}
@@ -512,16 +528,16 @@ class peerMemoryObj {
   pushQryResult(j,res) {
     this.net.endRes(res,'{"result":"ok"}');
     this.receptor.procQryResult(j);
-    this.receptor.results = j.result;
+    //this.receptor.results = j.result;
   }	  
   receptorReqStoreMem(j,toIp){
-    console.log('receptorReqStoreMem',j);
+    //console.log('receptorReqStoreMem',j);
     return new Promise( (resolve,reject)=>{	  
       const gtime = setTimeout( ()=>{
         console.log('Store Request Timeout:');
         resolve(null);
       },10*1000);  
-      console.log('Store Memory To: ',toIp);
+      //console.log('Store Memory To: ',toIp);
       var req = {
         req : 'storeMemory',
         memory : j.memory
@@ -530,7 +546,7 @@ class peerMemoryObj {
       this.net.sendMsg(toIp,req);
       this.net.on('mkyReply', r =>{
         if (r.memStoreRes){
-          console.log('memStoreRes OK!!',r);
+          //console.log('memStoreRes OK!!',r);
           clearTimeout(gtime);
 	  resolve(r);
         }		    
