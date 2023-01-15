@@ -31,7 +31,7 @@ include_once("peerReceptorAccess.php");
 
   /*****************
   Call 'ptreeStoreMem' to send the request to your peerTree memory cells receptor.
-  *
+  */
   $j = ptreeStoreMem($mbrMUID,$memHash,$memStr,$type='acHashTag');
 
   /**************
