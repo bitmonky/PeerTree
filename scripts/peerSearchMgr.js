@@ -22,7 +22,7 @@ class pSearchMgr{
      this.searches = [];
    }
    /***********************************************
-   isThere - gets the index for a gien searc key.
+   isThere - gets the index for a given search key.
    If not found creatres and ads it to the list
    */
    isThere(qry){
@@ -47,6 +47,11 @@ class pSearchMgr{
    when done 'qsort' the full list.
    */
    qpush(qry,results){
+     const qIndex = this.isThere(qry);
+     results.forEach((item, n)=>{
+       this.searches[qIndex].data.push(item);
+     });
+     this.qsort(qry);
    }
    qsort(qry){
      const qIndex = this.isThere(qry);
@@ -72,7 +77,7 @@ var smgr = new pSearchMgr;
 // Create a sample search
 var qry = {
   key  : 'xyz',
-  timestamp : 34324324343,
+  timestamp : Date.now(),
   qryStr    : 'some words to find',
   data : [] // results list from a search; 
 }
