@@ -210,7 +210,7 @@ class peerMemCellReceptor{
   prepMemoryReq(j,res){
     j.memory.token = this.openMemKeyFile(j);
     var SQL = "SELECT pcelAddress FROM peerBrain.peerMemCells ";
-    SQL += "where pcelLastStatus = 'online' and  timestampdiff(second,pcelLastMsg,now()) < 50 order by rand() limit 10";
+    SQL += "where pcelLastStatus = 'online' and  timestampdiff(second,pcelLastMsg,now()) < 50 order by rand() limit "+j.memory.nCopys;
     //console.log(SQL);
     var nStored = 0;
     con.query(SQL, (err, result, fields)=> {
@@ -248,7 +248,7 @@ End Receptor Code
 */
 var con = mysql.createConnection({
   host: "localhost",
-  user: "username",
+  user: "userName",
   password: "password",
   database: "peerBrain",
   dateStrings: "date",
