@@ -520,35 +520,59 @@ class shardTreeObj {
         }		    
       });
     });
-  }	  
-  storeShard(j,res){
-    console.log('got request store shard',j);
-    var m = j.shard;
-    const mUID = m.from;
-    var shard = this.singleSpaceOnly(m.shardStr);
-    var shardories = shard.split(' ');
-    var nwords   = shardories.length;  
-    var SQLr = "insert into peerBrain.peerShardCell (pmcMownerID,pmcShardObjID,pmcShardObjType,pmcShardObjNWords,pmcShardWord,pmcWordSequence) ";
-    var SQL = "";
-    var n = 1;
-    shardories.forEach( (word) =>{
-      if (word != ''){
-        SQL += SQLr + "values ('"+m.from+"','"+m.shardID+"','"+m.shardType+"',"+nwords+",'"+word+"',"+n+");";
-        n = n + 1;
-      }
-    });	    
-    con.query(SQL , (err, result,fields)=>{
-      if (err){
-        console.log(err);
-        this.net.endRes(res,JSON.stringify(err));
-      }
-      else {
-        const hash = 'write hash function for shardstore';
-	this.net.endRes(res,'{"shardStoreRes":true,"shardStorHash":"' + hash + '"}');
-      }
+  }	
+  createNewSOWN(sown){
+    return new Promise((resolve,reject)=>{
+      var SQL = "insert into shardTree.shardOwner (sownMUID) values ('"+j.shard.ownMUID+"');";
+      SQL += "SELECT LAST_INSERT_ID()newSownID;";
+      con.query(SQL , (err, result,fields)=>{
+        if (err){
+          console.log(err);
+	  resolve(null);
+        }
+        else {
+          resolve(result[0].newSownID);
+        }
+      });
     });
   }
-};
+  storeShard(j,remIp){
+    console.log('got request store shard',j);
+    var SQL = "select sownID from shardTree.shardOwners where sownMUID = '"+j.shard.from+"'";
+    con.query(SQL , async(err, result,fields)=>{
+      if (err){
+        console.log(err);
+        this.net.endRes(remIp,'{"shardStoreRes":false,"error":"'+err+'"');
+      }
+      else {
+        var sownID = null;
+	if (result.length == 0){
+          sownID = await this.createNewSOWN(j.shard.from);
+          if (!sownID){
+            this.net.endRes(remIp,'{"shardStoreRes":false,"error":"failed to create new owner record for shardOwner"}');
+            return null;
+          }
+	}
+        else {
+	  sownID = result[0].length;
+	}
+      }
+
+      SQL = "insert into shardTree.shard (shardOwnerID,shardHash,shardDate,shardExire,shardData) ";
+      SQL += "values("+sownID+",'"+j.shard.hash+"',now(),null,'"+j.shard.data+"')";
+      con.query(SQL , (err, result,fields)=>{
+        if (err){
+          console.log(err);
+          this.net.endRes(remIp,'{"shardStoreRes":false,"error":"'+err+'"');
+        }
+        else {
+          const hash = 'write hash function for shardstore';
+	  this.net.endRes(remIp,'{"shardStoreRes":true,"shardStorHash":"' + hash + '"}');
+        }
+      });
+    });
+  }
+};	  
 function sleep(ms){
     return new Promise(resolve=>{
         setTimeout(resolve,ms)
