@@ -406,10 +406,8 @@ class shardTreeObj {
     if (j.msg.to == 'peerShardCells'){
       this.updatePShardcellDB(j);  
       if (j.msg.qry){
-        if (j.msg.qry.qryStyle == 'bestMatch')
-          this.doBestMatchQry(j.msg,j.remIp);
-        else if (j.msg.qry.qryStyle == 'seqMatch')
-	  this.doSeqMatchQry(j.msg,j.remIp);
+        if (j.msg.qry.qryStyle == 'sendShard')
+          this.doSendShardToOwner(j.msg,j.remIp);
       }
     } 
     return;
@@ -425,79 +423,43 @@ class shardTreeObj {
       this.sayHelloPeerGroup();
     },50*1000);
   }
-  bufferTransactions(j,to){
-     const req = {
-       msg : j,
-       to : to
-     }
-     this.tranBuffer.push(req);
-  }
-  flushTranBuffer(){
-    console.log('start flush tranBuffer');
-
-    for (var j of this.tranBuffer){
-      this.procBranchReq(j.msg,j.to);
-      console.log('Flushing Transaction Buffer',j); 
-    }
-    this.tranBuffer = [];
-  }
-  isToday(d){
-    let today = new Date(Date.now() -1000*3600*5).toISOString().slice(0, 10);
-    if (today == d.slice(0,10))
-      return true;
-    else
-      return false;
-  }
-  singleSpaceOnly(str){
-    //remove eny extra spaces from string
-    return str;
-  }	  
-  doBestMatchQry(j,ip){
-     console.log('search from: ',ip);
-     console.log('here is the search..',j);
-     var qtype = '';
-     if (j.qry.qryType){
-       qtype = " and pmcShardObjType = '"+j.qry.qryType+"'";
-     }
-     var SQLr = "select pmcMownerID,pmcShardObjID,pmcShardObjNWords,count(*)nMatches,count(*)/pmcShardObjNWords score from peerBrain.peerShardCell ";
-     SQLr += "where pmcMownerID = '"+j.qry.ownerID+"' "+qtype+" and (";
-     var qry = this.singleSpaceOnly(j.qry.qryStr);
-     var words = qry.split(' ');
-     var nwords   = words.length;
-     var SQL = SQLr;
-     var n = 1;
-     var or = 'or ';
-     words.forEach( (word) =>{
-       if (n == nwords){
-	 or = '';
+  doSendShardToOwner(j,remIp){
+     console.log('shard request from: ',remIp);
+     console.log('here is the req..',j);
+     var SQL = "select sownID from shardTree.shardOwners where sownMUID = '"+j.shard.from+"'";
+     con.query(SQL , async(err, result,fields)=>{
+       if (err){
+         console.log(err);
        }
-       SQL += "pmcShardWord = '"+word+"' "+or; 
-       n = n+1;
-     });
-     SQL += ")group by pmcMownerID,pmcShardObjID,pmcShardObjNWords ";
-     SQL += "having score >= "+j.qry.reqScore+" ";
-     SQL += "order by score desc";
-     console.log(SQL);
-     con.query(SQL, (err, result, fields)=> {
-       if (err) console.log(err);
        else {
-         if (result.length > 0){
-           var qres = {
-             req : 'pShardQryResult',
-	     nRec : result.length,
-             result : result,
-             qry : j		   
-           }
-           this.net.sendMsg(ip,qres);
+         var sownID = null;
+         if (result.length == 0){
+           console.log('Shard Owner Not Found On This Node.');
+         }
+         else {
+           sownID = result[0].length;
+           var SQL = "select shardData from shardTree.shards where sownID = "+sownID+" and shardHash = '"+j.shard.hash+"'";
+           console.log(SQL);
+           con.query(SQL, (err, result, fields)=> {
+             if (err) console.log(err);
+             else {
+               if (result.length > 0){
+                 var qres = {
+                   req : 'pShardDataResult',
+ 	           data : result[0].shardData,
+                   qry : j		   
+                 }
+                 this.net.sendMsg(ip,qres);
+               } 
+	       else {
+		 console.log('Shard Not Stored On This Node.');
+	       }
+             }		    
+           });
          }
        }
      });
   }
-  pushQryResult(j,res) {
-    this.net.endRes(res,'{"result":"ok"}');
-    this.receptor.procQryResult(j);
-    this.receptor.results = j.result;
-  }	  
   receptorReqStoreShard(j,toIp){
     console.log('receptorReqStoreShard',j);
     return new Promise( (resolve,reject)=>{	  
@@ -508,7 +470,7 @@ class shardTreeObj {
       console.log('Store Shard To: ',toIp);
       var req = {
         req : 'storeShard',
-        shard : j.shard
+	shard : j.shard
       }
 
       this.net.sendMsg(toIp,req);
