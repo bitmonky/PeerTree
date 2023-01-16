@@ -28,7 +28,7 @@ Create PeerTree Network Peer
     isRoot == 'root';
     reset = 'rebuild';
   }
-  const mkyNet = new MkyNetObj(options);
+  const mkyNet = new MkyNetObj(options,'shardNet',13350,13340);
   mkyNet.nodeType = 'shardCell';
 
   if (isRoot == 'reset'){
@@ -51,7 +51,7 @@ async function main(){
 var rBranch = null;
 function startShardCell(){
     var scell = new shardTreeObj(mkyNet,reset);
-    const scellReceptor = new shardTreeCellReceptor(scell);
+    const scellReceptor = new shardTreeCellReceptor(scell,13355);
     scell.attachReceptor(scellReceptor);
     if (rBranch){
       console.log('\nNEW>>>SETTING shardCell TO ROOT');

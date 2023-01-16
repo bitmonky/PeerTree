@@ -43,9 +43,8 @@ class peerShardToken{
       this.publicKey = null;
       if (keypair){
         try {
-          const pair = keypair.toString();
-          const j = JSON.parse(pair);
-          console.log(j);
+	  const pair = keypair.toString();
+	  const j = JSON.parse(pair);
           this.publicKey     = j.publicKey;
           this.privateKey    = j.privateKey;
           this.shardOwnMUID  = j.shardOwnMUID;
@@ -53,7 +52,8 @@ class peerShardToken{
           this.crypt         = new pcrypt(this.shardCipher);
           this.signingKey    = ec.keyFromPrivate(this.privateKey);
         }
-        catch {console.log('wallet file not valid');process.exit();}
+        catch(err) {console.log('wallet file not valid', err);process.exit();
+	}
       }
       else {
         const key = ec.genKeyPair();
@@ -61,19 +61,20 @@ class peerShardToken{
         this.privateKey = key.getPrivate('hex');
 
         console.log('Generate a new wallet key pair and convert them to hex-strings');
-        var mkybc = bitcoin.payments.p2pkh({ pubkey: new Buffer(''+this.publicKey, 'hex') });
+        var mkybc = bitcoin.payments.p2pkh({ pubkey: new Buffer.from(''+this.publicKey, 'hex') });
         this.branchMUID = mkybc.address;
 
         const pmc = ec.genKeyPair();
         this.pmCipherKey  = pmc.getPublic('hex');
 
         console.log('Generate a new wallet cipher key');
-        mkybc = bitcoin.payments.p2pkh({ pubkey: new Buffer(''+this.pmCipherKey, 'hex') });
+        mkybc = bitcoin.payments.p2pkh({ pubkey: new Buffer.from(''+this.pmCipherKey, 'hex') });
         this.shardCipher = mkybc.address;
 
         var wallet = '{"shardOwnMUID":"'+ this.branchMUID+'","publicKey":"' + this.publicKey + '","privateKey":"' + this.privateKey + '",';
         wallet += '"shardCipher":"'+this.shardCipher+'"}';
-        fs.writeFile('keys/peerShardToken.key', wallet, function (err) {
+        console.log(wallet);
+	fs.writeFile('keys/peerShardToken.key', wallet, function (err) {
           if (err) throw err;
          //console.log('Wallet Created And Saved!');
         });
@@ -81,11 +82,10 @@ class peerShardToken{
     } 
 }; 
 
-const recPort = 1335;
-
 class shardTreeCellReceptor{
-  constructor(peerTree){
+  constructor(peerTree,recPort=1335){
     this.peer = peerTree;
+    this.port = recPort;
     console.log('ATTACHING - cellReceptor on port'+recPort);
     this.results = ['empty'];
     const options = {
@@ -133,6 +133,11 @@ class shardTreeCellReceptor{
                 this.reqStoreShard(j,res);
                 return;
 	      }	      
+              if (j.req == 'rquestShard'){
+                this.reqRetrieveShard(j,res);
+                return;
+              }
+
 	      res.end('{"netReq":"action '+j.req+' not found"}');
             });
           }
@@ -143,11 +148,8 @@ class shardTreeCellReceptor{
       }
     });
   
-    bserver.listen(recPort);
-    console.log('peerTree Shard Receptor running on port:'+recPort);
-  }
-  procQryResult(j){
-    console.log('incoming search result:',j);
+    bserver.listen(this.port);
+    console.log('peerTree Shard Receptor running on port:'+this.port);
   }
   openShardKeyFile(j){
     const bitToken = bitcoin.payments.p2pkh({ pubkey: new Buffer.from(''+this.shardToken.publicKey, 'hex') }); 
@@ -158,22 +160,15 @@ class shardTreeCellReceptor{
     };
     return mToken;
   }
-  async doSearch(j,res){
-    this.results = {result : 0, msg : 'no results found'};
-    var breq = {
-      to : 'shardTreeCells',
-      qry : j.qry
+  async reqRetrieveShard(j,res){
+    var data = {result : 0, msg : 'no results found'};
+    data = await this.peer.receptorReqSendMyShard(j);
+    if (data){
+      res.end('{"result": 1,"data" : "'+JSON.stringify(data)+'"}');
     }
-    console.log('bcast search request to shardCell group: ',breq);
-    this.peer.net.broadcast(breq);
-    const qres = await this.getSearchResults(j);
-    res.end(JSON.stringify(qres));
-  }
-  getSearchResults(j){
-    return new Promise( async(resolve,reject)=>{
-      await sleep(2*1000);
-      resolve('{"result": 1,"data":'+JSON.stringify(this.results)+'}');
-    });
+    else {
+      res.end('{"result" : 0, "msg" : "no results found"}');
+   }
   }
   reqStoreShard(j,res){
     j.shard.token = this.openShardKeyFile(j);
@@ -343,8 +338,9 @@ class shardTreeObj {
   resetDb(){
     return new Promise( (resolve,reject)=>{
       var SQL = "";
-      SQL =  "truncate table peerBrain.peerShardCells; ";
-      SQL += "truncate table peerBrain.peerShardCell; ";
+      SQL =  "truncate table shardTree.shardCells; ";
+      SQL += "truncate table shardTree.shardOwners; ";
+      SQL += "truncate table shardTree.shards; ";
       con.query(SQL, async (err, result, fields)=>{
         if (err) {console.log(err);reject(err);}
         else {
@@ -426,7 +422,7 @@ class shardTreeObj {
   doSendShardToOwner(j,remIp){
      console.log('shard request from: ',remIp);
      console.log('here is the req..',j);
-     var SQL = "select sownID from shardTree.shardOwners where sownMUID = '"+j.shard.from+"'";
+     var SQL = "select sownID from shardTree.shardOwners where sownMUID = '"+j.shard.ownerID+"'";
      con.query(SQL , async(err, result,fields)=>{
        if (err){
          console.log(err);
@@ -459,6 +455,28 @@ class shardTreeObj {
          }
        }
      });
+  }
+  receptorReqSendMyShard(j){
+    return new Promise( (resolve,reject)=>{
+      const gtime = setTimeout( ()=>{
+        console.log('Store Request Timeout:',j);
+        resolve(null);
+      },10*1000);
+      console.log('bcasting reques for shard data: ',j);
+      var req = {
+        req : 'sendShard',
+        shard : j.shard
+      }
+
+      this.net.bcast(req);
+      this.net.on('mkyReply', r =>{
+        if (r.spShardDataResult){
+          console.log('shardData Request',r);
+          clearTimeout(gtime);
+          resolve(r);
+        }
+      });
+    });
   }
   receptorReqStoreShard(j,toIp){
     console.log('receptorReqStoreShard',j);
