@@ -295,19 +295,19 @@ class shardTreeObj {
   }
   updatePShardcellDB(j){
     //console.log('Reviewing PeerTree Nodes DB',j);
-    var SQL = "SELECT count(*)nRec FROM peerTree.shardCells where scelAddress = '"+j.remIp+"'";
+    var SQL = "SELECT count(*)nRec FROM shardTree.shardCells where scelAddress = '"+j.remIp+"'";
     con.query(SQL,(err, result, fields)=> {
       if (err) console.log(err);
       else {
         if (result[0].nRec == 0){
-          SQL = "insert into peerTree.shardCells (scelAddress,scelLastStatus,scelLastMsg)";
+          SQL = "insert into shardTree.shardCells (scelAddress,scelLastStatus,scelLastMsg)";
           SQL += "values ('"+j.remIp+"','New',now())";
           con.query(SQL,(err, result, fields)=>{
             if (err) console.log(err);
           });
         }
 	else {
-          SQL = "update peerTree.shardCells set scelLastStatus = 'online',scelLastMsg = now() ";
+          SQL = "update shardTree.shardCells set scelLastStatus = 'online',scelLastMsg = now() ";
           SQL += "where scelAddress = '"+j.remIp+"'";
           //console.log(SQL);
           con.query(SQL,(err, result, fields)=>{
@@ -320,12 +320,12 @@ class shardTreeObj {
   doNodesDBMaint(){
     console.log('Reviewing PeerTree Nodes DB',this.net.nodes);
     this.net.nodes.forEach((node) => {
-      var SQL = "SELECT count(*)nRec FROM peerTree.shardCells where scelAddress = '"+node.ip+"'";
+      var SQL = "SELECT count(*)nRec FROM shardTree.shardCells where scelAddress = '"+node.ip+"'";
       con.query(SQL, function (err, result, fields) {
         if (err) console.log(err);
         else {
           if (result[0].nRec == 0){
-            SQL = "insert into peerTree.shardCells (scelAddress,scelLastStatus,scelLastMsg)";
+            SQL = "insert into shardTree.shardCells (scelAddress,scelLastStatus,scelLastMsg)";
             SQL += "values ('"+node.ip+"','New',now())";
             con.query(SQL, function (err, result, fields) {
               if (err) console.log(err);
