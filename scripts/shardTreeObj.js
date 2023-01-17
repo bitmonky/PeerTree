@@ -138,12 +138,12 @@ class shardTreeCellReceptor{
                 this.reqStoreShard(j.msg,res);
                 return;
 	      }	      
-              if (j.msg.req == 'rquestShard'){
+              if (j.msg.req == 'requestShard'){
                 this.reqRetrieveShard(j.msg,res);
                 return;
               }
 
-	      res.end('{"netReq":"action '+j.req+' not found"}');
+	      res.end('{"netReq":"action '+j.msg.req+' not found"}');
             });
           }
 	}	
@@ -169,7 +169,7 @@ class shardTreeCellReceptor{
     var data = {result : 0, msg : 'no results found'};
     data = await this.peer.receptorReqSendMyShard(j);
     if (data){
-      res.end('{"result": 1,"data" : "'+JSON.stringify(data)+'"}');
+      res.end('{"result": 1,"data" : '+JSON.stringify(data)+'}');
     }
     else {
       res.end('{"result" : 0, "msg" : "no results found"}');
@@ -406,8 +406,8 @@ class shardTreeObj {
     if (!j.msg.to) {return;}
     if (j.msg.to == 'shardCells'){
       this.updatePShardcellDB(j);  
-      if (j.msg.qry){
-        if (j.msg.qry.qryStyle == 'sendShard')
+      if (j.msg.req){
+        if (j.msg.req == 'sendShard')
           this.doSendShardToOwner(j.msg,j.remIp);
       }
     } 
@@ -438,8 +438,8 @@ class shardTreeObj {
            console.log('Shard Owner Not Found On This Node.');
          }
          else {
-           sownID = result[0].length;
-           var SQL = "select shardData from shardTree.shards where sownID = "+sownID+" and shardHash = '"+j.shard.hash+"'";
+           sownID = result[0].sownID;
+           var SQL = "select shardData from shardTree.shards where shardOwnerID = "+sownID+" and shardHash = '"+j.shard.hash+"'";
            console.log(SQL);
            con.query(SQL, (err, result, fields)=> {
              if (err) console.log(err);
@@ -450,7 +450,8 @@ class shardTreeObj {
  	           data : result[0].shardData,
                    qry : j		   
                  }
-                 this.net.sendMsg(ip,qres);
+                 console.log('sending shard result:',qres);
+		 this.net.sendReply(remIp,qres);
                } 
 	       else {
 		 console.log('Shard Not Stored On This Node.');
@@ -469,13 +470,15 @@ class shardTreeObj {
       },10*1000);
       console.log('bcasting reques for shard data: ',j);
       var req = {
-        req : 'sendShard',
+        to : 'shardCells',
+	req : 'sendShard',
         shard : j.shard
       }
 
-      this.net.bcast(req);
+      this.net.broadcast(req);
       this.net.on('mkyReply', r =>{
-        if (r.spShardDataResult){
+        console.log('mkyReply is:',r);
+	if (r.req == 'pShardDataResult'){
           console.log('shardData Request',r);
           clearTimeout(gtime);
           resolve(r);
