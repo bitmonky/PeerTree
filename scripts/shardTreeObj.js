@@ -97,8 +97,6 @@ class shardTreeCellReceptor{
     this.shardToken = new peerShardToken();
     console.log(this.shardToken);
     var bserver = https.createServer(options, (req, res) => {
-
-      res.writeHead(200);
       if (req.url == '/keyGEN'){
         // Generate a new key pair and convert them to hex-strings
         const key = ec.genKeyPair();
@@ -106,10 +104,11 @@ class shardTreeCellReceptor{
         const privateKey = key.getPrivate('hex');
         console.log('pub key length' + publicKey.length,publicKey);
         console.log('priv key length' + privateKey.length,publicKey);
-         res.end('{"publicKey":"' + publicKey + '","privateKey":"' + privateKey + '"}');
+        res.writeHead(200);
+        res.end('{"publicKey":"' + publicKey + '","privateKey":"' + privateKey + '"}');
       }
       else {
-        if (req.url.indexOf('/netREQ/msg=') == 0){
+        if (req.url.indexOf('/netREQ') == 0){
 	  if (req.method == 'POST') {
             var body = '';
             req.on('data', (data)=>{
@@ -126,15 +125,21 @@ class shardTreeCellReceptor{
               try {
                 j = JSON.parse(body);
               }
-              catch {j = JSON.parse('{"result":"json parse error:"}');console.log('POST Reply Error: ',j)}
-              res.setHeader('Content-Type', 'application/json');
+              catch(err){
+                res.setHeader('Content-Type', 'application/json');
+                res.writeHead(200);
+	        res.end('{"result":"json parse error:","data","'+body+'"}');
+		console.log('json error : ',body);
+                return;
+	      }	 
+	      res.setHeader('Content-Type', 'application/json');
               res.writeHead(200);
-              if (j.req == 'storeShard'){
-                this.reqStoreShard(j,res);
+              if (j.msg.req == 'storeShard'){
+                this.reqStoreShard(j.msg,res);
                 return;
 	      }	      
-              if (j.req == 'rquestShard'){
-                this.reqRetrieveShard(j,res);
+              if (j.msg.req == 'rquestShard'){
+                this.reqRetrieveShard(j.msg,res);
                 return;
               }
 
@@ -503,7 +508,7 @@ class shardTreeObj {
   }	
   createNewSOWN(sown){
     return new Promise((resolve,reject)=>{
-      var SQL = "insert into shardTree.shardOwner (sownMUID) values ('"+j.shard.ownMUID+"');";
+      var SQL = "insert into shardTree.shardOwners (sownMUID) values ('"+sown+"');";
       SQL += "SELECT LAST_INSERT_ID()newSownID;";
       con.query(SQL , (err, result,fields)=>{
         if (err){
@@ -534,13 +539,19 @@ class shardTreeObj {
           }
 	}
         else {
-	  sownID = result[0].length;
+	  sownID = result[0].sownID;
 	}
       }
-
-      SQL = "insert into shardTree.shard (shardOwnerID,shardHash,shardDate,shardExire,shardData) ";
-      SQL += "values("+sownID+",'"+j.shard.hash+"',now(),null,'"+j.shard.data+"')";
-      con.query(SQL , (err, result,fields)=>{
+      
+      SQL = "INSERT INTO `shardTree`.`shards` SET ?";
+      var values = {
+        shardOwnerID : sownID,
+        shardHash    : j.shard.hash,
+        shardDate    : new Date(),
+        shardExpire  : null,
+        shardData    : j.shard.data
+      };
+      con.query(SQL ,values, (err, result,fields)=>{
         if (err){
           console.log(err);
           this.net.endRes(remIp,'{"shardStoreRes":false,"error":"'+err+'"');
