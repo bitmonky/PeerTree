@@ -54,7 +54,7 @@ DROP TABLE IF EXISTS `shardOwners`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8 */;
 CREATE TABLE `shardOwners` (
-  `sownID` bigint(20) unsigned NOT NULL,
+  `sownID` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `sownMUID` varchar(84) NOT NULL,
   PRIMARY KEY (`sownID`),
   UNIQUE KEY `sownID_UNIQUE` (`sownID`)
@@ -110,4 +110,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2023-01-10 16:04:29
+-- Dump completed on 2023-01-17 10:59:36
