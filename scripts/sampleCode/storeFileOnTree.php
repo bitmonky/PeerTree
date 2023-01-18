@@ -4,6 +4,8 @@ ini_set('display_errors',1);
 error_reporting(E_ALL);
 $time_pre = microtime(true);
 
+$MKYC_ShowSQLTimer = true;
+
 echo "<h2>Starting Test File Storage On PeerTree</h2>\n";
 
 /***********************************
@@ -36,14 +38,14 @@ if (!$rec){
 else {
   $smgrID = $rec['smgrID'];
 }
-
+  
 $n=1;
 
 while ($chunk = substr($contents, $start, $size))   {
     // Process
     $schunk = $chunk;
     $shard  = base64_encode($schunk);
-
+  
     // Creat a hash for storing and retrieving the shard
     $shardh = hash('sha256',$chunk);
 
@@ -61,8 +63,8 @@ while ($chunk = substr($contents, $start, $size))   {
       if ($jres->result == "shardOK" && $jres->nStored >= 1){
         //* save the shard into your collection of sharded files
         $SQL  = "insert into tblShardFiles ";
-        $SQL .= "(sfilFileMgrID,sfilShardHash,sfilNCopies,sfilDate,sfilExpires,sfilEncrypted) ";
-        $SQL .= "values (".$smgrID.",'".$shardh."',".$jres->nStored.",now(),null,null)";
+        $SQL .= "(sfilFileMgrID,sfilShardHash,sfilNCopies,sfilDate,sfilExpires,sfilEncrypted,sfilShardNbr) ";
+        $SQL .= "values (".$smgrID.",'".$shardh."',".$jres->nStored.",now(),null,null,".$n.")";
         mkyMyqry($SQL);
       }
     }
