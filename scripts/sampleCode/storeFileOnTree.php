@@ -16,24 +16,39 @@ $size = 16000; // set shard size
 
 /* Open file you wish to store to the PeerTree
 */
-$file = "/var/www/html/img/mkyHomeBan.png";
+$file = "/var/www/html/img/bitGoldCoin.png";
 $contents = file_get_contents($file);
 
 $fcheckSum = hash('sha256',$contents);   // Create sha256 hash of the file.
 
-$cimg = null;
+// Check For file in tblShardFileMgr table.
+$SQL = "select smgrID from tblShardFileMgr where smgrCheckSum = '".$fcheckSum."' and smgrFileName = '".$file."'";
+$res = mkyMyqry($SQL);
+$rec = mkyMyFetch($res);
+if (!$rec){
+  $SQL  = "insert into tblShardFileMgr ";
+  $SQL .= "(smgrCheckSum,smgrFileName,smgrDate)";
+  $SQL .= "values ('".$fcheckSum."','".$file."',now())";
+  mkyMyqry($SQL);
+
+  $smgrID = mkyMyLastID();
+}
+else {
+  $smgrID = $rec['smgrID'];
+}
+
 $n=1;
 
 while ($chunk = substr($contents, $start, $size))   {
     // Process
     $schunk = $chunk;
     $shard  = base64_encode($schunk);
-  
+
     // Creat a hash for storing and retrieving the shard
     $shardh = hash('sha256',$chunk);
 
     // Check to see if the shard has already been stored.
-    $SQL = "select count(*)nRec from tblShardFiles where sfilCheckSum = '".$fcheckSum."' and sfilShardHash = '".$shardh."'";
+    $SQL = "select count(*)nRec from tblShardFiles where sfilFileMgrID = '".$smgrID."' and sfilShardHash = '".$shardh."'";
     $res = mkyMyqry($SQL);
     $rec = mkyMyFetch($res);
     if ($rec['nRec'] == 0){
@@ -43,15 +58,16 @@ while ($chunk = substr($contents, $start, $size))   {
       $jres = json_decode($j->data);
       echo "<br/>result".$jres->result;
       echo "<br/>nStored".$jres->nStored;
-      if ($jres->result == "shardOK" && $jres->nStored == 1){
+      if ($jres->result == "shardOK" && $jres->nStored >= 1){
         //* save the shard into your collection of sharded files
         $SQL  = "insert into tblShardFiles ";
-        $SQL .= "(sfilCheckSum,sfilShardHash,sfilNCopies,sfilDate,sfilExpires,sfilEncrypted) ";
-        $SQL .= "values ('".$fcheckSum."','".$shardh."',3,now(),null,null)";
+        $SQL .= "(sfilFileMgrID,sfilShardHash,sfilNCopies,sfilDate,sfilExpires,sfilEncrypted) ";
+        $SQL .= "values (".$smgrID.",'".$shardh."',".$jres->nStored.",now(),null,null)";
         mkyMyqry($SQL);
       }
     }
     $n = $n +1;
     $start +=$size;
 }
-echo 'Done... File Stored is : ".$fcheckSum;
+echo "Done... File Stored is : ".$fcheckSum;
+?>
