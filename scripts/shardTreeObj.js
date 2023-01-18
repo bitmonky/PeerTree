@@ -179,7 +179,7 @@ class shardTreeCellReceptor{
     j.shard.token = this.openShardKeyFile(j);
     var SQL = "SELECT scelAddress FROM shardTree.shardCells ";
     SQL += "where scelLastStatus = 'online' and  timestampdiff(second,scelLastMsg,now()) < 50 order by rand() limit 1";
-    console.log(SQL);
+    //console.log(SQL);
     var nStored = 0;
     con.query(SQL, (err, result, fields)=> {
       if (err) {console.log(err);}
@@ -425,8 +425,8 @@ class shardTreeObj {
     },50*1000);
   }
   doSendShardToOwner(j,remIp){
-     console.log('shard request from: ',remIp);
-     console.log('here is the req..',j);
+     //console.log('shard request from: ',remIp);
+     //console.log('here is the req..',j);
      var SQL = "select sownID from shardTree.shardOwners where sownMUID = '"+j.shard.ownerID+"'";
      con.query(SQL , async(err, result,fields)=>{
        if (err){
@@ -440,7 +440,7 @@ class shardTreeObj {
          else {
            sownID = result[0].sownID;
            var SQL = "select shardData from shardTree.shards where shardOwnerID = "+sownID+" and shardHash = '"+j.shard.hash+"'";
-           console.log(SQL);
+           //console.log(SQL);
            con.query(SQL, (err, result, fields)=> {
              if (err) console.log(err);
              else {
@@ -450,7 +450,7 @@ class shardTreeObj {
  	           data : result[0].shardData,
                    qry : j		   
                  }
-                 console.log('sending shard result:',qres);
+                 //console.log('sending shard result:',qres);
 		 this.net.sendReply(remIp,qres);
                } 
 	       else {
@@ -468,7 +468,7 @@ class shardTreeObj {
         console.log('Store Request Timeout:',j);
         resolve(null);
       },10*1000);
-      console.log('bcasting reques for shard data: ',j);
+      //console.log('bcasting reques for shard data: ',j);
       var req = {
         to : 'shardCells',
 	req : 'sendShard',
@@ -477,9 +477,9 @@ class shardTreeObj {
 
       this.net.broadcast(req);
       this.net.on('mkyReply', r =>{
-        console.log('mkyReply is:',r);
+        //console.log('mkyReply is:',r);
 	if (r.req == 'pShardDataResult'){
-          console.log('shardData Request',r);
+          //console.log('shardData Request',r);
           clearTimeout(gtime);
           resolve(r);
         }
@@ -487,13 +487,13 @@ class shardTreeObj {
     });
   }
   receptorReqStoreShard(j,toIp){
-    console.log('receptorReqStoreShard',j);
+    //console.log('receptorReqStoreShard',j);
     return new Promise( (resolve,reject)=>{	  
       const gtime = setTimeout( ()=>{
         console.log('Store Request Timeout:');
         resolve(null);
       },10*1000);  
-      console.log('Store Shard To: ',toIp);
+      //console.log('Store Shard To: ',toIp);
       var req = {
         req : 'storeShard',
 	shard : j.shard
@@ -502,7 +502,7 @@ class shardTreeObj {
       this.net.sendMsg(toIp,req);
       this.net.on('mkyReply', r =>{
         if (r.shardStoreRes){
-          console.log('shardStoreRes OK!!',r);
+          //console.log('shardStoreRes OK!!',r);
           clearTimeout(gtime);
 	  resolve(r);
         }		    
@@ -525,7 +525,7 @@ class shardTreeObj {
     });
   }
   storeShard(j,remIp){
-    console.log('got request store shard',j);
+    //console.log('got request store shard',j);
     var SQL = "select sownID from shardTree.shardOwners where sownMUID = '"+j.shard.from+"'";
     con.query(SQL , async(err, result,fields)=>{
       if (err){
