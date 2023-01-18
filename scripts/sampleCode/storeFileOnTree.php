@@ -33,7 +33,7 @@ while ($chunk = substr($contents, $start, $size))   {
     $shardh = hash('sha256',$chunk);
 
     // Check to see if the shard has already been stored.
-    $SQL = "select count(*)nRec from ICDirectSQL.tblShardFiles where sfilCheckSum = '".$fcheckSum."' and sfilShardHash = '".$shardh."'";
+    $SQL = "select count(*)nRec from tblShardFiles where sfilCheckSum = '".$fcheckSum."' and sfilShardHash = '".$shardh."'";
     $res = mkyMyqry($SQL);
     $rec = mkyMyFetch($res);
     if ($rec['nRec'] == 0){
@@ -45,7 +45,7 @@ while ($chunk = substr($contents, $start, $size))   {
       echo "<br/>nStored".$jres->nStored;
       if ($jres->result == "shardOK" && $jres->nStored == 1){
         //* save the shard into your collection of sharded files
-        $SQL  = "insert into ICDirectSQL.tblShardFiles ";
+        $SQL  = "insert into tblShardFiles ";
         $SQL .= "(sfilCheckSum,sfilShardHash,sfilNCopies,sfilDate,sfilExpires,sfilEncrypted) ";
         $SQL .= "values ('".$fcheckSum."','".$shardh."',3,now(),null,null)";
         mkyMyqry($SQL);
