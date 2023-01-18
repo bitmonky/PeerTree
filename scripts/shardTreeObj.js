@@ -476,7 +476,7 @@ class shardTreeObj {
       }
 
       this.net.broadcast(req);
-      this.net.on('mkyReply', r =>{
+      this.net.once('mkyReply', r =>{
         //console.log('mkyReply is:',r);
 	if (r.req == 'pShardDataResult'){
           //console.log('shardData Request',r);
@@ -500,7 +500,7 @@ class shardTreeObj {
       }
 
       this.net.sendMsg(toIp,req);
-      this.net.on('mkyReply', r =>{
+      this.net.once('mkyReply', r =>{
         if (r.shardStoreRes){
           //console.log('shardStoreRes OK!!',r);
           clearTimeout(gtime);

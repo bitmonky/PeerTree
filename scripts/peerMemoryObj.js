@@ -248,7 +248,7 @@ End Receptor Code
 */
 var con = mysql.createConnection({
   host: "localhost",
-  user: "userName",
+  user: "username",
   password: "password",
   database: "peerBrain",
   dateStrings: "date",
@@ -273,6 +273,7 @@ class peerMemoryObj {
     this.init();
     this.setNetErrHandle();
     this.sayHelloPeerGroup();
+    this.resetSearchDb();
   }
   attachReceptor(inReceptor){
     this.receptor = inReceptor;
@@ -372,6 +373,23 @@ class peerMemoryObj {
       });
     });	    
   }	  
+  resetSearchDb(){
+    /* set timeout to restart this function every 60 seconds
+    */
+    const t = setTimeout(async()=>{
+      await this.resetSearchDb();
+    },60*1000);
+    return new Promise( (resolve,reject)=>{
+      var SQL = "";
+      SQL =  "truncate table peerBrain.peerSearchResults; ";
+      con.query(SQL, async (err, result, fields)=>{
+        if (err) {console.log(err);resolve("FAIL");}
+        else {
+          resolve("OK");
+        }
+      });
+    });
+  }
   resetDb(){
     return new Promise( (resolve,reject)=>{
       var SQL = "";
@@ -544,7 +562,7 @@ class peerMemoryObj {
       }
 
       this.net.sendMsg(toIp,req);
-      this.net.on('mkyReply', r =>{
+      this.net.once('mkyReply', r =>{
         if (r.memStoreRes){
           //console.log('memStoreRes OK!!',r);
           clearTimeout(gtime);
