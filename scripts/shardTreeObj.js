@@ -531,6 +531,7 @@ class shardTreeObj {
       if (err){
         console.log(err);
         this.net.endRes(remIp,'{"shardStoreRes":false,"error":"'+err+'"');
+        return;
       }
       else {
         var sownID = null;
@@ -545,24 +546,39 @@ class shardTreeObj {
 	  sownID = result[0].sownID;
 	}
       }
-      
-      SQL = "INSERT INTO `shardTree`.`shards` SET ?";
-      var values = {
-        shardOwnerID : sownID,
-        shardHash    : j.shard.hash,
-        shardDate    : new Date(),
-        shardExpire  : null,
-        shardData    : j.shard.data
-      };
-      con.query(SQL ,values, (err, result,fields)=>{
+      SQL = "SELECT count(*)nRec FROM `shardTree`.`shards` WHERE shardOwnerID = "+sownID+" and shardHash = '"+j.shard.hash+"'";
+      con.query(SQL , async(err, result,fields)=>{
         if (err){
           console.log(err);
           this.net.endRes(remIp,'{"shardStoreRes":false,"error":"'+err+'"');
+          return;
         }
         else {
-          const hash = 'write hash function for shardstore';
-	  this.net.endRes(remIp,'{"shardStoreRes":true,"shardStorHash":"' + hash + '"}');
+          if (result[0].nRec > 0){
+	    console.log("Shard Record exists");
+            this.net.endRes(remIp,'{"shardStoreRes":false,"error":"Shard Record exists"');
+            return;
+	  }
         }
+	      
+        SQL = "INSERT INTO `shardTree`.`shards` SET ?";
+        var values = {
+          shardOwnerID : sownID,
+          shardHash    : j.shard.hash,
+          shardDate    : new Date(),
+          shardExpire  : null,
+          shardData    : j.shard.data
+        };
+        con.query(SQL ,values, (err, result,fields)=>{
+          if (err){
+            console.log(err);
+            this.net.endRes(remIp,'{"shardStoreRes":false,"error":"'+err+'"');
+          } 
+          else {
+            const hash = 'write hash function for shardstore';
+	    this.net.endRes(remIp,'{"shardStoreRes":true,"shardStorHash":"' + hash + '"}');
+          }
+        });		
       });
     });
   }
