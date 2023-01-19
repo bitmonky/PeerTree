@@ -439,6 +439,26 @@ class shardTreeObj {
       this.sayHelloPeerGroup();
     },50*1000);
   }
+  isValidSig(sig) {
+    if (!sig){console.log('remMessage signature is null',sig);return false;}
+    if (sig.hasOwnProperty('publicKey') === false) {console.log('remSig.PublicKey is undefined',sig);return false;}
+    if (!sig.publicKey) {console.log('remSig.Publickey is empty',sig);return false;}
+
+    if (!sig.signature || sig.signature.length === 0) {
+       return false;
+    }
+
+    // check public key matches the remotes address
+    var mkybc = bitcoin.payments.p2pkh({ pubkey: new Buffer.from(''+this.pmCipherKey, 'hex') });
+    if (sig.ownMUID !== mkybc.address){
+      console.log('remote wallet address does not match publickey',sig);
+      return false;
+    }
+    //verify the signature token with the public key
+    const publicKey = ec.keyFromPublic(sig.publicKey,'hex');
+    const msgHash   = this.calculateHash(sig.token);
+    return publicKey.verify(msgHash, sig.signature);
+  }
   doSendShardToOwner(j,remIp){
      //console.log('shard request from: ',remIp);
      //console.log('here is the req..',j);
