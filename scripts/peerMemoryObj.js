@@ -29,7 +29,15 @@ class peerMemToken{
       this.signingKey  = null;
       this.openWallet();
    }
-
+   calculateHash(txt) {
+      const crypto = require('crypto');
+      return crypto.createHash('sha256').update(txt).digest('hex');
+   }
+   signToken(token) {
+      const sig = this.signingKey.sign(this.calculateHash(token), 'base64');
+      const hexSig = sig.toDER('hex');
+      return hexSig;
+   }
    openWallet(){
       var keypair = null;
       try {keypair =  fs.readFileSync('keys/peerMemToken.key');}
@@ -168,7 +176,7 @@ class peerMemCellReceptor{
     var mToken = {
       publicKey   : this.memToken.publicKey,
       ownMUID     : bitToken.address,
-      privateKey  : this.memToken.privateKey  // create from public key using bitcoin wallet algorythm.
+      privateKey  : '***********'  //this.memToken.privateKey  // create from public key using bitcoin wallet algorythm.
     };
     return mToken;
   }
@@ -207,8 +215,18 @@ class peerMemCellReceptor{
       });
     });
   }
+  signRequest(j){
+    const stoken = j.memory.token.ownMUID + new Date();
+    const sig = {
+      token : stoken,
+      pubKey : this.memToken.publicKey,
+      signature : this.memToken.signToken(stoken)
+    }
+    return sig;
+  }
   prepMemoryReq(j,res){
     j.memory.token = this.openMemKeyFile(j);
+    j.memory.signature = this.signRequest(j);
     var SQL = "SELECT pcelAddress FROM peerBrain.peerMemCells ";
     SQL += "where pcelLastStatus = 'online' and  timestampdiff(second,pcelLastMsg,now()) < 50 order by rand() limit "+j.memory.nCopys;
     //console.log(SQL);

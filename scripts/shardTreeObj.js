@@ -35,7 +35,15 @@ class peerShardToken{
       this.signingKey  = null;
       this.openWallet();
    }
-
+   calculateHash(txt) {
+      const crypto = require('crypto');
+      return crypto.createHash('sha256').update(txt).digest('hex');
+   }
+   signToken(token) {
+      const sig = this.signingKey.sign(this.calculateHash(token), 'base64');
+      const hexSig = sig.toDER('hex');
+      return hexSig;
+   }   
    openWallet(){
       var keypair = null;
       try {keypair =  fs.readFileSync('keys/peerShardToken.key');}
@@ -161,7 +169,7 @@ class shardTreeCellReceptor{
     var mToken = {
       publicKey   : this.shardToken.publicKey,
       ownMUID     : bitToken.address,
-      privateKey  : this.shardToken.privateKey  // create from public key using bitcoin wallet algorythm.
+      privateKey  : '************' // create from public key using bitcoin wallet algorythm.
     };
     return mToken;
   }
@@ -175,8 +183,18 @@ class shardTreeCellReceptor{
       res.end('{"result" : 0, "msg" : "no results found"}');
    }
   }
+  signRequest(j){
+    const stoken = j.shard.token.ownMUID + new Date(); 
+    const sig = {
+      token : stoken,
+      pubKey : this.shardToken.publicKey,
+      signature : this.shardToken.signToken(stoken)
+    }
+    return sig;
+  }
   reqStoreShard(j,res){
     j.shard.token = this.openShardKeyFile(j);
+    j.shard.signature = this.signRequest(j);
     var SQL = "SELECT scelAddress FROM shardTree.shardCells ";
     SQL += "where scelLastStatus = 'online' and  timestampdiff(second,scelLastMsg,now()) < 50 order by rand() limit "+j.shard.nCopys;
     //console.log(SQL);
@@ -205,9 +223,6 @@ class shardTreeCellReceptor{
 	});
       } 		  
     });
-  }
-  signShardRequest(j){
-    return;
   }
 };
 /*----------------------------
