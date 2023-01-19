@@ -178,7 +178,7 @@ class shardTreeCellReceptor{
   reqStoreShard(j,res){
     j.shard.token = this.openShardKeyFile(j);
     var SQL = "SELECT scelAddress FROM shardTree.shardCells ";
-    SQL += "where scelLastStatus = 'online' and  timestampdiff(second,scelLastMsg,now()) < 50 order by rand() limit 1";
+    SQL += "where scelLastStatus = 'online' and  timestampdiff(second,scelLastMsg,now()) < 50 order by rand() limit "+j.shard.nCopys;
     //console.log(SQL);
     var nStored = 0;
     con.query(SQL, (err, result, fields)=> {
