@@ -27,6 +27,7 @@ PeerTree Receptor Node: listens on port 1335
 This port is used for your regular apps to interact
 with a shardTreeCell on the PeerTree File Store network;
 */
+const ftreeRoot = 'ftree/';
 
 class peerShardToken{
    constructor(){
@@ -471,9 +472,27 @@ class shardTreeObj {
          var sownID = null;
          if (result.length == 0){
            console.log('Shard Owner Not Found On This Node.');
+           return;
          }
          else {
            sownID = result[0].sownID;
+           var fsdat = null;
+	   const fname = ftreeRoot+sownID+j.shard.hash+'.srd'; 
+           try {
+             fsdat =  fs.readFileSync(fname);
+	     var qres = {
+               req : 'pShardDataResult',
+               data : fsdat,
+               qry : j
+             }
+             //console.log('sending shard result:',qres);
+             this.net.sendReply(remIp,qres);
+           }    
+           catch (err) {
+             console.log('error reading from srootTree:',err);
+             //console.log('Wallet Created And Saved!');
+           }
+           return;
            var SQL = "select shardData from shardTree.shards where shardOwnerID = "+sownID+" and shardHash = '"+j.shard.hash+"'";
            //console.log(SQL);
            con.query(SQL, (err, result, fields)=> {
@@ -581,6 +600,7 @@ class shardTreeObj {
 	  sownID = result[0].sownID;
 	}
       }
+      
       SQL = "SELECT count(*)nRec FROM `shardTree`.`shards` WHERE shardOwnerID = "+sownID+" and shardHash = '"+j.shard.hash+"'";
       con.query(SQL , async(err, result,fields)=>{
         if (err){
@@ -595,7 +615,17 @@ class shardTreeObj {
             return;
 	  }
         }
-	      
+        fs.writeFile(ftreeRoot+sownID+j.shard.hash+'.srd', j.shard.data, (err)=> {
+          if (err) {
+            console.log('error writing srootTree:', err);
+            this.net.endRes(remIp,'{"shardStoreRes":false,"error":"'+err+'"');
+            //console.log('Wallet Created And Saved!');
+	  }
+	  else {
+            this.net.endRes(remIp,'{"shardStoreRes":true,"shardStorHash":"' + j.shard.hash + '"}');
+	  }
+        });
+	/*      
         SQL = "INSERT INTO `shardTree`.`shards` SET ?";
         var values = {
           shardOwnerID : sownID,
@@ -613,7 +643,8 @@ class shardTreeObj {
             const hash = 'write hash function for shardstore';
 	    this.net.endRes(remIp,'{"shardStoreRes":true,"shardStorHash":"' + hash + '"}');
           }
-        });		
+        });
+	*/
       });
     });
   }
