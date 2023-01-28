@@ -21,6 +21,21 @@ const {pcrypt}        = require('./peerCrypt');
 
 addslashes  = require ('./addslashes');
 
+const algorithm = 'aes256';
+
+function encrypt(buffer,pword){
+  pword = pword.substr(0,31);
+  var cipher = crypto.createCipher(algorithm,pword);
+  var crypted = Buffer.concat([cipher.update(buffer),cipher.final()]);
+  return crypted; //.toString('base64');
+}
+ 
+function decrypt(buffer,pword){
+  pword = pword.substr(0,31);
+  var decipher = crypto.createDecipher(algorithm,pword);
+  var dec = Buffer.concat([decipher.update(buffer) , decipher.final()]);
+  return dec;
+}
 /*********************************************
 PeerTree Receptor Node: listens on port 1335
 ==============================================
@@ -177,6 +192,11 @@ class shardTreeCellReceptor{
   async reqRetrieveShard(j,res){
     var data = {result : 0, msg : 'no results found'};
     data = await this.peer.receptorReqSendMyShard(j);
+    if (j.shard.encrypted) {
+      var scrm  = Buffer.from(data.data.data).toString();
+      scrm  = decrypt(Buffer.from(scrm,'base64'),this.shardToken.shardCipher);
+      data.data = scrm.toJSON();
+    }
     if (data){
       res.end('{"result": 1,"data" : '+JSON.stringify(data)+'}');
     }
@@ -194,6 +214,10 @@ class shardTreeCellReceptor{
     return sig;
   }
   reqStoreShard(j,res){
+    if(j.shard.encrypt){
+      j.shard.data = encrypt(j.shard.data,this.shardToken.shardCipher);
+      j.shard.data = j.shard.data.toString('base64');
+    }
     j.shard.token = this.openShardKeyFile(j);
     j.shard.signature = this.signRequest(j);
     var SQL = "SELECT scelAddress FROM shardTree.shardCells ";
@@ -547,7 +571,7 @@ class shardTreeObj {
         console.log('Store Request Timeout:');
         resolve(null);
       },10*1000);  
-      //console.log('Store Shard To: ',toIp);
+      console.log('Store Shard To: ',toIp);
       var req = {
         req : 'storeShard',
 	shard : j.shard
