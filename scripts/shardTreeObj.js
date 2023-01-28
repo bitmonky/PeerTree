@@ -36,6 +36,11 @@ function decrypt(buffer,pword){
   var dec = Buffer.concat([decipher.update(buffer) , decipher.final()]);
   return dec;
 }
+function calculateHash(txt) {
+  const crypto = require('crypto');
+  return crypto.createHash('sha256').update(txt).digest('hex');
+}
+
 /*********************************************
 PeerTree Receptor Node: listens on port 1335
 ==============================================
@@ -56,7 +61,7 @@ class peerShardToken{
       return crypto.createHash('sha256').update(txt).digest('hex');
    }
    signToken(token) {
-      const sig = this.signingKey.sign(this.calculateHash(token), 'base64');
+      const sig = this.signingKey.sign(calculateHash(token), 'base64');
       const hexSig = sig.toDER('hex');
       return hexSig;
    }   
@@ -207,6 +212,7 @@ class shardTreeCellReceptor{
   signRequest(j){
     const stoken = j.shard.token.ownMUID + new Date(); 
     const sig = {
+      ownMUID : j.shard.token.ownMUID,
       token : stoken,
       pubKey : this.shardToken.publicKey,
       signature : this.shardToken.signToken(stoken)
@@ -466,23 +472,22 @@ class shardTreeObj {
   }
   isValidSig(sig) {
     if (!sig){console.log('remMessage signature is null',sig);return false;}
-    if (sig.hasOwnProperty('publicKey') === false) {console.log('remSig.PublicKey is undefined',sig);return false;}
-    if (!sig.publicKey) {console.log('remSig.Publickey is empty',sig);return false;}
+    if (sig.hasOwnProperty('pubKey') === false) {console.log('remSig.pubKey is undefined',sig);return false;}
+    if (!sig.pubKey) {console.log('remSig.pubKey is empty',sig);return false;}
 
     if (!sig.signature || sig.signature.length === 0) {
        return false;
     }
 
     // check public key matches the remotes address
-    var mkybc = bitcoin.payments.p2pkh({ pubkey: new Buffer.from(''+this.pmCipherKey, 'hex') });
+    var mkybc = bitcoin.payments.p2pkh({ pubkey: new Buffer.from(''+sig.pubKey, 'hex') });
     if (sig.ownMUID !== mkybc.address){
       console.log('remote wallet address does not match publickey',sig);
       return false;
     }
     //verify the signature token with the public key
-    const publicKey = ec.keyFromPublic(sig.publicKey,'hex');
-    const msgHash   = this.calculateHash(sig.token);
-    return publicKey.verify(msgHash, sig.signature);
+    const publicKey = ec.keyFromPublic(sig.pubKey,'hex');
+    return publicKey.verify(calculateHash(sig.token), sig.signature);
   }
   doSendShardToOwner(j,remIp){
      //console.log('shard request from: ',remIp);
@@ -603,7 +608,12 @@ class shardTreeObj {
     });
   }
   storeShard(j,remIp){
-    //console.log('got request store shard',j);
+    console.log('got request store shard',j.shard.signature);
+    if (!this.isValidSig(j.shard.signature)){
+      console.log('Shard Signature Invalid... NOT stored');
+        this.net.endRes(remIp,'{"shardStoreRes":false,"error":"Invalid Signature For Request"');
+        return;
+    }
     var SQL = "select sownID from shardTree.shardOwners where sownMUID = '"+j.shard.from+"'";
     con.query(SQL , async(err, result,fields)=>{
       if (err){
