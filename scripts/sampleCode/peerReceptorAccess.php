@@ -1,6 +1,3 @@
-/*PHP
-Example code for connecting to your local peerMemory or peerShard cell receptor.
-*/
 <?php
 function ptreeMakeSearchKey($j){
   return hash('sha256',json_encode($j));
@@ -8,13 +5,23 @@ function ptreeMakeSearchKey($j){
 $PTC_memRECEPTOR   = "https://139.144.110.5:1335";
 $PTC_shardRECEPTOR = "https://170.187.179.251:13355";
 
-function ptreeStoreShard($muid,$hash,$shard,$nCopys=3,$expires=null){
+function prepWords($str){
+  $words = [' i ',' in ',' on ',' there ',' is ',' are ',' as ',' the ',' a ',' to ',' and ',' too ',' of ',' for '];
+  forEach($words as $word){
+    $str = str_ireplace($word,' ',$str);
+  }
+  $str   = preg_replace("/(?![.=$'€%-])\p{P}/u", " ", $str);
+  $str   = preg_replace("/\W/"," ",$str);
+  return $str;
+}
+function ptreeStoreShard($muid,$hash,$shard,$encrypt=null,$nCopys=3,$expires=null){
    $j = new stdClass;
-   $j->from    = $muid;
-   $j->hash    = $hash;
-   $j->data    = $shard;
-   $j->expires = $expires;
-   $j->nCopys  = $nCopys;
+   $j->from      = $muid;
+   $j->hash      = $hash;
+   $j->data      = $shard;
+   $j->encrypt   = $encrypt;
+   $j->expires   = $expires;
+   $j->nCopys    = $nCopys;
 
    $post = new stdClass;
    $post->url   = $GLOBALS['PTC_shardRECEPTOR']."/netREQ";
@@ -23,14 +30,27 @@ function ptreeStoreShard($muid,$hash,$shard,$nCopys=3,$expires=null){
    $bcRes = tryJFetchURL($post,'POST');
    return $bcRes;
 }
-function ptreeRequestShard($muid,$hash){
+function ptreeRequestShard($muid,$hash,$encrypted=null){
    $j = new stdClass;
-   $j->ownerID = $muid;
-   $j->hash    = $hash;
+   $j->ownerID   = $muid;
+   $j->hash      = $hash;
+   $j->encrypted = $encrypted;
 
    $post = new stdClass;
    $post->url   = $GLOBALS['PTC_shardRECEPTOR']."/netREQ";
    $post->postd = '{"msg":{"req":"requestShard","shard":'.json_encode($j).'}}';
+
+   $bcRes = tryJFetchURL($post,'POST');
+   return $bcRes;
+}
+function ptreeDeleteShard($muid,$hash,$encrypted=null){
+   $j = new stdClass;
+   $j->ownerID   = $muid;
+   $j->hash      = $hash;
+
+   $post = new stdClass;
+   $post->url   = $GLOBALS['PTC_shardRECEPTOR']."/netREQ";
+   $post->postd = '{"msg":{"req":"deleteShard","shard":'.json_encode($j).'}}';
 
    $bcRes = tryJFetchURL($post,'POST');
    return $bcRes;
@@ -49,6 +69,7 @@ function ptreeSearchMem($muid,$str,$type='acHashTag'){
    $j->key       = ptreeMakeSearchKey($j);
 
    $url = $GLOBALS['PTC_memRECEPTOR'].'/netREQ/msg='.urlencode('{"req":"searchMemory","qry":'.json_encode($j).'}');
+
    $bcRes = tryFetchURL($url,1);
    return $bcRes;
 }
