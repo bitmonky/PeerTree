@@ -4,7 +4,8 @@ const options = {
   key: fs.readFileSync('keys/privkey.pem'),
   cert: fs.readFileSync('keys/fullchain.pem')
 };
-const {MkyNetNode,MkyNetObj,MkyNetTab}   = require('./peerTree');
+//const {MkyNetNode,MkyNetObj,MkyNetTab}   = require('./peerTree');
+const {PeerTreeNet}     = require('./peerTree');
 const {peerMemoryObj,peerMemCellReceptor} = require('./peerMemoryObj.js');
 
 /*******************
@@ -23,7 +24,7 @@ Create PeerTree Network Peer
     isRoot == 'root';
     reset = 'rebuild';
   }
-  const mkyNet = new MkyNetObj(options);
+  const mkyNet = new PeerTreeNet(options);
   mkyNet.nodeType = 'memoryCell';
 
   if (isRoot == 'reset'){
@@ -62,7 +63,7 @@ function startMemoryCell(rBranch){
     });
     mcell.net.on('xhrFail', j =>{
       console.log('xhrFail is->',j);
-      mcell.handleXhrError(JSON.parse(j));
+      mcell.handleXhrError(j);
     });
 }
 

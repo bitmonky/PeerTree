@@ -9,9 +9,14 @@ const qs = require('querystring');
 const crypto = require('crypto');
 const EC = require('elliptic').ec;
 const ec = new EC('secp256k1');
-
+const bitcoin = require('bitcoinjs-lib');
 var rootIp = process.argv[2];
 var isRoot = process.argv[3];
+
+console.log('IsRoot:->',isRoot);
+if (!isRoot){
+  isRoot = null;
+}
 
 process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = 0;
 
@@ -23,7 +28,7 @@ function sleep(ms){
     setTimeout(resolve,ms)
   });
 }
-//******************************************************************
+// ******************************************************************
 // CLASS: MkyRouting
 // Handles the netorks routing tables  so peers 
 // can broadcast messages to all other nodes on the network.
@@ -36,16 +41,15 @@ function sleep(ms){
 // Messages that can not be sent are pushed onto a que and
 // are delivered as soon as the conection returns or the node 
 // is replaced.
-//*******************************************************************
+// *******************************************************************
 class MkyRouting {
    constructor(myIp,net){
      this.myIp       = myIp;
      this.net        = net;
      this.newNode    = null;
      this.ipListener = null;
-     this.rtListener = null;
      this.lnListener = null;
-     this.node       = new MkyErrorMgr();
+     //this.node       = new MkyErrorMgr();
      this.err        = null;
      this.eTime      = null;
      this.status     = 'startup'
@@ -63,11 +67,16 @@ class MkyRouting {
        nlayer     : 1,    // nlayers in the network 1,2,3 ... n
        lnode      : 1     // number of the last node in.
      }
-     this.init();
    }
-   //********************************************************************
+   routingReady(){
+     return new Promise( async (resolve,reject)=>{
+       await this.init();
+       resolve(true);
+     });
+   }
+   // ********************************************************************
    // Search any previously known nodes and request th whoIsRoot response.
-   //=====================================================================
+   // =====================================================================
    findWhoIsRoot(i=0){
      this.rootFound = null;
      return new Promise( async (resolve,reject)=>{
@@ -79,21 +88,21 @@ class MkyRouting {
        resolve(this.rootFound); 
      });
    }
-   //****************************************************
+   // ****************************************************
    // Request whoIsRoot response.
-   //====================================================
+   // ====================================================
    whoIsRoot(ip){
      return new Promise( (resolve,reject)=>{
        var rtListen = null;
        var rtLFail  = null;
        const gtime = setTimeout( ()=>{
          console.log('who is root timeout', ip);
-         this.net.removeListener('mkyReply', rtListen);
+         this.net.removeListener('peerTReply', rtListen);
          this.net.removeListener('xhrFail', rtLFail);
          resolve(null);
-       },5000);
+       },500);
 
-       this.rtListener = this.net.on('mkyReply', rtListen = (j)=>{
+       this.net.on('peerTReply', rtListen = (j)=>{
          if (j.whoIsRootReply){
            clearTimeout(gtime);
            if (j.whoIsRootReply == 'notready')
@@ -103,7 +112,7 @@ class MkyRouting {
              console.log('this.rootFound',this.rootFound);
              resolve(j.whoIsRootReply);
            }
-           this.net.removeListener('mkyReply', rtListen);
+           this.net.removeListener('peerTReply', rtListen);
            this.net.removeListener('xhrFail', rtLFail);
          }
        });
@@ -114,7 +123,7 @@ class MkyRouting {
              resolve(this.rootFound);
            else
              resolve (null);
-           this.net.removeListener('mkyReply', rtListen);
+           this.net.removeListener('peerTReply', rtListen);
            this.net.removeListener('xhrFail', rtLFail);
          }
        });
@@ -123,19 +132,20 @@ class MkyRouting {
          req  : 'whoIsRoot?'
        }
        console.log('sending mesage to'+ip,req);
-       this.net.sendMsg(ip,req);
+       this.net.sendMsgCX(ip,req);
      });
    }
-   //***********************************************
+   // ***********************************************
    // Notify Root That A Node Is Dropping
-   //===============================================
+   // ===============================================
    notifyRootDropingNode(node){
+     //*check to see if myIp is the root node.
      if (this.myIp != this.r.rootNodes[0].ip){
        const req = {
          req  : 'rootStatusDropNode',
          node : node
        }
-       this.net.sendMsg(this.net.getNetRootIp(),req);
+       this.net.sendMsgCX(this.net.getNetRootIp(),req);
      }
      else {
        this.startJoin = 'waitForDrop';
@@ -145,9 +155,9 @@ class MkyRouting {
      if (this.startJoin == 'waitForDrop')
        this.startJoin = null;
    }
-   //****************************************************
+   // ****************************************************
    // handles directly the first 2*maxPeer peers to joing
-   //====================================================
+   // ====================================================
    addNewNodeReq(ip){
      console.log('Add by REQUESST');
        if (this.inMyNodesList(ip)){
@@ -180,18 +190,18 @@ class MkyRouting {
            return true;
          }
        }   
-       //Send request to lastNodes parent 
-       //********************************
+       // Send request to lastNodes parent 
+       // ********************************
        var req = {req : 'lnParentAddNode',ip  : ip};
-       this.net.sendMsg(this.r.lastNode,req);
+       this.net.sendMsgCX(this.r.lastNode,req);
 
        //this.incCounters()
        //this.r.lastNode = ip;
        return false;
    }
-   //***********************************************
+   // ***********************************************
    // update rootRouting table broadcast the update.
-   //===============================================
+   // ===============================================
    updateRootRoutingTable(){
      this.r.rootNodes.forEach( n =>{
        if (n.ip == this.myIp)
@@ -199,10 +209,10 @@ class MkyRouting {
      });
      this.bcastRootTableUpdate();
    }
-   //******************************************************
+   // ******************************************************
    // Handles request to add new last node
    //   - only the node with and open slot will return true.
-   //======================================================
+   // ======================================================
    async lnParentAddNode(res,ip){
      console.log('Add by Parent ',ip);
      if (this.inMyNodesList(ip)){
@@ -212,13 +222,12 @@ class MkyRouting {
          result            : 'already add',
          parent            : this.myIp,
        }       
-       this.net.endRes(res,JSON.stringify(result));
+       this.net.endResCX(res,JSON.stringify(result));
        return true;
      }
 
      if (ip == this.myIp){
-       console.log('hey this is me');
-       this.net.endRes(res,'{"lnParentNodeAdded":true,"result":"Attempt To Add Self"}');
+       this.net.endResCX(res,'{"lnParentNodeAdded":true,"result":"Attempt To Add Self"}');
        return false;
      }
 
@@ -233,7 +242,7 @@ class MkyRouting {
        this.r.lastNode = ip;
 
        this.incCounters();
-       this.net.sendMsg(ip, {req : 'addedYou',info : this.r});
+       this.net.sendMsgCX(ip, {req : 'addedYou',info : this.r});
 
        console.log('adding peer mylayer is',this.r.mylayer);
        if (this.r.mylayer == 1){
@@ -242,21 +251,21 @@ class MkyRouting {
        else
          this.bcast({newNode : ip,rootUpdate : null});
        const aresult = {lnParentNodeAdded : true,result : true,parent : this.myIp};
-       this.net.endRes(res,JSON.stringify(aresult));
+       this.net.endResCX(res,JSON.stringify(aresult));
        return true;
      }
      const parent = await this.getNodeIpByNbr(this.r.nodeNbr +1);         
-     this.net.sendMsg(parent,{req : "lnForwardedAddNode", ip : ip});
+     this.net.sendMsgCX(parent,{req : "lnForwardedAddNode", ip : ip});
      console.log('FOrwarded Add By Reques addRes to',parent);
 
      const result = {lnParentNodeAdded : true, result : 'Forwarded', parent : parent };
-     this.net.endRes(res,JSON.stringify(result));
+     this.net.endResCX(res,JSON.stringify(result));
      return false;
    }
-   //******************************************************
+   // ******************************************************
    // Handles broadcasted requests to join.  
    //   - only the node with and open slot will return true.
-   //====================================================== 
+   // ====================================================== 
    addNewNodeBCast(ip,rUpdate){
      console.log('Add by BROADCAST '+ip,rUpdate);
      if (this.startJoin){
@@ -280,21 +289,21 @@ class MkyRouting {
      this.incCounters();
      return false;
    }
-   //***********************************************
+   // ***********************************************
    // Send Message to parent to update their routing
-   //===============================================
+   // ===============================================
    sendParentNewRoutes(){
      if (this.r.myParent){
        const req = {
          req  : 'pRouteUpdate',
          newRoute : this.r.myRoutes
        }
-       this.net.sendMsg(this.r.myParent,req);
+       this.net.sendMsgCX(this.r.myParent,req);
      } 
    }
-   //***********************************************
+   // ***********************************************
    // update pgroup routes at request of child node
-   //===============================================
+   // ===============================================
    updatePeerRouting(j){
      this.r.myNodes.forEach( n =>{
        if (n.ip == j.remIp) 
@@ -303,9 +312,9 @@ class MkyRouting {
      if (this.iamRootNode())
        this.bcastRootTableUpdate();
    }
-   //*************************************
+   // *************************************
    // Remove routing info for removed node
-   //=====================================
+   // =====================================
    dropNode(ip){
      console.log('starting dropNode',ip);
      if (this.r.lnode <= this.net.maxPeers){
@@ -332,114 +341,116 @@ class MkyRouting {
        }
      });
    }
-   //**********************************************************
+   // **********************************************************
    // Calculate what layer a node is in
-   //==========================================================
+   // ==========================================================
    getNthLayer(maxPeers,n){
      var l = 0;
      for (var i=1; l < n;i++)
        l = l + Math.pow(maxPeers,i);
      return i-1;
    }
-   //**********************************************************
+   // **********************************************************
    // Increment node and layer counters when adding peer nodes
-   //==========================================================
+   // ==========================================================
    incCounters(){
      this.r.lnode++;
      this.r.nlayer = this.getNthLayer(this.net.maxPeers,this.r.lnode);
    }
-   //**************************************************************
+   // **************************************************************
    // Decrement node and layer counter when removing peer nodes
-   //===========================================================
+   // ===========================================================
    decCounters(){
      this.r.lnode--;
      this.r.nlayer = this.getNthLayer(this.net.maxPeers,this.r.lnode);
    }
-   //************************************************************
+   // ************************************************************
    // Network Start Up:
    // Look For node file if not found use rootIp as default join
-   //============================================================
-   async init(){
-     const rtab = await this.readNodeFile(); 
-     var   jroot = null;
-     var   rInfo = null;
-     if (!rtab)
-       console.log('NETWORK starting... I am new!');
-     else 
-       this.net.nodes = rtab;
+   // ============================================================
+   init(){
+     return new Promise(async (resolve,reject)=>{
+       const rtab = await this.readNodeFile(); 
+       var   jroot = null;
+       var   rInfo = null;
+       if (!rtab)
+         console.log('NETWORK starting... I am new!');
+       else 
+         this.net.nodes = rtab;
 
-     console.log('Got Form node file',this.net.nodes);
-     rInfo = await this.findWhoIsRoot();
-     if (!rInfo) 
-       jroot = rootIp;
-     else {
-       jroot = rInfo.rip;
-       this.net.rootIp = jroot;
-       this.net.maxPeers = rInfo.maxPeers;
-     }
-     if (this.myIp != this.net.rootIp){
-       const msg = {
-         req : 'joinReq'
+       rInfo = await this.findWhoIsRoot();
+       if (!rInfo) 
+         jroot = rootIp;
+       else {
+         jroot = rInfo.rip;
+         this.net.rootIp = jroot;
+         this.net.maxPeers = rInfo.maxPeers;
        }
-       console.log("New Node Sending Join.. req");
-       this.net.sendMsg(jroot,msg);
-     }   
-     else{ 
-       this.r.rootNodes[0] = {ip : this.myIp,nbr : 1,pgroup : []};
-       this.status = 'root';
-       console.log("I am alone :(");
-     }
-     this.procJoinQue();
+       if (this.myIp != this.net.rootIp){
+         const msg = {
+           req : 'joinReq'
+         }
+         console.log("New Node Sending Join.. req");
+         this.net.sendMsgCX(jroot,msg);
+       }    
+       else{ 
+         this.r.rootNodes[0] = {ip : this.myIp,nbr : 1,pgroup : []};
+         this.status = 'root';
+         console.log("I am alone :(");
+       }
+       this.procJoinQue();
+       resolve(true);
+     });	     
    }
-   //*************************************************
+   // *************************************************
    // check to see if i am a root node in the network
-   //=================================================
+   // =================================================
    iamRootNode(){
      for (var node of this.r.rootNodes)
        if (node.ip == this.myIp)
          return true;
      return false;
    }
-   //******************************************************
+   // ******************************************************
    // Must Call this any time the main root table is chainged
-   //=======================================================
+   // =======================================================
    bcastRootTableUpdate(){
      console.log('Sending bcast rootTabUpdate...');
      this.bcast({rootTabUpdate : this.r.rootNodes});
    }
 
-   //**********************************************************
+   // **********************************************************
    // Used to send broadcast message to all peers on the network
-   //==========================================================
+   // ==========================================================
    bcast(msg){
      const bc = {
        req     : 'bcast',
        msg     : msg,
        reroute : false
      }
-     //console.log('List TO send bcast to',this.r.rootNodes);
+     // console.log('List TO send bcast to',this.r.rootNodes);
      for (var node of this.r.rootNodes){
        if (node.ip != this.myIp){
-         this.net.sendMsg(node.ip,bc);
+         this.net.sendMsgCX(node.ip,bc);
          //console.log("Send bcast to ",node.ip);
        }
      }
      this.forwardMsg(bc);
    }       
-   //*************************************************
+   // *************************************************
    // forwards 'bcast' messages down the tree
-   //=================================================
+   // =================================================
    forwardMsg(msg){
      if (this.r.myNodes)
        for (var node of this.r.myNodes){
          if (node.ip != this.myIp){
-           this.net.sendMsg(node.ip,msg);
+           this.net.sendMsgCX(node.ip,msg);
          }
        }
    }
-   //*************************************************
+   // *************************************************
    // Route Past Unresponsive node while it is being replaced
-   //=================================================
+   // =================================================
    routePastNode(msg){
      if (!msg.req == 'bcast')
        return false;
@@ -449,15 +460,15 @@ class MkyRouting {
          if (node.ip == msg.toHost){
            for (var p of node.pgroup){
              console.log('Send BCAST past node ',ip);
-             this.net.sendMsg(p.ip,msg);
+             this.net.sendMsgCX(p.ip,msg);
            }
          }
        }
      return true;
    }
-   //*************************************************
+   // *************************************************
    // Check If Ip is one of the root nodes on the network
-   //=================================================
+   // =================================================
    inRootTab(ip){
      if (this.iamRootNode())
        for (var node of this.r.rootNodes){
@@ -466,14 +477,16 @@ class MkyRouting {
        }
      return false;
    }
-   //*******************************************************
+   // *******************************************************
    // Check If Ip is in either the root table or my peer group
-   //======================================================
+   // ======================================================
    inMyNodesList(ip){
+     // Last node has root ash child.
      if (this.r.rootNodes[0])
        if (this.myIp == this.r.lastNode && ip == this.r.rootNodes[0].ip )
          return 1;
 
+     // Root node has all top level nodes as children as well.
      if (this.iamRootNode())
        for (var node of this.r.rootNodes){
          if (node.ip == ip)
@@ -489,9 +502,9 @@ class MkyRouting {
      }
      return false;
    }
-   //*******************************************************
+   // *******************************************************
    // Swap routing info to replace node
-   //======================================================
+   // ======================================================
    swapNodeIps(dip,rip){
      if (this.r.nodeNbr == 1)
        this.r.rootNodes.forEach( node=>{
@@ -504,9 +517,9 @@ class MkyRouting {
          node.ip = rip;
      });
    }
-   //******************************************************************
+   // ******************************************************************
    // checks to see if the node is the parent of the node to be dropped
-   //==================================================================
+   // ==================================================================
    notMyNode(ip){
     if (ip == this.r.rootNodes[0].ip && this.r.nodeNbr == 2 && this.lnodes == 2)
       return false;
@@ -523,9 +536,9 @@ class MkyRouting {
   
      return false;
    }
-   //********************************
+   // ********************************
    // Replace Node 
-   //================================
+   // ================================
    dropLastNode(nodes,nbr){
      console.log('start drop last node',nodes); 
      if (!nodes)
@@ -544,10 +557,10 @@ class MkyRouting {
        }
      });
    }
-   //***********************************************
+   // ***********************************************
    // gets the peer group list from root nodes list for 
    // for the requested ip 
-   //===============================================
+   // ===============================================
    getRootNodePeerGroup(ip){
      if (this.r.rootNodes)
        for (var node of this.r.rootNodes){
@@ -557,9 +570,9 @@ class MkyRouting {
        }
      return [];
    }
-   //***********************************************
+   // ***********************************************
    // get peer group list for node in the pgroup list
-   //===============================================
+   // ===============================================
    getDropNodePeerGroup(ip){
      if (this.r.myNodes)
        for (var node of this.r.myNodes){
@@ -569,9 +582,9 @@ class MkyRouting {
        }
      return [];
    }
-   //***********************************************
+   // ***********************************************
    // set last node active to root settings
-   //===============================================
+   // ===============================================
    becomeRoot(){
      console.log('becoming root node');
      this.r = {
@@ -588,9 +601,9 @@ class MkyRouting {
      this.net.rootIp = this.myIp;
      this.status = 'root';
    }
-   //***********************************************
+   // ***********************************************
    // last node replaces root node if root node is inactive
-   //===============================================
+   // ===============================================
    lnodeReplaceRoot(ip,nbr){
      console.log('lnodeReplaceRoot: '+ip,nbr);
      return new Promise( async (resolve,reject)=>{
@@ -626,9 +639,9 @@ class MkyRouting {
      resolve(true);
      });
    }
-   //***************************************************
+   // ***************************************************
    // send message to last node to replace a failin node
-   //===================================================
+   // ===================================================
    sendMoveRequestToLastNode(ip,nbr){
      console.log('Sending lastNodeMoveTo request to'+ip,nbr);
      return new Promise( async (resolve,reject)=>{
@@ -675,13 +688,13 @@ class MkyRouting {
          dropIp    : ip
        }
        console.log('request looks like this',req);
-       this.net.sendMsg(this.r.lastNode,req);
+       this.net.sendMsgCX(this.r.lastNode,req);
        resolve(this.r.lastNode);
      });
    }
-   //******************************************************
+   // ******************************************************
    // last node moves position to replace the droppe  node
-   //******************************************************
+   // ******************************************************
    async lastNodeMoveTo(j){
      const rip = this.myIp;
      const dropNbr = this.r.nodeNbr;
@@ -709,10 +722,10 @@ class MkyRouting {
      this.r.lastNode = await this.getNodeIpByNbr(this.r.lnode);
      this.bcast({simReplaceNode : {ip : j.dropIp,nbr : j.nodeNbr,lnode : this.r.lastNode}});
    }
-   //************************************************
+   // ************************************************
    // All nodes accept the last node find and replace 
    // the ip of the dropped node nbr
-   //================================================
+   // ================================================
    simReplaceNode(node){ 
      console.log('simReplace',node);
      if (this.r.nodeNbr == node.nbr){
@@ -746,9 +759,9 @@ class MkyRouting {
      this.net.rootIp = this.r.rootNodes[0].ip;
      console.log('new last node is;',this.r.lastNode);
    }
-   //***********************************************
+   // ***********************************************
    // Query the network for a nodes number using its ip
-   //===============================================
+   // ===============================================
    getNodeIpByNbr(nbr){
      return new Promise( (resolve,reject)=>{
        var ipListen = null;
@@ -759,43 +772,43 @@ class MkyRouting {
        this.bcast({peerSendIp : nbr});
        const gtime = setTimeout( ()=>{
          console.log('get Node by nbre timed out',nbr);
-         this.net.removeListener('mkyReq',ipListen);
+         this.net.removeListener('peerTReq',ipListen);
          resolve(null);
        },4*1000);  
                   
        console.log('installing ipListener');
-       this.net.on('mkyReq', ipListen = (res,j)=>{
+       this.net.on('peerTReq', ipListen = (res,j)=>{
          if (j.responseSendIp){
-           this.net.endRes(res,'{"result":"Thanks"}');
+           this.net.endResCX(res,'{"result":"Thanks"}');
            console.log('Got Response to BCAST peerSendIp '+nbr,j.responseSendIp);
            this.responseSendIp = j.responseSendIp;
            clearTimeout(gtime);
            resolve(j.responseSendIp);
-           this.net.removeListener('mkyReq',ipListen);
+           this.net.removeListener('peerTReq',ipListen);
            this.ipListener = null;
          }
        });
      });
    }
-   //***********************************************
+   // ***********************************************
    // Get nodes peer group list
-   //===============================================
+   // ===============================================
    getChildPGroupList(ip){
      for (var n of this.r.myNodes)
        if (n.ip == ip)
          return n.pgroup;
      return [];
    }
-   //***********************************************
+   // ***********************************************
    // Send Nodes Ip to The host that requeste it nbr
-   //===============================================
+   // ===============================================
    respondToIpByNbrRequest(j,toIp){
      if (this.r.nodeNbr == j.peerSendIp)
-       this.net.sendMsg(toIp,{responseSendIp : this.myIp});
+       this.net.sendMsgCX(toIp,{responseSendIp : this.myIp});
    }
-   //*****************************************************
+   // *****************************************************
    // Check peers ip to see if it is still in the network
-   //=====================================================
+   // =====================================================
    checkPeerStatus(ip){
      if (this.inMyNodesList(ip))
        return true;
@@ -804,9 +817,9 @@ class MkyRouting {
          return true;
      return false;
    } 
-   //*****************************************************************
+   // *****************************************************************
    // Send Rejoin request if this node has dettached from the network
-   //=================================================================
+   // =================================================================
    async rejoinNetwork(){
      this.net.emit('mkyRejoin','networkDrop');
      this.r = {
@@ -829,11 +842,11 @@ class MkyRouting {
        req : 'joinReq'
      }
      console.log("Detached Node Sending Re-join.. req",this.net.rootIp);
-     this.net.sendMsg(this.net.rootIp,msg);
+     this.net.sendMsgCX(this.net.rootIp,msg);
    }
-   //*****************************************************************
+   // *****************************************************************
    // Handles all network join requests
-   //=================================================================
+   // =================================================================
    procJoinQue(){
      if (this.joinQue.length){
        const req = this.joinQue[0];
@@ -847,13 +860,13 @@ class MkyRouting {
    }
    handleJoins(res,j){
      if (this.r.lastNode == j.remIp){
-       this.net.endRes(res,'{"result":"alreadyJoined"}');
+       this.net.endResCX(res,'{"result":"alreadyJoined"}');
        return;
      }
      if (this.startJoin || this.err){  //this.node.isError(res)){
        if (this.startJoin != res)
          this.joinQue.push({jIp:res,j:j});
-       this.net.endRes(res,'{"result":"reJoinQued"}');
+       this.net.endResCX(res,'{"result":"reJoinQued"}');
        return;
      }
      this.joinTime = setTimeout( ()=>{
@@ -866,19 +879,19 @@ class MkyRouting {
 
      if (addRes){
        const reply = {addResult : this.newNode}
-       this.net.endRes(res,JSON.stringify(reply));
+       this.net.endResCX(res,JSON.stringify(reply));
        this.newNode = null;
        this.bcast({newNode : j.remIp,rootUpdate : this.r.rootNodes});
        this.startJoin = false;
        clearTimeout(this.joinTime);
      }
      else {
-       this.net.endRes(res,JSON.stringify({addResult : 'Forwarded Request To Join'}));
+       this.net.endResCX(res,JSON.stringify({addResult : 'Forwarded Request To Join'}));
      }
    }
-   //********************************
+   // ********************************
    // Handler for incoming http request
-   //================================   
+   // ================================   
    handleReq(res,j){
      this.net.resetErrorsCnt(j.remIp);
      if (j.req == 'joinReq'){
@@ -891,13 +904,13 @@ class MkyRouting {
      }
      if (j.req == 'lastNodeMoveTo'){
        this.lastNodeMoveTo(j);
-       this.net.endRes(res,'{"lasNodeMoveToResult":"OK"}');
+       this.net.endResCX(res,'{"lasNodeMoveToResult":"OK"}');
        return true;
      }
      if (j.req == 'lnParentAddNode'){
        console.log('received reqeust lnParentAddNode');
-       this.net.sendMsg(this.r.myParent,{req : "lnForwardedAddNode", ip : j.ip});
-       this.net.endRes(res,'{"lnParentNodeAdded":true,"result":"forwarded",parent : '+this.r.myParent+'}');
+       this.net.sendMsgCX(this.r.myParent,{req : "lnForwardedAddNode", ip : j.ip});
+       this.net.endResCX(res,'{"lnParentNodeAdded":true,"result":"forwarded",parent : '+this.r.myParent+'}');
        return true;
      }
      if (j.req == 'lnForwardedAddNode'){
@@ -914,7 +927,7 @@ class MkyRouting {
        this.r.myParent = j.remIp;
        this.newNode    = null;
        this.status     = 'online';
-       this.net.endRes(res,'{"result":"OK"}');       
+       this.net.endResCX(res,'{"result":"OK"}');       
        return true;
      }
      if (j.req == 'whoIsRoot?'){
@@ -926,23 +939,23 @@ class MkyRouting {
            }
          } 
          console.log('here is root',qres);
-         this.net.endRes(res,JSON.stringify(qres));
+         this.net.endResCX(res,JSON.stringify(qres));
        }
        else {
-         this.net.endRes(res,'{"whoIsRootReply":"notready"}');
+         this.net.endResCX(res,'{"whoIsRootReply":"notready"}');
        }
        return true;
      }
      if (j.req == 'pRouteUpdate'){
        this.updatePeerRouting(j);
-       this.net.endRes(res,'{"result":"OK"}');
+       this.net.endResCX(res,'{"result":"OK"}');
        return true;
      }
      return false;
    }
-   //*****************************************
+   // *****************************************
    // Handle Direct Responses from http request 
-   //=========================================
+   // =========================================
    handleReply(j){
 
      if (j.addResult){
@@ -972,9 +985,9 @@ class MkyRouting {
      }    
      return false;
    }
-   //***************************************************
+   // ***************************************************
    // Handle Broadcasts From the network
-   //==================================================
+   // ==================================================
    handleBcast(j){
      //console.log('Broadcast Recieved: ',j.msg);
      if (j.msg.newNode){
@@ -1018,9 +1031,9 @@ class MkyRouting {
      }
      return false;
    }
-   //********************************************************************
+   // ********************************************************************
    // Handle undelivered http request from offline or slow to respond peers
-   //====================================================================
+   // ====================================================================
    async handleError(j){
      //console.log('handle error'+this.status,j);
      if (j.req == 'whoIsRoot?'){
@@ -1033,6 +1046,11 @@ class MkyRouting {
      if(j.req == 'bcast'){
        this.routePastNode(j);
        return true;
+     }
+     // Que errors to nodes that are not in my control.
+     if (this.isMyChild(j.toHost) === null){
+       this.net.queMsg(j);
+       return;
      }
      if (!this.err){ //this.node.isError(j.toHost)){
        this.net.incErrorsCnt(j.toHost);
@@ -1063,16 +1081,40 @@ class MkyRouting {
          }
        }
        else { 
+         console.log('queing errored message',j);
          this.net.queMsg(j);
-         //console.log('que message A',j);
        } 
        return true;
      }
      return false;
    }
-   //****************************************
+   // ****************************************
+   // Check if ip is in my child nodes list
+   // ========================================
+   isMyChild(ip){
+     if (this.r.rootNodes[0])
+       if (this.myIp == this.r.lastNode && ip == this.r.rootNodes[0].ip )
+         return 1;
+
+     // Root node has all top level nodes as children as well.
+     if (this.iamRootNode())
+       for (var node of this.r.rootNodes){
+         if (node.ip == ip)
+           return node.nbr;
+       }
+
+     if (!this.r.myNodes)
+       return null;
+
+     for (var node of this.r.myNodes){
+       if (node.ip == ip)
+         return node.nbr;
+     }
+     return null;
+   }
+   // ****************************************
    // Check for existing routing information
-   //========================================
+   // ========================================
    readNodeFile(){
      return new Promise( (resolve,reject)=>{
        var rtab = null;
@@ -1080,44 +1122,17 @@ class MkyRouting {
        catch {console.log('no node list  file found');resolve(null);}
        try {
          rtab = JSON.parse(rtab);
-         console.log('myNodeList parsed',rtab);
          resolve(rtab);
        }
        catch {resolve(null);}
      });
    }
 }
-//*********************************************************
-// CLASS: MkyErrorMgr
-// Manages list of nodes in error state
-//*********************************************************
-class MkyErrorMgr {
-   constructor(que){
-     this.nodes = [];
-   }
-   isError(ip){
-     this.nodes.forEach( (n)=>{
-       if(n.ip == ip)
-         return true;
-     });
-     return false;
-   }
-   pushError(ip){
-     this.nodes.push(ip);
-   }
-   clearError(ip){
-     this.nodes.forEach( (n, index, object)=>{
-       if (n.ip == ip){
-         object.splice(index,1)
-       }
-     });
-   }
-}
-//*********************************************************
+// *********************************************************
 // CLASS: MkyMsgQmgr
 // A Que for messages to nodes that have timed out or 
 // have errors.
-//*********************************************************
+// *********************************************************
 class MkyMsgQMgr {
    constructor(que){
      this.nodes = [];   
@@ -1171,24 +1186,25 @@ class MkyMsgQMgr {
      });
    }
 }
-//*********************************************************
-// CLASS: MkyNetObj
+// *********************************************************
+// CLASS: PeerTreeNet
 // Provides peer network for applications to send, recieve and broadcast 
 // JSON messages using https.
-//*********************************************************
-class MkyNetObj extends  EventEmitter {
+// *********************************************************
+class PeerTreeNet extends  EventEmitter {
    constructor (options,network=null,port=1336,wmon=1339,maxPeers=3){
       super(); 
-      this.nodeType = 'router';
+      this.nodeType  = 'router';
+      this.pulseRate = 10*1000;	   
       this.maxPeers = maxPeers;
       this.rootIp   = rootIp;
       this.isRoot   = isRoot;
+      this.peerMUID = null;
       this.server   = null;
       this.remIp    = null;
       this.port     = port;
       this.wmon     = wmon;
       this.options  = options;
-      this.heartListen = null;
       this.nodes    = [];
       this.msgQue   = [];
       this.rQue     = [];
@@ -1208,7 +1224,7 @@ class MkyNetObj extends  EventEmitter {
        try {
          nodes = JSON.parse(nodes);
          //for (node of nodes)
-         //  this.sendMsg(node.ip,'{"req":"nodeStatus"}');
+         //  this.sendMsgCX(node.ip,'{"req":"nodeStatus"}');
          resolve(nodes);
        }
        catch {resolve([]);}
@@ -1226,14 +1242,16 @@ class MkyNetObj extends  EventEmitter {
      return new Promise( async (resolve,reject)=>{
        this.initHandlers();
        this.nodes = await this.readNodeFile();
-       if (!isRoot){
-         isRoot = null;
-         this.isRoot = null;
-       }
        this.genNetKeyPair();
        this.startServer();
        this.rnet = new MkyRouting(this.netIp(),this);
-       this.heartBeat();
+       await this.rnet.routingReady();
+       setTimeout ( ()=>{
+	 this.heartBeat();
+       },this.pulseRate);
+       setTimeout ( ()=>{
+	 this.groupPing(this.nodes,'170.187.179.251');
+       },5*1000);
        resolve(true);
      });
    }
@@ -1257,7 +1275,7 @@ class MkyNetObj extends  EventEmitter {
    }
    genNetKeyPair(){
       var keypair = null;
-      try {keypair =  fs.readFileSync('keys/myMkyNet.key');}
+      try {keypair =  fs.readFileSync('keys/peerTreeNet.key');}
       catch {console.log('no keypair file found');}
       this.publicKey = null;
    
@@ -1265,9 +1283,10 @@ class MkyNetObj extends  EventEmitter {
         try {
           const pair = keypair.toString();
           const j = JSON.parse(pair);
-
+          console.log('Peer Wallet:',j);
           this.publicKey  = j.publicKey;
           this.privateKey = j.privateKey;
+          this.peerMUID   = j.peerMUID;
           this.signingKey = ec.keyFromPrivate(this.privateKey);
         }
         catch {console.log('keypair pair not valid');process.exit();}
@@ -1276,15 +1295,21 @@ class MkyNetObj extends  EventEmitter {
         const key = ec.genKeyPair();
         this.publicKey  = key.getPublic('hex');
         this.privateKey = key.getPrivate('hex');
-        const keypair = '{"publicKey":"' + this.publicKey + '","privateKey":"' + this.privateKey + '"}';
+        var mkybc = bitcoin.payments.p2pkh({ pubkey: new Buffer.from(''+this.publicKey, 'hex') });
+        this.peerMUID = mkybc.address;
 
-        fs.writeFile('keys/myMkyNet.key', keypair, function (err) {
+	const keypair = '{"publicKey":"' + this.publicKey + '","privateKey":"' + this.privateKey + '","peerMUID":"'+this.peerMUID+'"}';
+
+        fs.writeFile('keys/peerTreeNet.key', keypair, function (err) {
           if (err) throw err;
         });
         this.signingKey = ec.keyFromPrivate(this.privateKey);
       }
    }
-   endRes(resIp,msg){
+   endResCX(resIp,msg){
+      this.endRes(resIp,msg,true);
+   }
+   endRes(resIp,msg,corx=false){
       //console.log('\n=======================\nendRes sent:',msg);
       this.resHandled = true;
       if(this.svtime)clearTimeout(this.svtime);
@@ -1300,6 +1325,9 @@ class MkyNetObj extends  EventEmitter {
         console.log('Response Error JSON.parse',msg);
         return;
       }
+      if(corx){
+        jmsg.PNETCOREX = true;
+      }
       this.sendReply(resIp,jmsg);
    }
    startServer(){
@@ -1312,8 +1340,9 @@ class MkyNetObj extends  EventEmitter {
             this.resHandled = true;
           }
         },5000); 
-        this.remIp = req.headers['x-forwarded-for'] ||
-        req.connection.remoteAddress ||
+   
+	//this.remIp = req.headers['x-forwarded-for'] ||
+        this.remIp = req.connection.remoteAddress ||
         req.socket.remoteAddress ||
         req.connection.socket.remoteAddress;
         this.remIp = this.remIp.replace('::ffff:','');
@@ -1338,8 +1367,13 @@ class MkyNetObj extends  EventEmitter {
 		if (!j.msg.remIp) j.msg.remIp = this.remIp;
                 this.resHandled = true;
                 clearTimeout(this.svtime);
-                this.emit('mkyReq',this.remIp,j.msg);
-                res.setHeader('Content-Type', 'application/json');
+                if (j.msg.hasOwnProperty('PNETCOREX') === false){
+                  this.emit('mkyReq',this.remIp,j.msg);
+		} 
+		else {
+                  this.emit('peerTReq',this.remIp,j.msg);
+		}
+		res.setHeader('Content-Type', 'application/json');
                 res.writeHead(200);
                 res.end('{"netReq":"OK"}');
               }
@@ -1375,7 +1409,12 @@ class MkyNetObj extends  EventEmitter {
                 if (j.hasOwnProperty('msg') === false) throw 'invalid netREPLY no msg body found';
                 if (!j.msg.remIp) j.msg.remIp = this.remIp;
                 clearTimeout(this.svtime);
-                this.emit('mkyReply',j.msg);
+                if (j.msg.hasOwnProperty('PNETCOREX') === false){
+		  this.emit('mkyReply',j.msg);
+		}
+		else {
+		  this.emit('peerTReply',j.msg);
+		}
                 res.setHeader('Content-Type', 'application/json');
                 res.writeHead(200);
                 res.end('{"netREPLY":"OK"}');
@@ -1392,7 +1431,7 @@ class MkyNetObj extends  EventEmitter {
           }
         }
         else {
-          this.endRes(res,'Welcome To PeerTree Network Sevices\nWaiting...\n' + decodeURI(req.url) + ' You Are: ' + this.remIp );
+          this.endResCX(res,'Welcome To PeerTree Network Sevices\nWaiting...\n' + decodeURI(req.url) + ' You Are: ' + this.remIp );
           clearTimeout(this.svtime);
           this.resHandled = true;
         }}
@@ -1401,74 +1440,249 @@ class MkyNetObj extends  EventEmitter {
       console.log('Server PeerTree7.2 running at ' + this.netIp() + ':' + this.port);
    }
    netStarted(){
-     console.log('Net Started');
+     console.log('Starting Net Work');
      return new Promise( async (resolve,reject)=>{
-       console.log('network not ready');
        await this.setUpNetwork(); 
        this.notifyNetwork();
        console.log('NETWORK started OK..');
        resolve('ok');
      });
    }
+   /********************************
+   Broadcast Your Ip To The Network So they can add it to 
+   their contacts list
+   */
    notifyNetwork(){
      const msg = {
        addMe :true
      }
      this.broadcast(msg);
    }
+   /*******************************************************
+   Sends A Message to all nodes in the PeerTree network
+   */
    broadcast(inMsg){
       this.rnet.bcast(inMsg);
    }
-   heartBeat(){
+   /********************************************************
+   Sends Request to eatch node in the list to have them
+   ping the targetIp and reply with the result.
+   */
+   groupPing(ipList,targetIp){
+      console.log('starting groupPing:',targetIp);
       if(this.rnet && this.status != 'startup'){
-        //console.log('\n******************\nHeart Beat:'+Date.now(),this.isRoot);
-        //console.log('myIp: ',this.rnet.myIp);
-        //console.log('newNode: ',this.rnet.newNode);
-        //console.log(this.rnet.r);
-        //for (var n of this.rnet.r.rootNodes)
-        //  for (var p of n.pgroup)
-        //     console.log('pgroup',p);
+        var grpPing = {
+          pings        : [],
+          target       : targetIp,
+          targetStatus : null,
+          tstamp       : Date.now()
+        };
+        //create error and reply listeners
+	var errListener = null;
+        var repListener = null;
+        this.rnet.net.on('xhrFail',errListener = (j)=>{
+	  const peer = this.gPingIndexOf(grpPing.pings,j.toHost);
+	  if(peer !== null){
+	    grpPing.pings[peer].pRes = 'nodeDead';
+          }		
+        });
+        this.rnet.net.on('peerTReply',repListener  = (j)=>{ 
+          if (j.pingResult && j.remIp == targetIp){
+            const pTime = Date.now() - grpPing.tstamp;
+            const peer = this.gPingIndexOf(grpPing.pings,targetIp);
+            if (peer !== null){
+              grpPing.pings[peer].pRes = j.pingResult;
+              grpPing.pings[peer].pTime = pTime;
+            }
+          }		  
+	  if (j.pingTargResult){
+	    if (j.pingTargResult.target == targetIp){	  
+              const peer = this.gPingIndexOf(grpPing.pings,j.remIp);
+              if (peer !== null){
+	        grpPing.pings[peer].pRes = j.pingTargResult.pStatus;
+                grpPing.pings[peer].pTime = j.pingTargResult.ptime;
+              }
+            }		    
+          }
+	});
+	
+	// Set A Time limit for ping to wait for reply.      
+        const hTimer = setTimeout( ()=>{
+          this.rnet.net.removeListener('peerTReply', repListener);
+          this.rnet.net.removeListener('xhrFail', errListener);
+          grpPing.targetStatus = this.reviewTargetStatus(grpPing);
+          console.log('grpPing Done:',grpPing);
+        },1000);
 
-        //console.log('why is it not sending?',this.rnet.r.nodeNbr);
-    
-        //console.log('heart beat sending ping result req;');
-        var pingSent = false;
-        if (this.rnet.r.myParent){
-          this.sendMsg(this.rnet.r.myParent,{ping : "hello"});
-          pingSent = true;
+        // loop through list and send out group ping request.
+	if(ipList.length > 0){
+          for (var node of ipList){
+            if (node.ip != this.rnet.myIp){
+	      grpPing.pings.push({pIP:node.ip,pRes : null});
+              if(node.ip != targetIp)
+		this.sendMsgCX(node.ip,{gping : "hello",target: targetIp});
+              else
+		this.sendMsgCX(targetIp,{ping : "hello"});
+            }		    
+          }
+        } 		
+      }
+      
+      /*
+      if (this.isRoot){ 
+        setTimeout( ()=>{
+          this.groupPing(ipList,targetIp);
+        },10000);
+      }
+      */
+      
+   }
+   reviewTargetStatus(grpPing){
+     return 'needs coding';
+   }	   
+   gPingIndexOf(peers,ip){
+     var i = null;
+     peers.every((peer,n) =>{
+       if (peer.pIP == ip ){
+         i = n;
+         return false;
+       }
+       return true;
+     });
+     return i;
+   }
+   pingTarget(j){
+     console.log('Got PingTarget Request:',j); 
+     var reply = {
+       gpingResult : {
+         targetIP : null,
+ 	 ptime    : Date.now(),
+	 pStatus  : null
+       }
+     };	     
+     var hListener = null;
+     var rListener = null;
+     this.rnet.net.once('xhrFail',hListener = (J)=>{
+       reply.gpingResult.targetIP = j.target;
+       reply.gpingResult.pStatus  = 'targDead';
+       reply.gpingResult.ptime    = null;
+       this.sendReplyCX(j.remIp,reply);
+     });
+     this.rnet.net.once('peerTReply',rListener  = (J)=>{
+       var pres = {
+         pingTargResult : {
+  	   ptime   : Date.now() - reply.gpingResult.ptime,
+           pStatus : 'OK',
+           target  : J.remIp
+         }
+       };	      
+       this.sendReplyCX(j.remIp,pres);
+     });
+     const hTimer = setTimeout( ()=>{
+       this.rnet.net.removeListener('peerTReply', rListener);
+       this.rnet.net.removeListener('xhrFail', hListener);
+       reply.gpingResult.ptime   = null;
+       reply.gpingResult.pStatus = 'Timeout';
+       reply.gpingResult.target  = j.target;
+       this.sendReplyCX(j.remIp,reply);
+     },1000);
+
+     //Ping the target
+     this.sendMsgCX(j.target,{ping : "hello"});
+   }
+   /********************************************************
+   PingsYour accociated peers, nodes,parrent,root to determine
+   your nodes health on the network
+   */
+   heartBeat(){
+      //console.log('starting heartBeat:');
+      if(this.rnet && this.status != 'startup'){
+        var hrtbeat = {
+          pings    : [],
+          myStatus : 'OK',
+          tstamp   : Date.now()
+        };
+	var hListener = null;
+        var rListener = null;
+        this.rnet.net.on('xhrFail',hListener = (j)=>{
+          const peer = this.heartbIndexOf(hrtbeat.pings,j.remIp);
+          if (peer !== null){
+            hrtbeat.pings[peer].pRes = 'dead';
+          }          
+        });
+        this.rnet.net.on('peerTReply',rListener  = (j)=>{
+          const pTime = Date.now() - hrtbeat.tstamp; 
+	  const peer = this.heartbIndexOf(hrtbeat.pings,j.remIp);
+	  if (peer !== null){
+            hrtbeat.pings[peer].pRes = j.pingResult;
+	    hrtbeat.pings[peer].pTime = pTime;
+	  }	  
+        });
+        const hTimer = setTimeout( ()=>{
+          this.rnet.net.removeListener('peerTReply', rListener);
+          this.rnet.net.removeListener('xhrFail', hListener);
+          hrtbeat.myStatus = this.reviewMyStatus(hrtbeat);
+	  //console.log('hearBeat Done:',hrtbeat);
+        },1000);
+
+	if (this.rnet.r.myParent){
+          hrtbeat.pings.push({pIP:this.rnet.r.myParent,pType:'myParent',pRes : null});
+	  this.sendMsgCX(this.rnet.r.myParent,{ping : "hello"});
         }
         if(this.rnet.r.myNodes)
           for (var node of this.rnet.r.myNodes){
-            this.sendMsg(node.ip,{ping : "hello"});
-            pingSent = true;
+            hrtbeat.pings.push({pIP:node.ip,pType:'myNodes',pRes : null});
+            this.sendMsgCX(node.ip,{ping : "hello"});
           }
             
         if (this.rnet.r.nodeNbr == 1){
           for (var node of this.rnet.r.rootNodes){
             if (node.ip != this.rnet.myIp){
-              this.sendMsg(node.ip,{ping : "hello"});
-              pingSent = true;
+              hrtbeat.pings.push({pIP:node.ip,pType: 'rootNodes',pRes : null});
+              this.sendMsgCX(node.ip,{ping : "hello"});
             } 
           }
         }
-        if (!pingSent){
-          this.sendMsg(this.rootIp,{ping : "hello"});
-          console.log('last try pinging rootIp',this.rootIp);
+        if (this.rootIp != this.rnet.myIp){
+          hrtbeat.pings.push({pIP:this.rootIp,pType : 'root',pRes : null});
+          this.sendMsgCX(this.rootIp,{ping : "hello"});
         }
       }
-      var timeout = setTimeout( ()=>{this.heartBeat();},10*1000);
+      if (hrtbeat.pings.length == 0){
+	hrtbeat.myStatus = 'Alone';
+      }
+      var timeout = setTimeout( ()=>{this.heartBeat();},this.pulseRate);
   }
-      
+  /************************************************
+  Called by heartBeat To evelute your current status
+  */
+  reviewMyStatus(peers){
+    return 'healthy';
+  }
+  /******************************************************
+  Finds the index of a peers heartBeat reply using its remIp
+  */
+  heartbIndexOf(peers,ip){
+     var i = null;
+     peers.every((peer,n) =>{
+       if (peer.pIP == ip && peer.pRes === null){
+         i = n;
+         return false;
+       } 
+       return true;
+     });
+     return i;
+  }   
   calculateHash(txt) {
-    const crypto = require('crypto');
-    return crypto.createHash('sha256').update(txt).digest('hex');
+     const crypto = require('crypto');
+     return crypto.createHash('sha256').update(txt).digest('hex');
   }
   signMsg(msgTime) {
      const sig = this.signingKey.sign(this.calculateHash(this.rnet.myIp + msgTime), 'base64');
      const hexSig = sig.toDER('hex');
      return hexSig;
    }
-   isValidSig(j) {
+  isValidSig(j) {
      if (!j){console.log('remPublicKey is null',j);return false;}
      if (j.hasOwnProperty('remPublicKey') === false) {console.log('remPublicKey is undefined',j);return false;}
      if (!j.remPublicKey) {console.log('remPublickey is missing',j);return false;}
@@ -1480,36 +1694,40 @@ class MkyNetObj extends  EventEmitter {
      const publicKey = ec.keyFromPublic(j.remPublicKey, 'hex');
      const msgHash   = this.calculateHash(j.remIp + j.msgTime);
      return publicKey.verify(msgHash, j.signature);
-   }
-   processMsgQue(){
+  }
+  processMsgQue(){
      if (this.msgQue.length){
        const msg = this.msgQue[0];
        this.msgQue.shift();
        this.msgMgr.remove(msg.toHost);
-       //console.log('Sending Message from que to '+msg.toHost,msg);
-       this.sendMsg(msg.toHost,msg.msg);
+       console.log('Sending Message from que to '+msg.toHost,msg);
+       this.sendMsgCX(msg.toHost,msg.msg);
      }
      var qtime = setTimeout( ()=>{
        this.processMsgQue();
       },1500);
-   }
-   queMsg(msg){
+  }
+  queMsg(msg){
      //console.log('Msg Log Counter: ',this.msgMgr.count(msg.toHost));
      if (this.msgMgr.count(msg.toHost) < 20){
+       console.log('pushing msg:',msg);
        this.msgQue.push(msg);
        this.msgMgr.add(msg.toHost);
        return true;
      }
      else 
        return false; //this.abandonNode(msg.toHost)
-   }
-   getNetRootIp(){
+  }
+  getNetRootIp(){
      const r = this.rnet.r.rootNodes[0]; 
      if (!r) 
        return this.rootIp;
      return r.ip;
-   }
-   sendMsg(toHost,msg){
+  }
+  sendMsgCX(toHost,msg){
+    this.sendMsg(toHost,msg,true);
+  }	  
+  sendMsg(toHost,msg,corx=false){
       if (!toHost) {console.log('Send Message Host '+toHost+' Missing',msg);return;}
       if (!msg)    {console.log('Send Message Msg  Missing');return;} 
 
@@ -1517,10 +1735,8 @@ class MkyNetObj extends  EventEmitter {
         return;
 
       if (msg.reroute) {} //console.log('Forwarding re-routed msg');
-
-      const qmsg = {
-        toHost : toHost,
-        msg    : msg,
+      if(corx){
+        msg.PNETCOREX = true;
       }
       if (toHost == 'root'){
         toHost = this.getNetRootIp();
@@ -1532,12 +1748,13 @@ class MkyNetObj extends  EventEmitter {
         msg.signature    = this.signMsg(msgTime);
         msg.msgTime      = msgTime;
         msg.remPublicKey = this.publicKey;
+        msg.remMUID      = this.peerMUID;
       }
       this.sendingReq = true;
-      this.sendPostRequest(toHost,msg,'/netREQ',qmsg);
+      this.sendPostRequest(toHost,msg,'/netREQ');
       return;
-   }
-   replyQueSend(){
+  }
+  replyQueSend(){
      if (this.rQue.length){
        const msg = this.rQue[0];
        this.rQue.shift();
@@ -1547,8 +1764,11 @@ class MkyNetObj extends  EventEmitter {
      const rqtime = setTimeout( ()=>{
        this.replyQueSend();
      },300);
-   }
-   sendReply(toHost,msg){
+  }
+  sendReplyCX(toHost,msg){
+     this.sendReply(toHost,msg,true);
+  }
+  sendReply(toHost,msg,corx=false){
       if (!toHost) {console.log('Send Reply host '+toHost+' Missing',msg);return;}
       if (!msg)    {console.log('Send Reply Msg  Missing');return;}
 
@@ -1557,6 +1777,9 @@ class MkyNetObj extends  EventEmitter {
 
       if (msg.reroute) {} //console.log('Forwarding re-routed msg');
 
+      if(corx){
+        msg.PNETCOREX = true;
+      }
       const qreply = {
         toHost : toHost,
         msg    : msg,
@@ -1571,12 +1794,13 @@ class MkyNetObj extends  EventEmitter {
         msg.signature    = this.signMsg(msgTime);
         msg.msgTime      = msgTime;
         msg.remPublicKey = this.publicKey;
+        msg.remMUID      = this.peerMUID;
       }
       this.sendingReply = true;
       this.sendPostRequest(toHost,msg,'/netREPLY');
       return;
-   }
-   sendPostRequest(toHost,msg,endPoint='/netREPLY',qmsg){
+  }
+  sendPostRequest(toHost,msg,endPoint='/netREPLY'){
      const https = require('https');
 
      const pmsg = {msg : msg}
@@ -1600,16 +1824,16 @@ class MkyNetObj extends  EventEmitter {
      })
 
      req.on('error', error => {
-        //console.error(error)
-        if (endPoint == '/netREQ') {this.emit('xhrFail',JSON.stringify(qmsg));}
+	msg.toHost = toHost
+        this.emit('xhrFail',msg);
         this.sendingReply = false;
      })
 
      req.write(data);
      req.end();
-   }
+  }
 
-   removeNode(ip){
+  removeNode(ip){
      this.nodes.forEach( (n, index, object)=>{
        if (n.ip == ip){
          object.splice(index,1)
@@ -1621,28 +1845,32 @@ class MkyNetObj extends  EventEmitter {
      return;
      fs.writeFile('keys/myNodeList.net', JSON.stringify(myNodes), function (err) {
        if (err) throw err;
-         console.log('node list saved to disk!',myNodes);
+       console.log('node list saved to disk!',myNodes);
      });
-   }
-   getNodesErrorCnt(ip){
+  }
+  getNodesErrorCnt(ip){
      for (var node of this.nodes)
        if (ip == node.ip)
          return node.errors;
      return null;
-   }
-   resetErrorsCnt(ip){
+  }
+  resetErrorsCnt(ip){
      this.nodes.forEach( node=>{
        if (node.ip == ip)
          node.errors = 0;
      });
-   }
-   incErrorsCnt(ip){
+  }
+  incErrorsCnt(ip){
      this.nodes.forEach( (node)=>{
        if (node.ip == ip)
          node.errors++;
      });
-   }
-   pushNewNode(j){
+  }
+  /********************************************************
+  Maintains contact list used for finding the network when
+  attempting to rejoin.
+  */
+  pushToContacts(j){
      for (var node of this.nodes){
        if (node.ip == j.remIp){
          return;
@@ -1657,33 +1885,32 @@ class MkyNetObj extends  EventEmitter {
          console.log('node list saved to disk!',myNodes);
      });
 
-   }
-   handleBcast(j){
+  }
+  handleBcast(j){
      if (j.msg.addMe){
-       this.pushNewNode(j); 
+       this.pushToContacts(j); 
        return;
      }
      if (this.rnet.handleBcast(j))
        return;
-   }
-   setErrorHandlers(){
+  }
+  setErrorHandlers(){
      // ********************
      // handles messages that can not be delivered do to network problem.
      
      this.on('xhrFail',(j)=>{
-       j = JSON.parse(j);
+       console.log('xhrFail handler:',j);
        if (this.rnet.handleError(j))
          return;
      });
-   } 
-   initHandlers(){ 
+  } 
+  initHandlers(){ 
      this.setErrorHandlers();
 
      // *****************************
      // Handles message responses from peers
      
-     this.on('mkyReply',(j)=>{
-
+     this.on('peerTReply',(j)=>{
        if (!this.isValidSig(j)){
          console.log('netREPLY... invalid signature message refused',j);
          return;
@@ -1696,33 +1923,38 @@ class MkyNetObj extends  EventEmitter {
          this.rootIp = j.netRootIp;
        }
      });
-     this.on('mkyReq',(remIp,j)=>{
+     this.on('peerTReq',(remIp,j)=>{
 
        var error = null;       
        if (!this.isValidSig(j)){
          error = '400';
          console.log('invalid signature message refused',j);
-         this.endRes(remIp,'{"response":"' + error +'"}');
+         this.endResCX(remIp,'{"response":"' + error +'"}');
          return;
        }
-       this.pushNewNode(j);
+       // Add node yhe contacts List 
+       this.pushToContacts(j);
 
        if (this.rnet.handleReq(remIp,j))
          return;
 
+       if (j.gping == 'hello'){
+         this.pingTarget(j);
+         return;	 
+       }
        if (j.ping == 'hello'){
          var result = this.rnet.checkPeerStatus(j.remIp);
-         this.endRes(remIp,'{"pingResult":"hello back","status":'+result+'}');
+         this.endResCX(remIp,'{"pingResult":"hello back","status":'+result+'}');
          return;
        }      
        if (j.req == 'bcast'){
          this.emit('bcastMsg',j);
          this.rnet.forwardMsg(j);
-         this.endRes(remIp,'');
+         this.endResCX(remIp,'');
          this.handleBcast(j);
          return;
        }
      });
-   }
-}
-module.exports.MkyNetObj  = MkyNetObj;
+  }
+};
+module.exports.PeerTreeNet  = PeerTreeNet;

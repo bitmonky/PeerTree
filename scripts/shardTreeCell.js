@@ -9,7 +9,8 @@ const options = {
   key: fs.readFileSync('keys/privkey.pem'),
   cert: fs.readFileSync('keys/fullchain.pem')
 };
-const {MkyNetNode,MkyNetObj,MkyNetTab}   = require('./peerTree');
+//const {MkyNetNode,MkyNetObj,MkyNetTab}   = require('./peerTree');
+const {PeerTreeNet}     = require('./peerTree');
 const {shardTreeObj,shardTreeCellReceptor} = require('./shardTreeObj.js');
 
 /*******************
@@ -28,8 +29,8 @@ Create PeerTree Network Peer
     isRoot == 'root';
     reset = 'rebuild';
   }
-  const mkyNet = new MkyNetObj(options,'shardNet',13350,13340);
-  mkyNet.nodeType = 'shardCell';
+  const peerNet = new PeerTreeNet(options,'shardNet',13350,13340);
+  peerNet.nodeType = 'shardCell';
 
   if (isRoot == 'reset'){
     isRoot = null;
@@ -38,7 +39,7 @@ Create PeerTree Network Peer
     
 main();
 async function main(){
-  await mkyNet.netStarted();
+  await peerNet.netStarted();
   var rootBranch = false;
   if (!isRoot){
     startShardCell(rootBranch);
@@ -50,7 +51,7 @@ async function main(){
 }
 var rBranch = null;
 function startShardCell(){
-    var scell = new shardTreeObj(mkyNet,reset);
+    var scell = new shardTreeObj(peerNet,reset);
     const scellReceptor = new shardTreeCellReceptor(scell,13355);
     scell.attachReceptor(scellReceptor);
     if (rBranch){
@@ -67,6 +68,6 @@ function startShardCell(){
       scell.handleReply(j);
     });
     scell.net.on('xhrFail', j =>{
-      scell.handleXhrError(JSON.parse(j));
+      scell.handleXhrError(j);
     });
 }
