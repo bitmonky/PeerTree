@@ -2,8 +2,8 @@
 function ptreeMakeSearchKey($j){
   return hash('sha256',json_encode($j));
 }
-$PTC_memRECEPTOR   = "https://139.144.110.5:1335";
-$PTC_shardRECEPTOR = "https://170.187.179.251:13355";
+$PTC_memRECEPTOR   = "https://<your mem node IP>:<port>";
+$PTC_shardRECEPTOR = "https://<your shard node IP>:<port>";
 
 function prepWords($str){
   $words = [' i ',' in ',' on ',' there ',' is ',' are ',' as ',' the ',' a ',' to ',' and ',' too ',' of ',' for '];
