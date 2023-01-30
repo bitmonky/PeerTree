@@ -565,6 +565,58 @@ class shardTreeObj {
        }
      });
   }
+  /******************************************************
+  Delete All Shard Files And Owner Record from this node
+  =======================================================
+  */
+  doDeleteAllByOwner(j,remIp){
+
+     if (!this.isValidSig(j.shard.signature)){
+       console.log('Shard Signature Invalid... NOT deleted');
+       return;
+     }
+     var SQL = "select sownID from shardTree.shardOwners where sownMUID = '"+j.shard.ownerID+"'";
+     con.query(SQL , async(err, result,fields)=>{
+       if (err){
+         console.log('shard delete',err);
+       }
+       else {
+         var sownID = null;
+         if (result.length == 0){
+           console.log('Shard Owner Not Found On This Node.');
+           return;
+         }
+         else {
+           sownID = result[0].sownID;
+           var fsdat = null;
+           const fname = ftreeRoot+sownID+'-*.srd';
+           fs.unlink(fname, function (err) {
+             if (err) {console.log('shard delete all.. File not found:',fname);}
+             else {
+               var SQL = "delete from shardTree.shardOwners where sownMUID = '"+j.shard.ownerID+"'";
+               con.query(SQL , async(err, result,fields)=>{
+                 if (err){
+                   console.log('shard delete all fail',err);
+                 }
+	       });	       
+               var qres = {
+                 req : 'delAllShardsResult',
+                 result : 1,
+                 qry : j
+               }
+               //console.log('sending shard delete result:',qres);
+               this.net.sendReply(remIp,qres);
+             }
+           });
+           return;
+         }
+       }
+     });
+  }
+  /******************************************************
+  Delete Shard File Specified By Owner from this nodee
+  =======================================================
+  */
   doDeleteShardByOwner(j,remIp){
      if (!this.isValidSig(j.shard.signature)){
        console.log('Shard Signature Invalid... NOT deleted');
