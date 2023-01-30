@@ -253,7 +253,7 @@ class shardTreeCellReceptor{
           return;
 	}	
         var n = 0;
-	for (rec of result){ 
+	for (var rec of result){ 
           try {
             var qres = await this.peer.receptorReqStoreShard(j,rec.scelAddress);
             if (qres){
@@ -740,6 +740,25 @@ class shardTreeObj {
       });
     });
   }
+  createInvoiceRec(sownID,hash,sig){
+    var invSig = {
+       token : sig.token,
+       sig   : sig.signature
+    }
+    var SQL = "INSERT INTO `shardTree`.`shards` SET ?";
+    var values = {
+      shardOwnerID : sownID,
+      shardHash    : hash,
+      shardDate    : new Date(),
+      shardExpire  : null,
+      shardOwnSignature : JSON.stringify(invSig)
+    };
+    con.query(SQL ,values, (err, result,fields)=>{
+      if (err){
+        console.log(err);
+      }
+    });
+  }
   storeShard(j,remIp){
     console.log('got request store shard',j.shard.signature);
     if (!this.isValidSig(j.shard.signature)){
@@ -789,29 +808,10 @@ class shardTreeObj {
             //console.log('Wallet Created And Saved!');
 	  }
 	  else {
+	    this.createInvoiceRec(sownID,j.shard.hash,j.shard.signature);
             this.net.endRes(remIp,'{"shardStoreRes":true,"shardStorHash":"' + j.shard.hash + '"}');
 	  }
         });
-	/*      
-        SQL = "INSERT INTO `shardTree`.`shards` SET ?";
-        var values = {
-          shardOwnerID : sownID,
-          shardHash    : j.shard.hash,
-          shardDate    : new Date(),
-          shardExpire  : null,
-          shardData    : j.shard.data
-        };
-        con.query(SQL ,values, (err, result,fields)=>{
-          if (err){
-            console.log(err);
-            this.net.endRes(remIp,'{"shardStoreRes":false,"error":"'+err+'"');
-          } 
-          else {
-            const hash = 'write hash function for shardstore';
-	    this.net.endRes(remIp,'{"shardStoreRes":true,"shardStorHash":"' + hash + '"}');
-          }
-        });
-	*/
       });
     });
   }
