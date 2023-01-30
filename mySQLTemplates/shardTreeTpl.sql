@@ -84,7 +84,7 @@ CREATE TABLE `shards` (
   `shardDate` datetime DEFAULT NULL,
   `shardExpire` datetime DEFAULT NULL,
   `shardData` mediumblob,
-  `shardOwnSignature` varchar(245) DEFAULT NULL,
+  `shardOwnSignature` varchar(300) DEFAULT NULL,
   PRIMARY KEY (`shardID`),
   KEY `ndxShardDate` (`shardDate`),
   KEY `ndxShardHash` (`shardHash`),
@@ -111,4 +111,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2023-01-30 13:32:28
+-- Dump completed on 2023-01-30 14:24:14
