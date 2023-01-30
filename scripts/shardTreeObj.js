@@ -245,13 +245,15 @@ class shardTreeCellReceptor{
     SQL += "where scelLastStatus = 'online' and  timestampdiff(second,scelLastMsg,now()) < 50 order by rand() limit "+j.shard.nCopys;
     //console.log(SQL);
     var nStored = 0;
-    con.query(SQL, (err, result, fields)=> {
+    con.query(SQL,async (err, result, fields)=> {
       if (err) {console.log(err);}
       else {
         if (result.length == 0){
           res.end('{"result":"shardOK","nRecs":0,"shard":"No Nodes Available"}');
+          return;
 	}	
-	result.forEach(async(rec,n) =>{ 
+        var n = 0;
+	for (rec of result){ 
           try {
             var qres = await this.peer.receptorReqStoreShard(j,rec.scelAddress);
             if (qres){
@@ -266,7 +268,8 @@ class shardTreeCellReceptor{
             j.shard.token.publicKey  = '**********';
             res.end('{"result":"shardOK","nStored":'+nStored+',"shard":'+JSON.stringify(j)+'}');
 	  }	
-	});
+          n = n + 1;
+	}
       } 		  
     });
   }
@@ -523,7 +526,7 @@ class shardTreeObj {
          else {
            sownID = result[0].sownID;
            var fsdat = null;
-	   const fname = ftreeRoot+sownID+j.shard.hash+'.srd'; 
+	   const fname = ftreeRoot+sownID+'-'+j.shard.hash+'.srd'; 
            try {
              fsdat =  fs.readFileSync(fname);
 	     var qres = {
@@ -581,7 +584,7 @@ class shardTreeObj {
          else {
            sownID = result[0].sownID;
            var fsdat = null;
-           const fname = ftreeRoot+sownID+j.shard.hash+'.srd';
+           const fname = ftreeRoot+sownID+'-'+j.shard.hash+'.srd';
            fs.unlink(fname, function (err) {
              if (err) {console.log('shard delete file not found:',fname);}
 	     else {
@@ -662,7 +665,7 @@ class shardTreeObj {
 
       this.net.sendMsg(toIp,req);
       this.net.once('mkyReply', r =>{
-        if (r.shardStoreRes){
+        if (r.shardStoreRes && r.remIp == toIp){
           //console.log('shardStoreRes OK!!',r);
           clearTimeout(gtime);
 	  resolve(r);
@@ -727,7 +730,7 @@ class shardTreeObj {
             return;
 	  }
         }
-        fs.writeFile(ftreeRoot+sownID+j.shard.hash+'.srd', j.shard.data, (err)=> {
+        fs.writeFile(ftreeRoot+sownID+'-'+j.shard.hash+'.srd', j.shard.data, (err)=> {
           if (err) {
             console.log('error writing srootTree:', err);
             this.net.endRes(remIp,'{"shardStoreRes":false,"error":"'+err+'"');

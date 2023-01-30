@@ -196,7 +196,7 @@ class peerMemCellReceptor{
   getSearchResults(j){
     return new Promise( async(resolve,reject)=>{
       var skey = j.qry.key;
-      await sleep(2*1000);
+      await sleep(500);
       var SQL = "select '"+skey+"' as pmcMownerID,psrchMemoryID as pmcMemObjID,0 as pmcMemObjNWords,0 as nMatches,psrchScore score ";
       SQL += "from peerBrain.peerSearchResults where psrchHash = '"+skey+"' group by psrchMemoryID, psrchScore order by psrchScore desc";
       con.query(SQL, (err, result, fields)=> {
@@ -231,13 +231,15 @@ class peerMemCellReceptor{
     SQL += "where pcelLastStatus = 'online' and  timestampdiff(second,pcelLastMsg,now()) < 50 order by rand() limit "+j.memory.nCopys;
     //console.log(SQL);
     var nStored = 0;
-    con.query(SQL, (err, result, fields)=> {
+    con.query(SQL,async (err, result, fields)=> {
       if (err) {console.log(err);}
       else {
         if (result.length == 0){
           res.end('{"result":"memOK","nRecs":0,"memory":"No Nodes Available"}');
-	}	
-	result.forEach(async(rec,n) =>{ 
+          return;
+	}
+	var n = 0;      
+	for (var rec of result){ 
           try {
             var qres = await this.peer.receptorReqStoreMem(j,rec.pcelAddress);
             if (qres){
@@ -252,7 +254,8 @@ class peerMemCellReceptor{
             j.memory.token.publicKey  = '**********';
             res.end('{"result":"memOK","nStored":'+nStored+',"memory":'+JSON.stringify(j)+'}');
 	  }	
-	});
+          n = n + 1;		
+	}
       } 		  
     });
   }
@@ -523,15 +526,18 @@ class peerMemoryObj {
   doBestMatchQry(j,ip){
      console.log('search from: ',ip);
      console.log('here is the search..',j);
+     var qry = this.singleSpaceOnly(j.qry.qryStr);
+     var words = qry.split(' ');
+     var nwords   = words.length;
+
      var qtype = '';
      if (j.qry.qryType){
        qtype = " and pmcMemObjType = '"+j.qry.qryType+"'";
      }
-     var SQLr = "select pmcMownerID,pmcMemObjID,pmcMemObjNWords,count(*)nMatches,count(*)/pmcMemObjNWords score from peerBrain.peerMemoryCell ";
+     var SQLr = "select pmcMownerID,pmcMemObjID,pmcMemObjNWords,count(*)nMatches,"
+     SQLr += "(count(*) * count(*)/"+nwords+" + count(*)/pmcMemObjNWords)/(count(*) + 1) score ";
+     SQLr += "from peerBrain.peerMemoryCell ";
      SQLr += "where pmcMownerID = '"+j.qry.ownerID+"' "+qtype+" and (";
-     var qry = this.singleSpaceOnly(j.qry.qryStr);
-     var words = qry.split(' ');
-     var nwords   = words.length;
      var SQL = SQLr;
      var n = 1;
      var or = 'or ';
