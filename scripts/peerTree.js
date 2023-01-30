@@ -1921,7 +1921,6 @@ class PeerTreeNet extends  EventEmitter {
          console.log('netREPLY... invalid signature message refused',j);
          return;
        }
-       console.log(j);
        if (this.rnet.handleReply(j))
          return;
        if (j.nodeReply){
