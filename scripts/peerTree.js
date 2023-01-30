@@ -1691,6 +1691,12 @@ class PeerTreeNet extends  EventEmitter {
         return false;
      }
 
+     const checkRemAddress = bitcoin.payments.p2pkh({ pubkey: new Buffer.from(''+j.remPublicKey, 'hex') }).address;
+     if (!checkRemAddress != j.remMUID) {
+       console.log('remAddress not matching');
+       return false;
+     }
+
      const publicKey = ec.keyFromPublic(j.remPublicKey, 'hex');
      const msgHash   = this.calculateHash(j.remIp + j.msgTime);
      return publicKey.verify(msgHash, j.signature);
@@ -1915,7 +1921,7 @@ class PeerTreeNet extends  EventEmitter {
          console.log('netREPLY... invalid signature message refused',j);
          return;
        }
-
+       console.log(j);
        if (this.rnet.handleReply(j))
          return;
        if (j.nodeReply){
