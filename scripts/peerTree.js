@@ -1692,7 +1692,7 @@ class PeerTreeNet extends  EventEmitter {
      }
 
      const checkRemAddress = bitcoin.payments.p2pkh({ pubkey: new Buffer.from(''+j.remPublicKey, 'hex') }).address;
-     if (!checkRemAddress != j.remMUID) {
+     if (checkRemAddress != j.remMUID) {
        console.log('remAddress not matching');
        return false;
      }
