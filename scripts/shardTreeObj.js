@@ -115,11 +115,12 @@ class shardTreeCellReceptor{
   constructor(peerTree,recPort=1335){
     this.peer = peerTree;
     this.port = recPort;
+    this.allow = ["127.0.0.1"];
+    this.readConfigFile();
     console.log('ATTACHING - cellReceptor on port'+recPort);
+    console.log('GRANTING cellRecptor access to :',this.allow);
     this.results = ['empty'];
     const options = {
-      //key: fs.readFileSync('/etc/letsencrypt/live/admin.bitmonky.com/privkey.pem'),
-      //cert: fs.readFileSync('/etc/letsencrypt/live/admin.bitmonky.com/fullchain.pem')
       key: fs.readFileSync('keys/privkey.pem'),
       cert: fs.readFileSync('keys/fullchain.pem')
     };
@@ -186,8 +187,29 @@ class shardTreeCellReceptor{
       }
     });
   
+    bserver.on('connection', (sock)=> {
+      if (this.allow.indexOf(sock.remoteAddress) < 0){
+        sock.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+      } 
+    });
     bserver.listen(this.port);
     console.log('peerTree Shard Receptor running on port:'+this.port);
+  }
+  readConfigFile(){
+     var conf = null;
+     try {conf =  fs.readFileSync('keys/shardTree.conf');}
+     catch {console.log('no config file found');}
+     if (conf){
+       try {
+         conf = conf.toString();
+         const j = JSON.parse(conf);
+         this.port   = j.receptor.port;
+         this.allow  = j.receptor.allow;
+       }
+       catch(err) {
+         console.log('conf file not valid', err);
+       }
+     }
   }
   openShardKeyFile(j){
     const bitToken = bitcoin.payments.p2pkh({ pubkey: new Buffer.from(''+this.shardToken.publicKey, 'hex') }); 
@@ -253,11 +275,13 @@ class shardTreeCellReceptor{
           return;
 	}	
         var n = 0;
+	var hosts = [];
 	for (var rec of result){ 
           try {
             var qres = await this.peer.receptorReqStoreShard(j,rec.scelAddress);
             if (qres){
 	      nStored = nStored +1;
+	      hosts.push({host:qres.remMUID,ip:qres.remIp});	    
 	    }    
           }
 	  catch(err) {
@@ -266,7 +290,7 @@ class shardTreeCellReceptor{
           if (n==result.length -1){
             j.shard.token.privateKey = '**********';
             j.shard.token.publicKey  = '**********';
-            res.end('{"result":"shardOK","nStored":'+nStored+',"shard":'+JSON.stringify(j)+'}');
+            res.end('{"result":"shardOK","nStored":'+nStored+',"shard":'+JSON.stringify(j)+',"hosts":'+JSON.stringify(hosts)+'}');
 	  }	
           n = n + 1;
 	}
