@@ -3,15 +3,16 @@ BitMonky Wallet Server
 ****************************
 */
 
-const webCon = require('http');
-const fs           = require('fs');
-const EC           = require('elliptic').ec;
-const ec           = new EC('secp256k1');
-const bitcoin      = require('bitcoinjs-lib');
-const crypto       = require('crypto');
-const port   = 80;
-const wfile  = 'keys/myBMGPWallet.key';
-const wconf  = 'keys/wallet.conf';
+const webCon  = require('http');
+const fs      = require('fs');
+const url     = require('url');
+const EC      = require('elliptic').ec;
+const ec      = new EC('secp256k1');
+const bitcoin = require('bitcoinjs-lib');
+const crypto  = require('crypto');
+const port    = 80;
+const wfile   = 'keys/myBMGPWallet.key';
+const wconf   = 'keys/wallet.conf';
 
 class bitMonkyWSrv {
   constructor(){
@@ -21,7 +22,13 @@ class bitMonkyWSrv {
     this.recPort = 1385;
     this.readConfigFile();
     this.srv = webCon.createServer( async (req, res) => {
-     console.log('safd?',req.url); 
+     var pathname = url.parse(req.url).pathname;
+     if (req.method === 'GET' && pathname === '/favicon.ico') {
+       res.setHeader('Content-Type', 'image/x-icon');
+       fs.createReadStream('favicon.ico').pipe(res);
+       return;
+     }
+     
      if (req.url == '/keyGEN'){
         res.writeHead(200);
         res.end('KeyGEN not available on netCon');
@@ -39,8 +46,8 @@ class bitMonkyWSrv {
           try {
             j = JSON.parse(msg);
             console.log(j);
-            if (j.req == 'sendLoginToken'){
-              this.wallet.doSendLogin(j,res);
+            if (j.req){
+              this.wallet.doMakeReq(j.req,res);
               return;
             } 
             if (j.what == 'getNode'){
@@ -62,10 +69,11 @@ class bitMonkyWSrv {
           htm += '<meta charset="utf-8"/><link rel="stylesheet" href="https://www.bitmonky.com/whzon/pc.css?v=1.0"/>';
           htm += '<script src="https://www.bitmonky.com/bitMDis/pWalletJS.php"></script>';
           htm += '</head><body class="pgBody" style="margin:5%;padding:1.5em;" onload="init();">';
-
+          htm += '<img style="float:left;margin:-3em 1em -1em -1em;height:5em;width:5em;border-radius:50%;" ';
+          htm += 'src="https://image0.bitmonky.com/img/bitGoldCoin.png">';
           htm += '<div align="right" ID="loginSpot"><input ID="loginBut" type="button" value=" BitMonky Login " onClick="doLogin()"/></div>';
-          htm += '<h1>Welcome To The BitMonky Wallet Server</h1>';
-          htm += '</body></html>';
+          htm += '<h1>Welcome To Your BitMonky Wallet Server</h1>';
+          htm += '<div ID="accountInfo"></div></body></html>';
           res.end(htm);
         }
       }
@@ -163,17 +171,18 @@ class bitMonkyWallet{
      const hexSig = sig.toDER('hex');
      return hexSig;
    }
-   doSendLogin(j,res){
+   doMakeReq(action,res){
      const stok = this.ownMUID+Date.now(); 	   
      var msg = {
        Address : this.ownMUID,
        sesTok  : stok,
        pubKey  : this.publicKey,
        sesSig  : this.signMsg(stok),
-       action  : 'getToken'
+       action  : action
      }
      this.sendPostRequest(msg,res);
    }
+
    handleResponse(data,res){
      data.pMUID = this.ownMUID;
      console.log(data);
