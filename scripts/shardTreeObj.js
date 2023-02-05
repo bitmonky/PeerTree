@@ -189,7 +189,7 @@ class shardTreeCellReceptor{
   
     bserver.on('connection', (sock)=> {
       if (this.allow.indexOf(sock.remoteAddress) < 0){
-        sock.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+        //sock.end('HTTP/1.1 400 Bad Request\r\n\r\n');
       } 
     });
     bserver.listen(this.port);
@@ -229,22 +229,33 @@ class shardTreeCellReceptor{
     }
     else {
       res.end('{"result" : 0}');
-   }
+    }
+  }
+  bufferToBase64(arr){
+    var i, str = '';
+    for (i = 0; i < arr.length; i++) {
+      str += '%' + ('0' + arr[i].toString(16)).slice(-2);
+    }
+    return decodeURIComponent(str);
   }
   async reqRetrieveShard(j,res){
     var data = {result : 0, msg : 'no results found'};
+    var stime = Date.now();
     data = await this.peer.receptorReqSendMyShard(j);
     if (j.shard.encrypted) {
       var scrm  = Buffer.from(data.data.data).toString();
       scrm  = decrypt(Buffer.from(scrm,'base64'),this.shardToken.shardCipher);
       data.data = scrm.toJSON();
+
     }
+    data.data = this.bufferToBase64(data.data.data);
+    console.log('Shard Request Time: ',Date.now() - stime);
     if (data){
       res.end('{"result": 1,"data" : '+JSON.stringify(data)+'}');
     }
     else {
       res.end('{"result" : 0, "msg" : "no results found"}');
-   }
+    }
   }
   signRequest(j){
     const stoken = j.shard.token.ownMUID + new Date(); 
@@ -705,9 +716,9 @@ class shardTreeObj {
   receptorReqSendMyShard(j){
     return new Promise( (resolve,reject)=>{
       const gtime = setTimeout( ()=>{
-        console.log('Store Request Timeout:',j);
+        console.log('Send Shard Request Timeout:',j);
         resolve(null);
-      },10*1000);
+      },20*1000);
       //console.log('bcasting reques for shard data: ',j);
       var req = {
         to : 'shardCells',
