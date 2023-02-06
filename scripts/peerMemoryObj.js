@@ -228,8 +228,9 @@ class peerMemCellReceptor{
     j.memory.token = this.openMemKeyFile(j);
     j.memory.signature = this.signRequest(j);
     var SQL = "SELECT pcelAddress FROM peerBrain.peerMemCells ";
-    SQL += "where pcelLastStatus = 'online' and  timestampdiff(second,pcelLastMsg,now()) < 50 order by rand() limit "+j.memory.nCopys;
-    //console.log(SQL);
+    SQL += "where pcelLastStatus = 'online' and  timestampdiff(second,pcelLastMsg,now()) < 50 ";
+    SQL += "and NOT pcelAddress = '"+this.peer.net.rnet.myIp+"' order by rand() limit "+j.memory.nCopys;
+     //console.log(SQL);
     var nStored = 0;
     con.query(SQL,async (err, result, fields)=> {
       if (err) {console.log(err);}
@@ -269,8 +270,8 @@ End Receptor Code
 */
 var con = mysql.createConnection({
   host: "localhost",
-  user: "username",
-  password: "password",
+  user: "peerMemDBA",
+  password: "9f32570fea8411268cab287bc455b156880c",
   database: "peerBrain",
   dateStrings: "date",
   multipleStatements: true,
@@ -578,7 +579,7 @@ class peerMemoryObj {
       const gtime = setTimeout( ()=>{
         console.log('Store Request Timeout:');
         resolve(null);
-      },10*1000);  
+      },1*1000);  
       //console.log('Store Memory To: ',toIp);
       var req = {
         req : 'storeMemory',

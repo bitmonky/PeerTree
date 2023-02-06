@@ -229,7 +229,7 @@ class shardTreeCellReceptor{
     }
     else {
       res.end('{"result" : 0}');
-    }
+   }
   }
   bufferToBase64(arr){
     var i, str = '';
@@ -239,6 +239,7 @@ class shardTreeCellReceptor{
     return decodeURIComponent(str);
   }
   async reqRetrieveShard(j,res){
+    console.log(j);
     var data = {result : 0, msg : 'no results found'};
     var stime = Date.now();
     data = await this.peer.receptorReqSendMyShard(j);
@@ -248,7 +249,7 @@ class shardTreeCellReceptor{
       data.data = scrm.toJSON();
 
     }
-    data.data = this.bufferToBase64(data.data.data);
+    data.data = this.bufferToBase64(data.data.data); 
     console.log('Shard Request Time: ',Date.now() - stime);
     if (data){
       res.end('{"result": 1,"data" : '+JSON.stringify(data)+'}');
@@ -275,7 +276,8 @@ class shardTreeCellReceptor{
     j.shard.token = this.openShardKeyFile(j);
     j.shard.signature = this.signRequest(j);
     var SQL = "SELECT scelAddress FROM shardTree.shardCells ";
-    SQL += "where scelLastStatus = 'online' and  timestampdiff(second,scelLastMsg,now()) < 50 order by rand() limit "+j.shard.nCopys;
+    SQL += "where scelLastStatus = 'online' and  timestampdiff(second,scelLastMsg,now()) < 50 ";
+    SQL += "and NOT scelAddress = '"+this.peer.net.rnet.myIp+"' order by rand() limit "+j.shard.nCopys;
     //console.log(SQL);
     var nStored = 0;
     con.query(SQL,async (err, result, fields)=> {
@@ -315,8 +317,8 @@ End Receptor Code
 */
 var con = mysql.createConnection({
   host: "localhost",
-  user: "username",
-  password: "password",
+  user: "peerShardDBA",
+  password: "168ed33e1febeffc6ba72427c0fd77971ba9",
   database: "shardTree",
   dateStrings: "date",
   multipleStatements: true,
@@ -743,7 +745,7 @@ class shardTreeObj {
       const gtime = setTimeout( ()=>{
         console.log('Store Request Timeout:');
         resolve(null);
-      },10*1000);  
+      },500);  
       console.log('Store Shard To: ',toIp);
       var req = {
         req : 'storeShard',
