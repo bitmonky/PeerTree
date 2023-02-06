@@ -4,6 +4,9 @@
  *
  * @author Rana
  * @link http://codesamplez.com/programming/php-html5-video-streaming-tutorial
+ * 
+ * Adapted By Bitmonky For PeerTree
+ *
  */
 $MKYC_ShowSQLTimer = null;
 
