@@ -270,8 +270,8 @@ End Receptor Code
 */
 var con = mysql.createConnection({
   host: "localhost",
-  user: "peerMemDBA",
-  password: "9f32570fea8411268cab287bc455b156880c",
+  user: "username",
+  password: "password",
   database: "peerBrain",
   dateStrings: "date",
   multipleStatements: true,
@@ -549,7 +549,7 @@ class peerMemoryObj {
        SQL += "pmcMemWord = '"+word+"' "+or; 
        n = n+1;
      });
-     SQL += ")group by pmcMownerID,pmcMemObjID,pmcMemObjNWords ";
+     SQL += ")group by pmcMownerID,pmcMemObjID,pmcMemObjType,pmcMemObjNWords ";
      SQL += "having score >= "+j.qry.reqScore+" ";
      SQL += "order by score desc";
      console.log(SQL);
@@ -579,7 +579,7 @@ class peerMemoryObj {
       const gtime = setTimeout( ()=>{
         console.log('Store Request Timeout:');
         resolve(null);
-      },1*1000);  
+      },2.5*1000);  
       //console.log('Store Memory To: ',toIp);
       var req = {
         req : 'storeMemory',
@@ -593,33 +593,69 @@ class peerMemoryObj {
           clearTimeout(gtime);
 	  resolve(r);
         }		    
+        if (r.memStoreRes === false){
+          clearTimeout(gtime);
+          resolve(null);
+	}
       });
     });
+  }	  
+  weightList(list){
+    var wlist = [];
+    var lweight = 0;	  
+    list.forEach((word)=>{
+      if (word.length > 1 && wlist.indexOf(word) < 0){
+	wlist.push(word);
+	lweight += word.length;
+      }
+    });
+    var res = {
+      words : wlist,
+      weight : lweight
+    }
+    return res;
   }	  
   storeMemory(j,res){
     console.log('got request store memory',j);
     var m = j.memory;
     const mUID = m.from;
-    var memory = this.singleSpaceOnly(m.memStr);
-    var memories = memory.split(' ');
-    var nwords   = memories.length;  
-    var SQLr = "insert into peerBrain.peerMemoryCell (pmcMownerID,pmcMemObjID,pmcMemObjType,pmcMemObjNWords,pmcMemWord,pmcWordSequence) ";
-    var SQL = "";
-    var n = 1;
-    memories.forEach( (word) =>{
-      if (word != ''){
-        SQL += SQLr + "values ('"+m.from+"','"+m.memID+"','"+m.memType+"',"+nwords+",'"+word+"',"+n+");";
-        n = n + 1;
-      }
-    });	    
+    var SQL = "select count(*)nMem from peerBrain.peerMemoryCell ";
+    SQL += "where pmcMownerID = '"+mUID+"' and pmcMemObjID = '"+m.memID+"' and pmcMemObjType='"+m.memType+"' ";
     con.query(SQL , (err, result,fields)=>{
       if (err){
         console.log(err);
-        this.net.endRes(res,JSON.stringify(err));
+        this.net.endRes(res,'{"memStoreRes":false,"error":'+JSON.stringify(err)+'}');
       }
       else {
-        const hash = crypto.createHash('sha256').update(SQL).digest('hex');
-	this.net.endRes(res,'{"memStoreRes":true,"memStorHash":"' + hash + '"}');
+        if (result[0].nMem == 0){
+          var memory = this.singleSpaceOnly(m.memStr);
+          var memories = memory.split(' ');
+          const wlist  = this.weightList(memories);
+          memories = wlist.words;
+          var nwords   = memories.length;  
+          var SQLr  = "insert into peerBrain.peerMemoryCell (pmcMownerID,pmcMemObjID,pmcMemObjType,pmcMemObjNWords,";
+	      SQLr += "pmcMemWord,pmcWordSequence,pmcMemTWeight) ";
+          var SQL = "";
+          var n = 1;
+          memories.forEach( (word) =>{
+            SQL += SQLr + "values ('"+m.from+"','"+m.memID+"','"+m.memType+"',"+nwords+",'"+word+"',"+n+","+wlist.weight+");";
+            n = n + 1;
+          });	    
+          con.query(SQL , (err, result,fields)=>{
+            if (err){
+              console.log(err);
+              this.net.endRes(res,'{"memStoreRes":false,"error":'+JSON.stringify(err)+'}');
+            }
+            else {
+              const hash = crypto.createHash('sha256').update(SQL).digest('hex');
+	      this.net.endRes(res,'{"memStoreRes":true,"memStorHash":"' + hash + '"}');
+            }
+          });
+        }
+	else {
+          console.log('Memory Already Stored');
+          this.net.endRes(res,'{"memStoreRes":false,"msg":"Memory Already Stored"}');
+	}
       }
     });
   }
