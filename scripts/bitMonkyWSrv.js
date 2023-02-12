@@ -47,7 +47,7 @@ class bitMonkyWSrv {
             j = JSON.parse(msg);
             console.log(j);
             if (j.req){
-              this.wallet.doMakeReq(j.req,res);
+              this.wallet.doMakeReq(j.req,res,j.parms);
               return;
             } 
             if (j.what == 'getNode'){
@@ -59,22 +59,14 @@ class bitMonkyWSrv {
           }
           catch(err) {
             //console.log("json parse error:",err);
-            res.end("JSON PARSE Error: \n\n"+msg+"\n\n"+err);
+            res.end("JSON PARSE Errors: \n\n"+msg+"\n\n"+err);
           }
         }
         else {
           res.setHeader("Content-Type", "text/html");
           res.writeHead(200);
-          var htm = '<!doctype html><html class="pgHTML" lang="en"><head>';
-          htm += '<meta charset="utf-8"/><link rel="stylesheet" href="https://www.bitmonky.com/whzon/pc.css?v=1.0"/>';
-          htm += '<script src="https://www.bitmonky.com/bitMDis/pWalletJS.php"></script>';
-          htm += '</head><body class="pgBody" style="margin:5%;padding:1.5em;" onload="init();">';
-          htm += '<img style="float:left;margin:-3em 1em -1em -1em;height:5em;width:5em;border-radius:50%;" ';
-          htm += 'src="https://image0.bitmonky.com/img/bitGoldCoin.png">';
-          htm += '<div align="right" ID="loginSpot"><input ID="loginBut" type="button" value=" BitMonky Login " onClick="doLogin()"/></div>';
-          htm += '<h1>Welcome To Your BitMonky Wallet Server</h1>';
-          htm += '<div ID="accountInfo"></div></body></html>';
-          res.end(htm);
+          fs.createReadStream('html/index.html').pipe(res);
+          return;
         }
       }
     });
@@ -171,14 +163,15 @@ class bitMonkyWallet{
      const hexSig = sig.toDER('hex');
      return hexSig;
    }
-   doMakeReq(action,res){
+   doMakeReq(action,res,parms){
      const stok = this.ownMUID+Date.now(); 	   
      var msg = {
        Address : this.ownMUID,
        sesTok  : stok,
        pubKey  : this.publicKey,
        sesSig  : this.signMsg(stok),
-       action  : action
+       action  : action,
+       parms   : parms
      }
      this.sendPostRequest(msg,res);
    }
@@ -218,11 +211,14 @@ class bitMonkyWallet{
             console.log("Api call failed with response code " + res.statusCode);
           } 
 	  else {
-            this.handleResponse(JSON.parse(body),wres);
+            console.log('API Response:->',body);
+            try {
+              this.handleResponse(JSON.parse(body),wres);
+            }
+            catch(err) {console.log(err);}
           }
         });
       });
-
       req.on('error', error => {
          console.log(error);
       });
