@@ -42,32 +42,32 @@ class bitMonkyWSrv {
           msg = msg.replace(/%3A/g,':');
           msg = msg.replace(/%2C/g,',');
           msg = msg.replace(/\\%2F/g,'/');
-          var j = null;
-          try {
-            j = JSON.parse(msg);
-            console.log(j);
-            if (j.req){
-              this.wallet.doMakeReq(j.req,res,j.parms);
-              return;
-            } 
-            if (j.what == 'getNode'){
-              var report = this.sendReport();
-              res.end(report);
-            }
-            else 
-              res.end("No Handler Found For:\n\n "+JSON.stringify(j));
-          }
-          catch(err) {
-            //console.log("json parse error:",err);
-            res.end("JSON PARSE Errors: \n\n"+msg+"\n\n"+err);
-          }
+          this.handleRequest(msg,res);
         }
         else {
+        if (req.url.indexOf('/netREQ') == 0){
+  	    if (req.method == 'POST') {
+            var body = '';
+            req.on('data', (data)=>{
+              body += data;
+              // Too much POST data, kill the connection!
+              //console.log('body.length',body.length);
+              if (body.length > 300000000){
+                console.log('max datazize exceeded');
+                req.connection.destroy();
+              }
+            });
+            req.on('end', ()=>{
+              handleRequest(body,res);
+            });
+          }	
+        }
+        else { 
           res.setHeader("Content-Type", "text/html");
           res.writeHead(200);
           fs.createReadStream('html/index.html').pipe(res);
           return;
-        }
+        }}
       }
     });
     this.srv.on('connection', (sock)=> {
@@ -79,6 +79,29 @@ class bitMonkyWSrv {
 
     this.srv.listen(port,'localhost');
     console.log('bitMonky Wallet Server running at http://localhost:'+port);
+  }
+  handleRequest(msg,res){
+     var j = null;
+          
+     try {
+       j = JSON.parse(msg);
+       console.log(j);
+       if (j.req){
+         this.wallet.doMakeReq(j.req,res,j.parms);
+         return;
+       } 
+       if (j.what == 'getNode'){
+         var report = this.sendReport();
+         res.end(report);
+       }
+       else { 
+         res.end("No Handler Found For:\n\n "+JSON.stringify(j));
+       } 
+    }
+     catch(err) {
+       //console.log("json parse error:",err);
+       res.end("JSON PARSE Errors: \n\n"+msg+"\n\n"+err);
+     }
   }
   readConfigFile(){
      var conf = null;
