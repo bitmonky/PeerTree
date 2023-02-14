@@ -87,7 +87,7 @@ class bitMonkyWSrv {
        j = JSON.parse(msg);
        console.log(j);
        if (j.req){
-         this.wallet.doMakeReq(j.req,res,j.parms);
+         this.wallet.doMakeReq(j.req,res,j.parms,j.service);
          return;
        } 
        if (j.what == 'getNode'){
@@ -186,7 +186,7 @@ class bitMonkyWallet{
      const hexSig = sig.toDER('hex');
      return hexSig;
    }
-   doMakeReq(action,res,parms){
+   doMakeReq(action,res,parms,service){
      const stok = this.ownMUID+Date.now(); 	   
      var msg = {
        Address : this.ownMUID,
@@ -196,7 +196,7 @@ class bitMonkyWallet{
        action  : action,
        parms   : parms
      }
-     this.sendPostRequest(msg,res);
+     this.sendPostRequest(msg,res,service);
    }
 
    handleResponse(data,res){
@@ -206,15 +206,22 @@ class bitMonkyWallet{
        res.end(JSON.stringify(data));
      }
    }
-   sendPostRequest(msg,wres=null,endPoint='/whzon/gold/netWalletAPI.php'){
+   sendPostRequest(msg,wres=null,service=null){
+      if (service === null){
+        service = {
+          endPoint : '/whzon/gold/netWalletAPI.php',
+          host     : 'www.bitmonky.com',
+          port     : this.port
+        }
+      }
       const https = require('https');
 
       const data = JSON.stringify(msg);
 
       const options = {
-        hostname : 'www.bitmonky.com',
-        port     : this.port,
-        path     : endPoint,
+        hostname : service.host,
+        port     : service.port,
+        path     : service.endPoint,
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
