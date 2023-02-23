@@ -21,6 +21,81 @@ PeerTree Receptor Node: listens on port 1335
 This port is used for your regular apps to interact
 with a memoryCell on the PeerTree Memory network;
 */
+class pSearchMgr{
+   constructor(){
+     this.searches = [];
+   }
+   /***********************************************
+   isThere - gets the index for a given search key.
+   If not found creatres and ads it to the list
+   */
+   isThere(qry){
+     const inId = qry.key;
+     var i = null;
+     this.searches.every((item,n) =>{
+       if (item.id == inId){
+         i = n;
+         return false;
+       } 
+       return true;
+     });
+     if(i === null){
+       this.searches.push({id:inId,time: qry.timestamp,data : []});
+       return this.searches.length -1;
+     }
+     return i;
+   }
+   getIndexOf(inId){
+     var i = null;
+     this.searches.every((item,n) =>{
+       if (item.id == inId){
+         i = n;
+         return false;
+       }
+       return true;
+     });
+     return i;
+   }
+   /*****************************************
+   add a list of results to existing list by
+   iterating through the 'results' pushing them onto the end.
+   when done 'qsort' the full list.
+   */
+   contains (qIndex,key){
+     const items = this.searches[qIndex].data;
+     for (let i = 0; i < items.length; i++) {
+       if (items[i].pmcMemObjID == key){
+	 return true;
+       }
+     }
+     return false;	   
+   }
+   qpush(qry,results){
+     const qIndex = this.isThere(qry);
+     results.forEach((item, n)=>{
+       if(!this.contains(qIndex,item.pmcMemObjID)){
+	 this.searches[qIndex].data.push(item);
+       }	       
+     });
+     this.qsort(qry);
+   }
+   qsort(qry){
+     const qIndex = this.isThere(qry);
+     this.searches[qIndex].data;    
+     this.searches[qIndex].data.sort((a, b) => {
+       const scoreA = a.score; 
+       const scoreB = b.score; 
+       if (scoreA < scoreB) {
+         return 1;
+       }
+       if (scoreA > scoreB) {
+         return -1;
+       }
+       // scores must be equal
+       return 0;
+     });
+   }
+};
 
 class peerMemToken{
    constructor(){
@@ -96,6 +171,7 @@ class peerMemCellReceptor{
       cert: fs.readFileSync('keys/fullchain.pem')
     };
     this.memToken = new peerMemToken();
+    this.smgr     = new pSearchMgr;
     console.log(this.memToken);
     var bserver = https.createServer(options, (req, res) => {
 
@@ -160,16 +236,10 @@ class peerMemCellReceptor{
     return i;
   } 
   procQryResult(j){
-    console.log('incoming search result:',j);
+    //console.log('incoming search result:',j);
     var SQL = null;
-    j.result.forEach((rec) =>{
-      SQL = "insert into peerBrain.peerSearchResults ";
-      SQL += "(psrchHash,psrchScore,psrchMemoryID,psrchDate,psrchNodeIP) ";
-      SQL += "values ('"+j.qry.qry.key+"',"+rec.score+",'"+rec.pmcMemObjID+"',now(),'"+j.remIp+"');";
-      con.query(SQL,(err, result, fields)=>{
-        if (err) console.log(err);
-      });
-    });
+    this.smgr.qpush(j.qry.qmgr,j.result);
+    return;
 }
   openMemKeyFile(j){
     const bitToken = bitcoin.payments.p2pkh({ pubkey: new Buffer.from(''+this.memToken.publicKey, 'hex') }); 
@@ -182,11 +252,19 @@ class peerMemCellReceptor{
   }
   async doSearch(j,res){
     console.log('doSearch qkey is: ',j.qry.key);
+    var qry = {
+      key  : j.qry.key,
+      timestamp : Date.now(),
+      qryStr    : j.qry.qryStr,
+      data : [] // results list from a search; 
+    }
+    this.qIndex = this.smgr.isThere(qry);
     //this.searchIndex = this.isThere(j.qry.key);
     this.results = {result : 0, msg : 'no results found'};
     var breq = {
       to : 'peerMemCells',
-      qry : j.qry
+      qry : j.qry,
+      qmgr : qry
     }
     console.log('bcast search request to memoryCell group: ',breq);
     this.peer.net.broadcast(breq);
@@ -196,23 +274,11 @@ class peerMemCellReceptor{
   getSearchResults(j){
     return new Promise( async(resolve,reject)=>{
       var skey = j.qry.key;
-      await sleep(500);
-      var SQL = "select '"+skey+"' as pmcMownerID,psrchMemoryID as pmcMemObjID,0 as pmcMemObjNWords,0 as nMatches,psrchScore score ";
-      SQL += "from peerBrain.peerSearchResults where psrchHash = '"+skey+"' group by psrchMemoryID, psrchScore order by psrchScore desc";
-      con.query(SQL, (err, result, fields)=> {
-        if (err) {
- 	  console.log(err);
-          resolve('{"result": 1,"data":'+JSON.stringify(this.results)+'}');
-        } 
-        else {
-          if (result.length > 0){
-            resolve('{"result": 1,"data":'+JSON.stringify(result)+'}');
-          }
-	  else {
-            resolve('{"result": 1,"data":'+JSON.stringify(this.results)+'}');
-          }
-	}
-      });
+      await sleep(1000);
+      const result = this.smgr.searches[this.smgr.getIndexOf(skey)].data;
+      console.log('hello from smgr',result);
+      resolve('{"result": 1,"data":'+JSON.stringify(result)+'}');
+      return;
     });
   }
   signRequest(j){
@@ -270,8 +336,8 @@ End Receptor Code
 */
 var con = mysql.createConnection({
   host: "localhost",
-  user: "username",
-  password: "password",
+  user: "peerMemDBA",
+  password: "9f32570fea8411268cab287bc455b156880c",
   database: "peerBrain",
   dateStrings: "date",
   multipleStatements: true,
@@ -286,12 +352,12 @@ function getRandomInt(max) {
 }
 class peerMemoryObj {
   constructor(peerTree,reset){
-    this.reset      = reset;
-    this.isRoot     = null;
-    this.status     = 'starting';
-    this.net        = peerTree;
-    this.receptor   = null;
-    this.wcon       = new MkyWebConsole(this.net,con,this);
+    this.reset    = reset;
+    this.isRoot   = null;
+    this.status   = 'starting';
+    this.net      = peerTree;
+    this.receptor = null;
+    this.wcon     = new MkyWebConsole(this.net,con,this);
     this.init();
     this.setNetErrHandle();
     this.sayHelloPeerGroup();
