@@ -336,8 +336,8 @@ End Receptor Code
 */
 var con = mysql.createConnection({
   host: "localhost",
-  user: "peerMemDBA",
-  password: "9f32570fea8411268cab287bc455b156880c",
+  user: "username",
+  password: "password",
   database: "peerBrain",
   dateStrings: "date",
   multipleStatements: true,
