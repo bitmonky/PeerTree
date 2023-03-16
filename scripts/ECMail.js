@@ -1,5 +1,5 @@
 /*
-Provides Asymmetric encryption sending encrypted email messages
+Provides Asymmetric encryption for sending encrypted email messages
 to be stored on the peerTree network.
 */
 
