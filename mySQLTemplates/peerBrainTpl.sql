@@ -86,12 +86,14 @@ CREATE TABLE `peerMemoryCell` (
   `pmcMemObjNWords` int(11) DEFAULT NULL,
   `pmcMemObjType` varchar(45) DEFAULT NULL,
   `pmcMemTWeight` int(11) DEFAULT NULL,
+  `pmcMemTime` datetime DEFAULT NULL,
   PRIMARY KEY (`pmcID`),
   KEY `ndxPmcOwnerID` (`pmcMownerID`),
   KEY `ndxPmcMemObjID` (`pmcMemObjID`),
   KEY `ndxPmcWord` (`pmcMemWord`),
   KEY `ndxPmcWordSeqID` (`pmcWordSequence`),
-  KEY `ndxPmcMemObjType` (`pmcMemObjType`)
+  KEY `ndxPmcMemObjType` (`pmcMemObjType`),
+  KEY `ndxPmcMemTime` (`pmcMemTime`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -145,4 +147,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2023-02-08  9:03:40
+-- Dump completed on 2023-03-17 18:53:04
