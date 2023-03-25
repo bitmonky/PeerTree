@@ -274,9 +274,18 @@ class peerMemCellReceptor{
   getSearchResults(j){
     return new Promise( async(resolve,reject)=>{
       var skey = j.qry.key;
-      await sleep(1000);
-      const result = this.smgr.searches[this.smgr.getIndexOf(skey)].data;
-      console.log('hello from smgr',result);
+      var trys = 0;
+      var result = [];
+      while (trys < 4){
+        await sleep(500);
+        result = this.smgr.searches[this.smgr.getIndexOf(skey)].data;
+        if (result.length > 1){
+	  console.log('hello from smgr',result);
+          resolve('{"result": 1,"data":'+JSON.stringify(result)+'}');
+          return;
+        }
+	trys = trys +1; 
+      }
       resolve('{"result": 1,"data":'+JSON.stringify(result)+'}');
       return;
     });
@@ -336,8 +345,8 @@ End Receptor Code
 */
 var con = mysql.createConnection({
   host: "localhost",
-  user: "username",
-  password: "password",
+  user: "peerMemDBA",
+  password: "9f32570fea8411268cab287bc455b156880c",
   database: "peerBrain",
   dateStrings: "date",
   multipleStatements: true,
