@@ -276,7 +276,7 @@ class peerMemCellReceptor{
       var skey = j.qry.key;
       var trys = 0;
       var result = [];
-      while (trys < 4){
+      while (trys < 10){
         await sleep(500);
         result = this.smgr.searches[this.smgr.getIndexOf(skey)].data;
         if (result.length > 1){
@@ -358,6 +358,12 @@ con.connect(function(err) {
 
 function getRandomInt(max) {
   return Math.floor(Math.random() * Math.floor(max));
+}
+class Word {
+  constructor(word, count) {
+    this.word = word;
+    this.count = count;
+  }
 }
 class peerMemoryObj {
   constructor(peerTree,reset){
@@ -599,21 +605,48 @@ class peerMemoryObj {
     //remove eny extra spaces from string
     return str;
   }	  
+  getQryScope(j){
+    var r = {search:'',join :''}; 	  
+    if (j.qry.scope == 'city')
+      r.search = ' pmcCityID = '+j.qry.scopeID+' ';
+    if (j.qry.scope == 'state')
+      r.search = ' plocStateID = '+j.qry.scopeID+' ';
+    if (j.qry.scope == 'country')
+      r.search = ' plocCountryID = '+j.qry.scopeID+' ';
+    if (j.qry.scope == 'wregion')
+      r.search = ' plocWRegionID = '+j.qry.scopeID+' ';
+    if (j.qry.scope)
+      r.join = 'inner join peerBrain.peerMemLocation on plocCityID = pmcCityID ';
+    return r;
+  }
   doBestMatchQry(j,ip){
      console.log('search from: ',ip);
      console.log('here is the search..',j);
      var qry = this.singleSpaceOnly(j.qry.qryStr);
+     var scope = this.getQryScope(j);
      var words = qry.split(' ');
      var nwords   = words.length;
+     var orderBy  = "order by score desc ";
+     var limit    = null;
 
      var qtype = '';
      if (j.qry.qryType){
        qtype = " and pmcMemObjType = '"+j.qry.qryType+"'";
      }
-     var SQLr = "select pmcMownerID,pmcMemObjID,pmcMemObjNWords,count(*)nMatches,"
-     SQLr += "(count(*) * count(*)/"+nwords+" + count(*)/pmcMemObjNWords)/(count(*) + 1) score ";
+     if (j.qry.qryOrder){
+       orderBy = j.qry.qryOrder;
+     }
+     if (j.qry.qryLimit){
+       limit = j.qry.qryLimit;
+       orderBy += ' '+limit;
+     }
+     var SQLr = "select pmcMownerID,pmcMemObjID,pmcMemObjNWords,count(*) nMatches,"
+     SQLr += "(count(*) + 1.0/(1.0 + TIMESTAMPDIFF(hour,pmcMemTime,now()))) score ";
      SQLr += "from peerBrain.peerMemoryCell ";
-     SQLr += "where pmcMownerID = '"+j.qry.ownerID+"' "+qtype+" and (";
+     if (scope.join){
+       SQLr += scope.join;
+     }	     
+     SQLr += "where pmcMownerID = '"+j.qry.ownerID+"' "+scope.search + qtype+" and (";
      var SQL = SQLr;
      var n = 1;
      var or = 'or ';
@@ -626,7 +659,7 @@ class peerMemoryObj {
      });
      SQL += ")group by pmcMownerID,pmcMemObjID,pmcMemObjType,pmcMemObjNWords ";
      SQL += "having score >= "+j.qry.reqScore+" ";
-     SQL += "order by score desc";
+     SQL += orderBy;
      console.log(SQL);
      con.query(SQL, (err, result, fields)=> {
        if (err) console.log(err);
@@ -675,13 +708,30 @@ class peerMemoryObj {
       });
     });
   }	  
+  incrementWord(list,inWord){
+    console.log('incrememtWord',list);
+    for (let word of list) {
+      if (word.word == inWord){
+	word.count = word.count + 1;
+	return;
+      }	      
+    }
+  }
   weightList(list){
     var wlist = [];
+    var temp  = [];
     var lweight = 0;	  
     list.forEach((word)=>{
-      if (word.length > 1 && wlist.indexOf(word) < 0){
-	wlist.push(word);
-	lweight += word.length;
+      let lword = new Word(word.toLowerCase(),1);
+      if (word.length > 1){
+        if (temp.includes(word)){
+          this.incrementWord(wlist,word);
+        }  	      
+        else {
+	  temp.push(word);
+	  wlist.push(lword);
+	  lweight += word.length;
+      	}	
       }
     });
     var res = {
@@ -690,9 +740,51 @@ class peerMemoryObj {
     }
     return res;
   }	  
+  checkPeerLoc(j,res){
+    var SQL = "select count(*)nMem from peerBrain.peerMemLocations where plocCityID = "+ j.cityID;
+    var locOK = false;
+    con.query(SQL , (err, result,fields)=>{
+      if (err){
+        console.log(err);
+        this.net.endRes(res,'{"memStoreRes":false,"error":'+JSON.stringify(err)+'}');
+      }
+      else {
+        if (result[0].nMem == 0){
+          var SQL  = "insert into peerBrain.peerMemLocations (plocCityID,plocStateID,plocCountryID,plocWRegionID) ";
+              SQL += "values ("+j.cityID+","+j.stateID+","+j.countryID+","+j.worldRegionID+") ";
+          con.query(SQL , (err, result,fields)=>{
+            if (err){
+              console.log(err);
+              this.net.endRes(res,'{"memStoreRes":false,"error":'+JSON.stringify(err)+'}');
+	    }
+            else {
+	      locOK = true;
+	    }
+          });
+        }
+	else {
+	  locOK = true;
+        }		
+      }
+    });	    
+    return locOK;
+  }	    
   storeMemory(j,res){
     console.log('got request store memory',j);
     var m = j.memory;
+    if (!m.memStr){
+      console.log('Memory String Is Null');
+      this.net.endRes(res,'{"memStoreRes":false,"error":"Null Memory String"}');
+      return;
+    }
+    if (!m.cityID){
+      m.cityID = 'null';
+      m.date   = 'null';
+    }	    
+    else {
+      m.date = "'"+m.date+"'";	    
+      this.checkPeerLoc(m,res);
+    }
     const mUID = m.from;
     var SQL = "select count(*)nMem from peerBrain.peerMemoryCell ";
     SQL += "where pmcMownerID = '"+mUID+"' and pmcMemObjID = '"+m.memID+"' and pmcMemObjType='"+m.memType+"' ";
@@ -709,14 +801,16 @@ class peerMemoryObj {
           memories = wlist.words;
           var nwords   = memories.length;  
           var SQLr  = "insert into peerBrain.peerMemoryCell (pmcMownerID,pmcMemObjID,pmcMemObjType,pmcMemObjNWords,";
-	      SQLr += "pmcMemWord,pmcWordSequence,pmcMemTWeight) ";
+	      SQLr += "pmcMemWord,pmcWordCount,pmcWordSequence,pmcMemTWeight,pmcCityID,pmcMemTime) ";
           var SQL = "";
           var n = 1;
           memories.forEach( (word) =>{
-            SQL += SQLr + "values ('"+m.from+"','"+m.memID+"','"+m.memType+"',"+nwords+",'"+word+"',"+n+","+wlist.weight+");";
+            SQL += SQLr + "values ('"+m.from+"','"+m.memID+"','"+m.memType+"',"+nwords+",'"+word.word+"',"+word.count+","+
+ 		   n+","+wlist.weight+","+m.cityID+","+m.date+");";
             n = n + 1;
           });	    
-          con.query(SQL , (err, result,fields)=>{
+          console.log(SQL);
+	  con.query(SQL , (err, result,fields)=>{
             if (err){
               console.log(err);
               this.net.endRes(res,'{"memStoreRes":false,"error":'+JSON.stringify(err)+'}');
