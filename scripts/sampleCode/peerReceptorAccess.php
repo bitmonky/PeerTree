@@ -2,17 +2,40 @@
 function ptreeMakeSearchKey($j){
   return hash('sha256',json_encode($j));
 }
-$PTC_memRECEPTOR   = "https://<your mem node IP>:<port>";
-$PTC_shardRECEPTOR = "https://<your shard node IP>:<port>";
-
+$PTC_memRECEPTOR    = "https://139.144.110.5:1335";
+$PTC_shardRECEPTOR  = "https://170.187.179.251:13355";
+$PTC_shardRECEPTOR2 = "https://139.144.110.5:13355";
+$PTC_maxWordLength  = 45;
 function prepWords($str){
+  if ($str === null || mkyTrim($str) == ''){
+    return null;
+  }
   $words = [' i ',' in ',' on ',' there ',' is ',' are ',' as ',' the ',' a ',' to ',' and ',' too ',' of ',' for '];
   forEach($words as $word){
-    $str = str_ireplace($word,' ',$str);
+    $str = mkyStrIReplace($word,' ',$str);
   }
   $str   = preg_replace("/(?![.=$'€%-])\p{P}/u", " ", $str);
   $str   = preg_replace("/\W/"," ",$str);
-  return $str;
+
+  // Shorten long words
+  $list  = explode(' ',$str);
+  $n=0;$newStr = null;
+  forEach ($list as $word){
+    $word = left($word,$GLOBALS['PTC_maxWordLength']);
+    if ($n==0){
+      $n=1;
+      $newStr = $word;
+    }
+    else {
+      if (mkyTrim($word) != ''){
+        $newStr .= ' '.$word;
+      }
+    }
+  } 
+  if (strlen($newStr)==0){
+    return null;
+  }
+  return $newStr;
 }
 function ptreeStoreShard($muid,$hash,$shard,$encrypt=null,$nCopys=3,$expires=null){
    $j = new stdClass;
@@ -38,6 +61,7 @@ function ptreeRequestShard($muid,$hash,$encrypted=null){
 
    $post = new stdClass;
    $post->url   = $GLOBALS['PTC_shardRECEPTOR']."/netREQ";
+   $post->url   = $GLOBALS['PTC_shardRECEPTOR2']."/netREQ";
    $post->postd = '{"msg":{"req":"requestShard","shard":'.json_encode($j).'}}';
 
    $bcRes = tryJFetchURL($post,'POST');
@@ -55,7 +79,7 @@ function ptreeDeleteShard($muid,$hash,$encrypted=null){
    $bcRes = tryJFetchURL($post,'POST');
    return $bcRes;
 }
-function ptreeSearchMem($muid,$str,$type='acHashTag'){
+function ptreeSearchMem($muid,$str,$type){
    $j = new stdClass;
    $j->ownerID   = $muid;
    $j->qryStr    = $str;
@@ -68,8 +92,7 @@ function ptreeSearchMem($muid,$str,$type='acHashTag'){
    $j->pg        = 1;
    $j->key       = ptreeMakeSearchKey($j);
 
-   $url = $GLOBALS['PTC_memRECEPTOR'].'/netREQ/msg='.urlencode('{"req":"searchMemory","qry":'.json_encode($j).'}');
-
+   $url = $GLOBALS['PTC_memRECEPTOR'].'/netREQ/msg='.mkyUrlEncode('{"req":"searchMemory","qry":'.json_encode($j).'}');
    $bcRes = tryFetchURL($url,1);
    return $bcRes;
 }
@@ -81,7 +104,7 @@ function ptreeStoreMem($muid,$acID,$str,$type='generic',$nCopys=3){
    $j->memType = $type;
    $j->nCopys  = $nCopys;
 
-   $url = $GLOBALS['PTC_memRECEPTOR'].'/netREQ/msg='.urlencode('{"req":"storeMemory","memory":'.json_encode($j).'}');
+   $url = $GLOBALS['PTC_memRECEPTOR'].'/netREQ/msg='.mkyUrlEncode('{"req":"storeMemory","memory":'.json_encode($j).'}');
    $bcRes = tryFetchURL($url,1);
    return $bcRes;
 }
@@ -95,7 +118,7 @@ function tryJFetchURL($j,$method='GET',$timeout=5){
     curl_setopt ($crl, CURLOPT_RETURNTRANSFER, 1);
     curl_setopt ($crl, CURLOPT_CONNECTTIMEOUT, $timeout);
     curl_setopt ($crl, CURLOPT_FOLLOWLOCATION, true);
-    curl_setopt ($crl, CURLOPT_USERAGENT,$_SERVER['HTTP_USER_AGENT']);
+    curl_setopt ($crl, CURLOPT_USERAGENT,safeSRV('HTTP_USER_AGENT'));
     curl_setopt ($crl, CURLOPT_MAXREDIRS,5);
     curl_setopt ($crl, CURLOPT_REFERER, 'https://monkytalk/');
     curl_setopt ($crl, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
@@ -110,6 +133,10 @@ function tryJFetchURL($j,$method='GET',$timeout=5){
     );
 
     $resp->data  = curl_exec($crl);
+    if ($resp->data === null) {
+      $resp->data = "Document tryJFetchURL  ".$j->url." Failed";
+    }
+
     $resp->error = false;
     if ($resp->data === false) {
       $resp->error = curl_error($crl);
