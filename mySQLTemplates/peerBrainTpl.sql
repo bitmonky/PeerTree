@@ -47,6 +47,36 @@ LOCK TABLES `peerMemCells` WRITE;
 UNLOCK TABLES;
 
 --
+-- Table structure for table `peerMemLocations`
+--
+
+DROP TABLE IF EXISTS `peerMemLocations`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `peerMemLocations` (
+  `plocID` bigint(20) NOT NULL AUTO_INCREMENT,
+  `plocCityID` bigint(20) DEFAULT NULL,
+  `plocStateID` int(11) DEFAULT NULL,
+  `plocCountryID` int(11) DEFAULT NULL,
+  `plocWRegionID` int(11) DEFAULT NULL,
+  PRIMARY KEY (`plocID`),
+  KEY `ndxPlocCityID` (`plocCityID`),
+  KEY `ndxPlocStateID` (`plocStateID`),
+  KEY `ndxPlocCountryID` (`plocCountryID`),
+  KEY `ndxPlocWRegionID` (`plocWRegionID`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Dumping data for table `peerMemLocations`
+--
+
+LOCK TABLES `peerMemLocations` WRITE;
+/*!40000 ALTER TABLE `peerMemLocations` DISABLE KEYS */;
+/*!40000 ALTER TABLE `peerMemLocations` ENABLE KEYS */;
+UNLOCK TABLES;
+
+--
 -- Table structure for table `peerMemOwners`
 --
 
@@ -87,13 +117,17 @@ CREATE TABLE `peerMemoryCell` (
   `pmcMemObjType` varchar(45) DEFAULT NULL,
   `pmcMemTWeight` int(11) DEFAULT NULL,
   `pmcMemTime` datetime DEFAULT NULL,
+  `pmcCityID` bigint(20) DEFAULT NULL,
+  `pmcWordCount` int(11) DEFAULT NULL,
   PRIMARY KEY (`pmcID`),
   KEY `ndxPmcOwnerID` (`pmcMownerID`),
   KEY `ndxPmcMemObjID` (`pmcMemObjID`),
   KEY `ndxPmcWord` (`pmcMemWord`),
   KEY `ndxPmcWordSeqID` (`pmcWordSequence`),
   KEY `ndxPmcMemObjType` (`pmcMemObjType`),
-  KEY `ndxPmcMemTime` (`pmcMemTime`)
+  KEY `ndxPmcMemTime` (`pmcMemTime`),
+  KEY `ndxPmcCityID` (`pmcCityID`),
+  KEY `ndxPmcWordCount` (`pmcWordCount`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -147,4 +181,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2023-03-17 18:53:04
+-- Dump completed on 2023-08-18 12:23:38
