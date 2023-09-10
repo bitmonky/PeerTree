@@ -606,17 +606,17 @@ class peerMemoryObj {
     return str;
   }	  
   getQryScope(j){
-    var r = {search:'',join :''}; 	  
+    var r = {search:'',join :''};
     if (j.qry.scope == 'city')
-      r.search = ' pmcCityID = '+j.qry.scopeID+' ';
+      r.search = ' and pmcCityID = '+j.qry.scopeID+' ';
     if (j.qry.scope == 'state')
-      r.search = ' plocStateID = '+j.qry.scopeID+' ';
+      r.search = ' and plocStateID = '+j.qry.scopeID+' ';
     if (j.qry.scope == 'country')
-      r.search = ' plocCountryID = '+j.qry.scopeID+' ';
+      r.search = ' and plocCountryID = '+j.qry.scopeID+' ';
     if (j.qry.scope == 'wregion')
-      r.search = ' plocWRegionID = '+j.qry.scopeID+' ';
+      r.search = ' and plocWRegionID = '+j.qry.scopeID+' ';
     if (j.qry.scope)
-      r.join = 'inner join peerBrain.peerMemLocation on plocCityID = pmcCityID ';
+      r.join = ' inner join peerBrain.peerMemLocations on plocCityID = pmcCityID ';
     return r;
   }
   doBestMatchQry(j,ip){
