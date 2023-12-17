@@ -119,6 +119,7 @@ CREATE TABLE `peerMemoryCell` (
   `pmcMemTime` datetime DEFAULT NULL,
   `pmcCityID` bigint(20) DEFAULT NULL,
   `pmcWordCount` int(11) DEFAULT NULL,
+  `pmcWordWeight` int(11) DEFAULT NULL,
   PRIMARY KEY (`pmcID`),
   KEY `ndxPmcOwnerID` (`pmcMownerID`),
   KEY `ndxPmcMemObjID` (`pmcMemObjID`),
@@ -127,7 +128,8 @@ CREATE TABLE `peerMemoryCell` (
   KEY `ndxPmcMemObjType` (`pmcMemObjType`),
   KEY `ndxPmcMemTime` (`pmcMemTime`),
   KEY `ndxPmcCityID` (`pmcCityID`),
-  KEY `ndxPmcWordCount` (`pmcWordCount`)
+  KEY `ndxPmcWordCount` (`pmcWordCount`),
+  KEY `ndxPmcWordWeight` (`pmcWordWeight`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -181,4 +183,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2023-08-18 12:23:38
+-- Dump completed on 2023-12-17 17:07:18
