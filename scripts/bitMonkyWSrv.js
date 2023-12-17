@@ -170,10 +170,13 @@ class bitMonkyWallet{
 
         console.log('Generate a new wallet cipher key');
         mkybc = bitcoin.payments.p2pkh({ pubkey: new Buffer.from(''+this.pmCipherKey, 'hex') });
-        this.shardCipher = mkybc.address;
+        this.walletCipher = mkybc.address;
+       
+        const rsaMail = new mkyRSAMail(this.walletCipher);
+        this.rsaKeys = rsaMail.generateKeys();
 
-        var wallet = '{"ownMUID":"'+ this.branchMUID+'","publicKey":"' + this.publicKey + '","privateKey":"' + this.privateKey + '",';
-        wallet += '"walletCipher":"'+this.shardCipher+'"}';
+	var wallet = '{"ownMUID":"'+ this.ownMUID+'","publicKey":"' + this.publicKey + '","privateKey":"' + this.privateKey + '",';
+        wallet += '"walletCipher":"'+this.walletCipher+'","rsaKeys":'+JSON.stringify(this.rsaKeys)+'}';
         console.log(wallet);
         fs.writeFile(wfile, wallet, function (err) {
           if (err) throw err;
