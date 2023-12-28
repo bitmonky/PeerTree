@@ -1129,6 +1129,201 @@ class MkyRouting {
    }
 }
 // *********************************************************
+// CLASS: gPowQue
+// A Proof of work class Que Managerk.
+//
+class gPowQue {
+   constructor(){
+     this.nodes = [];
+   }
+   push(ip,work,diff){
+     var node = {
+       ip   : ip,
+       work : work,
+       diff : diff
+     }
+     if (this.inList(ip) === null) {
+       this.nodes.push(node);
+     }
+     return this.pop();
+   }
+   remove(ip){
+     var breakFor = {};
+     try {
+       this.nodes.forEach( (n, index, object)=>{
+         if (n.ip == ip){
+           object.splice(index,1)
+           console.log("Job IP Removed:",ip);
+         }
+       });
+     }
+     catch(e){}
+   }
+   inList(ip){
+     var isIn = null;
+     var breakFor = {};
+     try {
+       this.nodes.forEach( (n)=>{
+         if (n.ip == ip){
+           isIn = n;
+           throw breakFor;
+         }
+       });
+     }
+     catch(e){}
+     return isIn;
+   }
+   pop(){
+     return this.nodes.pop();
+   }
+   list(){
+    //console.log('Network MsgQue Status: ');
+     this.nodes.forEach( (n)=>{
+      //console.log(n);
+     });
+   }
+}
+// *********************************************************
+// CLASS: gPowKey
+// A Proof of work class used for selection of random nodes from the PeerTree
+// 
+class gPowKey {
+  constructor(myIP,net) {
+    this.net     = net;
+    this.nonce   = 0;
+    this.hash    = "";
+    this.ip      = myIP;
+    this.remIP   = null;
+    this.que     = new gPowQue();
+    this.isMining = false;
+    this.stopMining = null;
+  }
+  async doPow(difficulty,work,remIP) {
+    console.log('Doing POW for:',remIP);
+    var work = this.que.push(remIP,work,difficulty);
+    while(work){
+      console.log('While Working');
+      this.work = work.work;
+      this.remIP = work.ip;
+      this.isMining = true;
+      this.stopMining = false;
+      this.repeatHash(work.diff);
+      work = this.que.pop();
+    }
+  }
+  doStop(remIP){
+    console.log('Do Stop Initiated:'+this.remIP+'|',remIP);
+    if (this.remIP == remIP){
+      console.log('OPTION STOPPING:'+this.remIP+'|',remIP);
+      this.stopMining = true;
+    }
+    else {
+      console.log('OPTION REMOVE FROM QUE:'+this.remIP+'|',remIP);
+      this.que.remove(remIP);
+    }
+  }
+  signMsg(stok) {
+    const sig = this.signingKey.sign(this.calculateHash(stok), 'base64');
+    const hexSig = sig.toDER('hex');
+    return hexSig;
+  }
+  async calculateHash() {
+    var data = this.ip + this.work + this.nonce;
+    var hash = crypto.createHash('sha256').update(data).digest('hex');
+    return hash;
+  }
+  async repeatHash(difficulty){
+    if (!this.stopMining && this.hash.substring(0, difficulty) !== Array(difficulty + 1).join('0')) {
+      this.nonce = Math.floor(Math.random() * Math.floor(9999999999999));
+      this.hash = await this.calculateHash();
+      if (this.stopMining){
+        console.log('HALT intiated:',this.remIP);
+      }
+      else {
+        var timeout = setTimeout( ()=>{this.repeatHash(difficulty);},1);
+      }
+    }
+    else {
+     console.log('this.stopMining:',this.stopMining);
+     if(!this.stopMining){
+        var qres = {
+          req : 'pNodeListGenIP',
+          work  : this.work,
+          wIP   : this.ip,
+          nonce : this.nonce,
+          hash  : this.hash
+        }
+        this.net.sendReply(this.remIP,qres);
+      }
+      this.stopMining = false;
+      this.isMining = false;
+
+    }
+  }
+}
+/*
+class gPowKey {
+  constructor(myIP,net) {
+    this.net     = net;
+    this.nonce   = 0;
+    this.hash    = "";
+    this.ip      = myIP;
+    this.remIP   = null;
+    console.log('GPow Started:',this.ip);
+    console.log('GPow Net: XXXXX');
+    this.isMining = false;
+    this.stopMining = null;
+  }
+  async doPow(difficulty,work,remIP) {
+    console.log('Doing POW for:',remIP);
+    this.work = work;
+    this.remIP = remIP;
+    this.isMining = true;
+    this.stopMining = false;
+    this.repeatHash(difficulty);
+  }
+  doStop(){
+    this.stopMining = true;
+  }
+  signMsg(stok) {
+    const sig = this.signingKey.sign(this.calculateHash(stok), 'base64');
+    const hexSig = sig.toDER('hex');
+    return hexSig;
+  }
+  async calculateHash() {
+    var data = this.ip + this.work + this.nonce;
+    var hash = crypto.createHash('sha256').update(data).digest('hex');
+    return hash;
+  }
+  async repeatHash(difficulty){
+    if (!this.stopMining && this.hash.substring(0, difficulty) !== Array(difficulty + 1).join('0')) {
+      this.nonce = Math.floor(Math.random() * Math.floor(9999999999999));
+      this.hash = await this.calculateHash();
+      if (this.stopMining){
+        console.log('stop intiated:');
+      }
+      else {
+        var timeout = setTimeout( ()=>{this.repeatHash(difficulty);},1);
+      }
+    }
+    else {
+      this.stopMining = false;
+      this.isMining = false;
+      var qres = {
+        req : 'pNodeListGenIP',
+        work  : this.work,
+        nonce : this.nonce,
+        hash  : this.hash
+      }
+      console.log('Nonce: ',this.nonce);
+      console.log('Work: ',this.work);
+      console.log(this.ip,this.hash);
+      this.net.sendReply(this.remIP,qres);
+    }
+  }
+}
+*/
+// *********************************************************
 // CLASS: MkyMsgQmgr
 // A Que for messages to nodes that have timed out or 
 // have errors.
@@ -1243,8 +1438,11 @@ class PeerTreeNet extends  EventEmitter {
        this.initHandlers();
        this.nodes = await this.readNodeFile();
        this.genNetKeyPair();
+       this.nIp = null;
+       this.nIp = await(this.netIp());
        this.startServer();
-       this.rnet = new MkyRouting(this.netIp(),this);
+       this.rnet = new MkyRouting(this.nIp,this);
+       this.gpow = new gPowKey(this.nIp,this);
        await this.rnet.routingReady();
        setTimeout ( ()=>{
 	 this.heartBeat();
@@ -1255,23 +1453,16 @@ class PeerTreeNet extends  EventEmitter {
        resolve(true);
      });
    }
-   netIp(){
-      const { networkInterfaces } = require('os');
-      const nets = networkInterfaces();
-      const results = Object.create(null); // Or just '{}', an empty object
-
-      for (const name of Object.keys(nets)) {
-        for (const net of nets[name]) {
-          // Skip over non-IPv4 and internal (i.e. 127.0.0.1) addresses
-          if (net.family === 'IPv4' && !net.internal && net.netmask != '255.255.128.0') {
-            if (!results[name]) {
-              results[name] = [];
-            }
-            results[name].push(net.address);
-          }
-        }
+   async netIp(){
+      if (!this.nIp === null){
+        return this.nIp;
       }
-      return results['eth0'][0];
+      this.nIp = await tryGetExternalIp();
+      if (this.nIp === null){
+        console.log('could not find exernal IP for peerTree node');
+        exit(0);
+      }
+      return this.nIp;
    }
    genNetKeyPair(){
       var keypair = null;
@@ -1437,7 +1628,7 @@ class PeerTreeNet extends  EventEmitter {
         }}
       });
       this.server.listen(this.port);
-      console.log('Server PeerTree7.2 running at ' + this.netIp() + ':' + this.port);
+      console.log('Server PeerTree7.2 running at ' + this.nIp + ':' + this.port);
    }
    netStarted(){
      console.log('Starting Net Work');
@@ -1469,7 +1660,7 @@ class PeerTreeNet extends  EventEmitter {
    ping the targetIp and reply with the result.
    */
    groupPing(ipList,targetIp){
-      console.log('starting groupPing:',targetIp);
+      //console.log('starting groupPing:',targetIp);
       if(this.rnet && this.status != 'startup'){
         var grpPing = {
           pings        : [],
@@ -1511,7 +1702,7 @@ class PeerTreeNet extends  EventEmitter {
           this.rnet.net.removeListener('peerTReply', repListener);
           this.rnet.net.removeListener('xhrFail', errListener);
           grpPing.targetStatus = this.reviewTargetStatus(grpPing);
-          console.log('grpPing Done:',grpPing);
+          //console.log('grpPing Done:',grpPing);
         },1000);
 
         // loop through list and send out group ping request.
@@ -1552,7 +1743,7 @@ class PeerTreeNet extends  EventEmitter {
      return i;
    }
    pingTarget(j){
-     console.log('Got PingTarget Request:',j); 
+     //console.log('Got PingTarget Request:',j); 
      var reply = {
        gpingResult : {
          targetIP : null,
@@ -1716,7 +1907,7 @@ class PeerTreeNet extends  EventEmitter {
   queMsg(msg){
      //console.log('Msg Log Counter: ',this.msgMgr.count(msg.toHost));
      if (this.msgMgr.count(msg.toHost) < 20){
-       console.log('pushing msg:',msg);
+       //console.log('pushing msg:',msg);
        this.msgQue.push(msg);
        this.msgMgr.add(msg.toHost);
        return true;
@@ -1733,7 +1924,13 @@ class PeerTreeNet extends  EventEmitter {
   sendMsgCX(toHost,msg){
     this.sendMsg(toHost,msg,true);
   }	  
+  getExternlIpOnly(host) {
+    var regex = /=>.*$/;  
+    var result = host.replace(regex, '');  
+    return result;
+  }
   sendMsg(toHost,msg,corx=false){
+      toHost = this.getExternlIpOnly(toHost);
       if (!toHost) {console.log('Send Message Host '+toHost+' Missing',msg);return;}
       if (!msg)    {console.log('Send Message Msg  Missing');return;} 
 
@@ -1746,7 +1943,9 @@ class PeerTreeNet extends  EventEmitter {
       }
       if (toHost == 'root'){
         toHost = this.getNetRootIp();
+        //console.log('toHost::Changes to:',toHost);
       }
+      //console.log('toHost Changes to:',toHost);
       const msgTime =  Date.now();
 
       if(!msg.signature){
@@ -1962,4 +2161,54 @@ class PeerTreeNet extends  EventEmitter {
      });
   }
 };
+async function tryGetExternalIp() {
+    const { networkInterfaces } = require('os');
+    const interfaces = networkInterfaces();
+    let externalIp = null;
+    let internalIp = '';
+
+    for (const interfaceName of Object.keys(interfaces)) {
+        for (const network of interfaces[interfaceName]) {
+            // Check for IPv4, not internal, and not a loopback address
+            if (network.family === 'IPv4' && !network.internal && isPrivate(network.address)) {
+              internalIp = network.address;
+            }
+            if (network.family === 'IPv4' && !network.internal && !isPrivate(network.address)) {
+                externalIp = network.address;
+                break;
+            }
+        }
+        if (externalIp) break;
+    }
+    if (externalIp === null){
+      const xIp = await getExternalIp();
+      externalIp = xIp+'=>'+ internalIp;
+    }
+    return externalIp;
+}
+
+function getExternalIp() {
+  return new Promise( async (resolve,reject)=>{
+    const axios = require('axios');
+    try {
+        const response = await axios.get('https://api.ipify.org?format=json');
+        const { ip } = response.data;
+        resolve(ip);
+    } catch (error) {
+        console.error('Error retrieving external IP:', error.message);
+        resolve(null);
+    }
+  });
+}
+
+function isPrivate(ip) {
+    // Check if the IP address is in a private range
+    const privateRanges = [
+        /^10\./,
+        /^192\.168\./,
+        /^172\.(1[6-9]|2[0-9]|3[0-1])\./
+    ];
+
+    return privateRanges.some(range => range.test(ip));
+}
 module.exports.PeerTreeNet  = PeerTreeNet;
