@@ -1440,6 +1440,7 @@ class PeerTreeNet extends  EventEmitter {
        this.genNetKeyPair();
        this.nIp = null;
        this.nIp = await(this.netIp());
+       checkInternetAccess(this.nIp,this.port);
        this.startServer();
        this.rnet = new MkyRouting(this.nIp,this);
        this.gpow = new gPowKey(this.nIp,this);
@@ -1929,10 +1930,19 @@ class PeerTreeNet extends  EventEmitter {
     var result = host.replace(regex, '');  
     return result;
   }
+  getInternalIpOnly(host) {
+    if (!host || host.indexOf('=>') === -1) {
+      return null;
+    }
+    var regex = /=>(.*)$/;
+    var matchResult = host.match(regex);
+    return matchResult ? matchResult[1].trim() : null;
+  }
   sendMsg(toHost,msg,corx=false){
-      toHost = this.getExternlIpOnly(toHost);
       if (!toHost) {console.log('Send Message Host '+toHost+' Missing',msg);return;}
       if (!msg)    {console.log('Send Message Msg  Missing');return;} 
+      toHost = this.getExternlIpOnly(toHost);
+      msg.INTERNIP = this.getInternalIpOnly(toHost);
 
       if (toHost == this.rnet.myIp)
         return;
@@ -2200,7 +2210,25 @@ function getExternalIp() {
     }
   });
 }
+function checkInternetAccess(ip,port=1350){
+  const portscanner = require('portscanner');
 
+  const ipAddress = ip;
+  const portToCheck = port; // Change this to the port you want to check
+
+  portscanner.checkPortStatus(portToCheck, ipAddress, (error, status) => {
+    if (error) {
+      console.error(error);
+      process.exit(0);
+    } else {
+      console.log(`Port ${portToCheck} on ${ipAddress} is ${status}`);
+      if (status !== 'open'){
+        console.log('No Internet Access:',status);
+        process.exit(0);
+      }  
+    }
+  });
+}
 function isPrivate(ip) {
     // Check if the IP address is in a private range
     const privateRanges = [
