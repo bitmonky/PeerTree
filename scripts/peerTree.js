@@ -1460,7 +1460,7 @@ class PeerTreeNet extends  EventEmitter {
       this.nIp = await tryGetExternalIp();
       if (this.nIp === null){
         console.log('could not find exernal IP for peerTree node');
-        exit(0);
+        process.exit(0);
       }
       return this.nIp;
    }
