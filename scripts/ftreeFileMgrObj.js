@@ -393,54 +393,13 @@ class ftreeFileMgrObj {
       req.end();
     });
   }
-  updatePShardcellDB(j){
-    //console.log('Reviewing PeerTree Nodes DB',j);
-    var SQL = "SELECT count(*)nRec FROM ftreeFileMgr.shardCells where scelAddress = '"+j.remIp+"'";
-    con.query(SQL,(err, result, fields)=> {
-      if (err) console.log(err);
-      else {
-        if (result[0].nRec == 0){
-          SQL = "insert into ftreeFileMgr.shardCells (scelAddress,scelLastStatus,scelLastMsg)";
-          SQL += "values ('"+j.remIp+"','New',now())";
-          con.query(SQL,(err, result, fields)=>{
-            if (err) console.log(err);
-          });
-        }
-	else {
-          SQL = "update ftreeFileMgr.shardCells set scelLastStatus = 'online',scelLastMsg = now() ";
-          SQL += "where scelAddress = '"+j.remIp+"'";
-          //console.log(SQL);
-          con.query(SQL,(err, result, fields)=>{
-            if (err) console.log(err);
-          });
-	}		
-      }
-    });
-  }	  
-  doNodesDBMaint(){
-    console.log('Reviewing PeerTree Nodes DB',this.net.nodes);
-    this.net.nodes.forEach((node) => {
-      var SQL = "SELECT count(*)nRec FROM ftreeFileMgr.shardCells where scelAddress = '"+node.ip+"'";
-      con.query(SQL, function (err, result, fields) {
-        if (err) console.log(err);
-        else {
-          if (result[0].nRec == 0){
-            SQL = "insert into ftreeFileMgr.shardCells (scelAddress,scelLastStatus,scelLastMsg)";
-            SQL += "values ('"+node.ip+"','New',now())";
-            con.query(SQL, function (err, result, fields) {
-              if (err) console.log(err);
-            });
-          }
-        }
-      });
-    });	    
-  }	  
   resetDb(){
     return new Promise( (resolve,reject)=>{
       var SQL = "";
-      SQL =  "truncate table ftreeFileMgr.shardCells; ";
-      SQL += "truncate table ftreeFileMgr.shardOwners; ";
-      SQL += "truncate table ftreeFileMgr.shards; ";
+      SQL =  "truncate table ftreeFileMgr.tblRepo; ";
+      SQL += "truncate table ftreeFileMgr.tblShardFileMgr; ";
+      SQL += "truncate table ftreeFileMgr.tblShardFiles; ";
+      SQL += "truncate table ftreeFileMgr.tblshardHosts; ";
       con.query(SQL, async (err, result, fields)=>{
         if (err) {console.log(err);reject(err);}
         else {
@@ -477,7 +436,6 @@ class ftreeFileMgrObj {
     //console.log('bcast received: ',j);
     if (!j.msg.to) {return;}
     if (j.msg.to == 'shardCells'){
-      this.updatePShardcellDB(j);  
       if (j.msg.req){
         if (j.msg.req == 'sendShard')
           this.doSendShardToOwner(j.msg,j.remIp);
@@ -594,18 +552,18 @@ class ftreeFileMgrObj {
   doDeleteAllByOwner(j,remIp){
 
      if (!this.isValidSig(j.shard.signature)){
-       console.log('Shard Signature Invalid... NOT deleted');
+       console.log('repo Signature Invalid... NOT deleted');
        return;
      }
-     var SQL = "select sownID from ftreeFileMgr.shardOwners where sownMUID = '"+j.shard.ownerID+"'";
+     var SQL = "select sownID from ftreeFileMgr.tblRepo where repoOwner = '"+j.repo.ownerID+"'";
      con.query(SQL , async(err, result,fields)=>{
        if (err){
-         console.log('shard delete',err);
+         console.log('repo delete',err);
        }
        else {
          var sownID = null;
          if (result.length == 0){
-           console.log('Shard Owner Not Found On This Node.');
+           console.log('repo Owner Not Found On This Node.');
            return;
          }
          else {
@@ -613,7 +571,7 @@ class ftreeFileMgrObj {
            var fsdat = null;
            const fname = ftreeRoot+sownID+'-*.srd';
            fs.unlink(fname, (err)=>{
-             if (err) {console.log('shard delete all.. File not found:',fname);}
+             if (err) {console.log('repo delete all.. File not found:',fname);}
              else {
                var SQL = "delete from ftreeFileMgr.shardOwners where sownMUID = '"+j.shard.ownerID+"'";
                con.query(SQL , async(err, result,fields)=>{
@@ -800,7 +758,7 @@ class ftreeFileMgrObj {
     return new Promise((resolve,reject)=>{
       var SQL = "INSERT INTO `ftreeFileMgr`.`tblRepo` " +
       "(`repoName`,`repoPubKey`,`repoOwner`,`repoLastUpdate`,`repoSignature`,`repoHash`) " +
-      "VALUES (<{repoName: }>,<{repoPubKey: }>,'"+repo.ownerMUID+"',<{repoLastUpdate: }>,<{repoSignature: }>,<{repoHash: }>);" +
+      "VALUES ('"+repo.name+"','"+repo.pubKey+"','"+repo.ownerMUID+"',now(),<{repoSignature: }>,<{repoHash: }>);" +
       "SELECT LAST_INSERT_ID()newSownID;";
       con.query(SQL , (err, result,fields)=>{
         if (err){
@@ -839,7 +797,8 @@ class ftreeFileMgrObj {
         this.net.endRes(remIp,'{"repoStoreRes":false,"error":"Invalid Signature For Request"');
         return;
     }
-    var SQL = "select repoID from ftreeFileMgr.tblRepo where repoMUID = '"+j.repo.from+"'";
+    var SQL = "select repoID from ftreeFileMgr.tblRepo where repoOwner = '"+j.repo.ownerMUID+"' && repoName = '"+j.repo.name+"'";
+
     con.query(SQL , async(err, result,fields)=>{
       if (err){
         console.log(err);
