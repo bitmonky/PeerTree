@@ -111,7 +111,7 @@ class peerShardToken{
 }; 
 
 class ftreeFileMgrCellReceptor{
-  constructor(peerTree,recPort=1335){
+  constructor(peerTree,recPort=13361){
     this.peer = peerTree;
     this.port = recPort;
     this.allow = ["127.0.0.1"];
@@ -267,6 +267,11 @@ class ftreeFileMgrCellReceptor{
     return sig;
   }
   async reqCreateRepo(j,res){
+    console.log('CreateRepoReq:',j);
+    const newRepoID = await this.createLocalRepo(j.repo); 
+    res.end('{"result":"repoOK","nCopies":0,"repo":"Local Repo Created","repoID":"'+newRepoID+'"}');
+    return;
+
     var IPs = await this.peer.receptorReqNodeList(j);
     console.log('XXRANDNODES:',IPs);
     if(j.repo.encrypt){
@@ -321,7 +326,7 @@ class ftreeFileMgrCellReceptor{
         else {
           var smgrID = null;
           if (result.length == 0){
-            resolve(this.shardToken.calculateHash(txt));
+            resolve(this.shardToken.calculateHash(hstr));
           }
           else {
             result.forEach( (rec)=>{
@@ -337,7 +342,7 @@ class ftreeFileMgrCellReceptor{
     return new Promise((resolve,reject)=>{
       var SQL = "INSERT INTO `ftreeFileMgr`.`tblRepo` " +
       "(`repoName`,`repoPubKey`,`repoOwner`,`repoLastUpdate`,`repoSignature`,`repoHash`) " +
-      "VALUES ('"+repo.name+"','"+repo.pubKey+"','"+repo.ownerMUID+"',now(),<{repoSignature: }>,<{repoHash: }>);" +
+      "VALUES ('"+repo.name+"','"+repo.pubKey+"','"+repo.from+"',now(),'NS','NA');" +
       "SELECT LAST_INSERT_ID()newRepoID;";
       con.query(SQL , async (err, result,fields)=>{
         if (err){
@@ -345,19 +350,24 @@ class ftreeFileMgrCellReceptor{
           resolve(null);
         }
         else {
-          const newRepoID = result[0].newRepoID;
-	  rhash = await this.getRepoHash(repo,newRepoID)
-          this.updateAndSignRepo(newRepoID,repo.ownerMUID+repo.name+rhash);		
+          var newRepoID = null;
+          result.forEach((rec,index)=>{ 
+	   if(index === 1){	  
+	     newRepoID = rec[0].newRepoID;
+           }
+	  });
+	  const rhash = await this.getRepoHash(repo,newRepoID)
+          this.updateAndSignRepo(newRepoID,repo.ownerMUID+repo.name+rhash,rhash);		
           resolve (newRepoID);		
         }
       });
     });
   }
-  updateAndSignRepo(repoID,token){
+  updateAndSignRepo(repoID,token,rhash){
     return new Promise((resolve,reject)=>{
-      var signature = this.shardToken.signToken(stoken);
+      var signature = this.shardToken.signToken(token);
       var SQL = "update `ftreeFileMgr`.`tblRepo` " +
-      "set repoSignature = '"+signature+"' where repoID = "+repoID;
+      "set repoPubKey = '"+this.shardToken.publicKey+"',repoSignature = '"+signature+"',repoHash = '"+rhash+"'  where repoID = "+repoID;
       con.query(SQL , (err, result,fields)=>{
         if (err){
           console.log(err);
@@ -500,7 +510,7 @@ class ftreeFileMgrObj {
   handleBCast(j){
     //console.log('bcast received: ',j);
     if (!j.msg.to) {return;}
-    if (j.msg.to == 'shardCells'){
+    if (j.msg.to == 'ftreeCells'){
       if (j.msg.req){
         if (j.msg.req == 'sendShard')
           this.doSendShardToOwner(j.msg,j.remIp);
@@ -520,7 +530,7 @@ class ftreeFileMgrObj {
   }
   sayHelloPeerGroup(){
     var breq = {
-      to : 'shardCells',
+      to : 'ftreeCells',
       token : 'some token'
     }
     //console.log('bcast greeting to shardCell group: ',breq);
@@ -709,7 +719,7 @@ class ftreeFileMgrObj {
         resolve(n);
       },5*1000);
       var req = {
-        to : 'shardCells',
+        to : 'ftreeCells',
         req : 'deleteShard',
         shard : j.shard
       }
@@ -731,7 +741,7 @@ class ftreeFileMgrObj {
   }
   receptorReqStopIPGen(work){
     var req = {
-      to : 'shardCells',
+      to : 'ftreeCells',
       req : 'stopNodeGenIP',
       work  : work
     }
@@ -749,7 +759,7 @@ class ftreeFileMgrObj {
       },7*1000);
 
       var req = {
-        to : 'shardCells',
+        to : 'ftreeCells',
         req : 'sendNodeList',
         nodes : maxIP,
         work  : crypto.randomBytes(20).toString('hex') 
@@ -780,7 +790,7 @@ class ftreeFileMgrObj {
       },20*1000);
       //console.log('bcasting reques for shard data: ',j);
       var req = {
-        to : 'shardCells',
+        to : 'ftreeCells',
 	req : 'sendShard',
         shard : j.shard
       }
