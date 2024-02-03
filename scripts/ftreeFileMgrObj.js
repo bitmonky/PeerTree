@@ -327,7 +327,7 @@ class ftreeFileMgrCellReceptor{
             result.forEach( (rec)=>{
               hstr = hstr+rec.hstr+rec.sfilStr;
             });
-            resolve(nthis.shardToken.calculateHash(hstr));
+            resolve(this.shardToken.calculateHash(hstr));
           }
         }
       });
