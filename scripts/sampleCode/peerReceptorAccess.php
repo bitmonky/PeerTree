@@ -5,6 +5,7 @@ function ptreeMakeSearchKey($j){
 $PTC_memRECEPTOR    = "https://139.144.110.5:1335";
 $PTC_shardRECEPTOR  = "https://170.187.179.251:13355";
 $PTC_shardRECEPTOR2 = "https://139.144.110.5:13355";
+$PTC_ftreeRECEPTOR  = "https://172.105.5.29:13361"; 
 $PTC_maxWordLength  = 45;
 function prepWords($str){
   if ($str === null || mkyTrim($str) == ''){
@@ -37,6 +38,19 @@ function prepWords($str){
   }
   return $newStr;
 }
+function ftreeCreateRepo($muid,$name,$nCopys){
+   $j = new stdClass;
+   $j->from      = $muid;
+   $j->name      = $name;
+   $j->nCopys    = 0 + $nCopys;
+
+   $post = new stdClass;
+   $post->url   = $GLOBALS['PTC_ftreeRECEPTOR']."/netREQ";
+   $post->postd = '{"msg":{"req":"createRepo","repo":'.json_encode($j).'}}';
+
+   $bcRes = tryJFetchURL($post,'POST');
+   return $bcRes;
+}	
 function ptreeStoreShard($muid,$hash,$shard,$encrypt=null,$nCopys=3,$expires=null){
    $j = new stdClass;
    $j->from      = $muid;
@@ -44,7 +58,7 @@ function ptreeStoreShard($muid,$hash,$shard,$encrypt=null,$nCopys=3,$expires=nul
    $j->data      = $shard;
    $j->encrypt   = $encrypt;
    $j->expires   = $expires;
-   $j->nCopys    = $nCopys;
+   $j->nCopys    = 0 + $nCopys;
 
    $post = new stdClass;
    $post->url   = $GLOBALS['PTC_shardRECEPTOR']."/netREQ";
@@ -61,16 +75,17 @@ function ptreeRequestShard($muid,$hash,$encrypted=null){
 
    $post = new stdClass;
    $post->url   = $GLOBALS['PTC_shardRECEPTOR']."/netREQ";
-   $post->url   = $GLOBALS['PTC_shardRECEPTOR2']."/netREQ";
+   //$post->url   = $GLOBALS['PTC_shardRECEPTOR2']."/netREQ";
    $post->postd = '{"msg":{"req":"requestShard","shard":'.json_encode($j).'}}';
 
    $bcRes = tryJFetchURL($post,'POST');
    return $bcRes;
 }
-function ptreeDeleteShard($muid,$hash,$encrypted=null){
+function ptreeDeleteShard($muid,$hash,$encrypted=null,$nCopys=3){
    $j = new stdClass;
    $j->ownerID   = $muid;
    $j->hash      = $hash;
+   $j->nCopys    = 0 + $nCopys;
 
    $post = new stdClass;
    $post->url   = $GLOBALS['PTC_shardRECEPTOR']."/netREQ";
@@ -79,7 +94,8 @@ function ptreeDeleteShard($muid,$hash,$encrypted=null){
    $bcRes = tryJFetchURL($post,'POST');
    return $bcRes;
 }
-function ptreeSearchMem($muid,$str,$type){
+function ptreeSearchMem($muid,$str,$type,$scope=null,$scopeID=null,$qryLimit=null,$qryOrder=null){
+     
    $j = new stdClass;
    $j->ownerID   = $muid;
    $j->qryStr    = $str;
@@ -90,6 +106,18 @@ function ptreeSearchMem($muid,$str,$type){
    $j->nResults  = 100;
    $j->nRows     = 15;
    $j->pg        = 1;
+   if ($scope){
+     $j->scope   = $scope;
+     $j->scopeID = $scopeID;
+   }  
+   $j->qryLimit = ' limit 40';
+   if ($qryLimit){
+     $j->qryLimit = $qryLimit;
+   }
+   
+   if ($qryOrder){
+     $j->qryOrder = $qryOrder;
+   }
    $j->key       = ptreeMakeSearchKey($j);
 
    $url = $GLOBALS['PTC_memRECEPTOR'].'/netREQ/msg='.mkyUrlEncode('{"req":"searchMemory","qry":'.json_encode($j).'}');
