@@ -29,7 +29,7 @@ Create PeerTree Network Peer
     isRoot == 'root';
     reset = 'rebuild';
   }
-  const peerNet = new PeerTreeNet(options,'shardNet',13350,13340);
+  const peerNet = new PeerTreeNet(options,'shardNet',13350,13340,25);
   peerNet.nodeType = 'shardCell';
 
   if (isRoot == 'reset'){
