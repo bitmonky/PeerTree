@@ -173,7 +173,7 @@ class shardTreeCellReceptor{
                 return;
               }
               if (j.msg.req == 'deleteShard'){
-                this.reqStoreShard(j.msg,res);
+                this.reqDeleteShard(j.msg,res);
                 return;
               }
 
@@ -222,14 +222,13 @@ class shardTreeCellReceptor{
   }
   async reqDeleteShard(j,res){
     var dres = {result : 0, msg : 'no shards deleted'};
+
+    j.shard.token = this.openShardKeyFile(j);
+    j.shard.signature = this.signRequest(j);
+
     j.shard.signature = this.signRequest(j);
     dres = await this.peer.receptorReqDeleteMyShard(j);
-    if (dres){
-      res.end('{"result" : 1}');
-    }
-    else {
-      res.end('{"result" : 0}');
-   }
+    res.end('{"result" : '+dres+'}');
   }
   bufferToBase64(arr){
     var i, str = '';
@@ -239,19 +238,19 @@ class shardTreeCellReceptor{
     return decodeURIComponent(str);
   }
   async reqRetrieveShard(j,res){
-    console.log(j);
+    //console.log(j);
     var data = {result : 0, msg : 'no results found'};
     var stime = Date.now();
     data = await this.peer.receptorReqSendMyShard(j);
-    if (j.shard.encrypted) {
-      var scrm  = Buffer.from(data.data.data).toString();
-      scrm  = decrypt(Buffer.from(scrm,'base64'),this.shardToken.shardCipher);
-      data.data = scrm.toJSON();
-
-    }
-    data.data = this.bufferToBase64(data.data.data); 
-    console.log('Shard Request Time: ',Date.now() - stime);
     if (data){
+      if (j.shard.encrypted) {
+        var scrm  = Buffer.from(data.data.data).toString();
+        scrm  = decrypt(Buffer.from(scrm,'base64'),this.shardToken.shardCipher);
+        data.data = scrm.toJSON();
+
+      }
+      data.data = this.bufferToBase64(data.data.data); 
+      console.log('Shard Request Time: ',Date.now() - stime);
       res.end('{"result": 1,"data" : '+JSON.stringify(data)+'}');
     }
     else {
@@ -268,21 +267,53 @@ class shardTreeCellReceptor{
     }
     return sig;
   }
-  reqStoreShard(j,res){
+  async reqStoreShard(j,res){
+    var IPs = await this.peer.receptorReqNodeList(j);
+    console.log('XXRANDNODES:',IPs);
     if(j.shard.encrypt){
       j.shard.data = encrypt(j.shard.data,this.shardToken.shardCipher);
       j.shard.data = j.shard.data.toString('base64');
     }
     j.shard.token = this.openShardKeyFile(j);
     j.shard.signature = this.signRequest(j);
+
+    if (IPs.length == 0){
+      res.end('{"result":"shardOK","nRecs":0,"shard":"No Nodes Available"}');
+      return;
+    }
+    var n = 0;
+    var hosts = [];
+    var nStored = 0;
+  
+    for (var IP of IPs){
+      try {
+        var qres = await this.peer.receptorReqStoreShard(j,IP);
+        if (qres){
+          nStored = nStored +1;
+          hosts.push({host:qres.remMUID,ip:qres.remIp});
+        }
+      }
+      catch(err) {
+        console.log('shard storage failed on:',IP);
+      }
+      if (n==IPs.length -1){
+        j.shard.token.privateKey = '**********';
+        j.shard.token.publicKey  = '**********';
+        res.end('{"result":"shardOK","nStored":'+nStored+',"shard":'+JSON.stringify(j)+',"hosts":'+JSON.stringify(hosts)+'}');
+      }
+      n = n + 1;
+    }
+    return;
+    /*
     var SQL = "SELECT scelAddress FROM shardTree.shardCells ";
     SQL += "where scelLastStatus = 'online' and  timestampdiff(second,scelLastMsg,now()) < 50 ";
     SQL += "and NOT scelAddress = '"+this.peer.net.rnet.myIp+"' order by rand() limit "+j.shard.nCopys;
-    //console.log(SQL);
+    console.log(SQL);
     var nStored = 0;
     con.query(SQL,async (err, result, fields)=> {
       if (err) {console.log(err);}
       else {
+        console.log('shard cells found: ',result.lenght);
         if (result.length == 0){
           res.end('{"result":"shardOK","nRecs":0,"shard":"No Nodes Available"}');
           return;
@@ -309,6 +340,7 @@ class shardTreeCellReceptor{
 	}
       } 		  
     });
+    */
   }
 };
 /*----------------------------
@@ -317,8 +349,8 @@ End Receptor Code
 */
 var con = mysql.createConnection({
   host: "localhost",
-  user: "peerShardDBA",
-  password: "168ed33e1febeffc6ba72427c0fd77971ba9",
+  user: "username",
+  password: "password",
   database: "shardTree",
   dateStrings: "date",
   multipleStatements: true,
@@ -459,15 +491,6 @@ class shardTreeObj {
     if (!j.msg)
       return;    
     const msg = j.msg;
-    if (msg.req == 'sendStatus'){
-      var node = {
-        ip : j.toHost,
-        status : 'offline',
-        lastMsg : null
-      }
-      this.group.updateGroup(node);
-      return;
-    }   
   }
   handleReq(res,j){
     //console.log('root recieved: ',j);
@@ -479,16 +502,6 @@ class shardTreeObj {
       this.storeShard(j,res);
       return true;
     }
-    if (j.req == 'gotUAddMe'){
-      this.group.addPeer(j.me);
-      this.net.endRes(res,'');
-      return true;
-    }
-    if (j.req == 'sendStatus'){
-      this.group.me.status = this.status;
-      this.net.endRes(res,'{"statusUpdate":'+JSON.stringify(this.group.me)+'}');
-      return true;
-    }
     if (!this.isRoot && this.status != 'Online'){
       this.net.endRes(res,'');
       return true;
@@ -496,11 +509,7 @@ class shardTreeObj {
     return false;
   }
   handleReply(j){
-    //console.log('\n====================\shardCell reply handler',j);
-    if (j.statusUpdate){
-      this.group.updateGroup(j.statusUpdate);
-      return;
-    }
+    //console.log('\n====================\nXXXshardCell reply handler',j);
   }
   handleBCast(j){
     //console.log('bcast received: ',j);
@@ -512,6 +521,14 @@ class shardTreeObj {
           this.doSendShardToOwner(j.msg,j.remIp);
         if (j.msg.req == 'deleteShard')
           this.doDeleteShardByOwner(j.msg,j.remIp);
+        if (j.msg.req == 'sendNodeList'){
+          console.log('DOPOW xxxx',j.remIp);
+          this.doPow(j.msg,j.remIp);
+        }
+        if (j.msg.req == 'stopNodeGenIP'){
+          console.log('DOPOW stopNodeGenIP-XX Received:',j.remIp);
+          this.doPowStop(j.remIp);
+        }
       }
     } 
     return;
@@ -602,6 +619,12 @@ class shardTreeObj {
        }
      });
   }
+  doPowStop(remIp){
+    this.net.gpow.doStop(remIp);
+  }
+  doPow(j,remIp){
+    this.net.gpow.doPow(2,j.work,remIp);
+  }
   /******************************************************
   Delete All Shard Files And Owner Record from this node
   =======================================================
@@ -627,7 +650,7 @@ class shardTreeObj {
            sownID = result[0].sownID;
            var fsdat = null;
            const fname = ftreeRoot+sownID+'-*.srd';
-           fs.unlink(fname, function (err) {
+           fs.unlink(fname, (err)=>{
              if (err) {console.log('shard delete all.. File not found:',fname);}
              else {
                var SQL = "delete from shardTree.shardOwners where sownMUID = '"+j.shard.ownerID+"'";
@@ -674,7 +697,7 @@ class shardTreeObj {
            sownID = result[0].sownID;
            var fsdat = null;
            const fname = ftreeRoot+sownID+'-'+j.shard.hash+'.srd';
-           fs.unlink(fname, function (err) {
+           fs.unlink(fname, (err)=>{
              if (err) {console.log('shard delete file not found:',fname);}
 	     else {
 	       var qres = {
@@ -693,11 +716,13 @@ class shardTreeObj {
   }
   receptorReqDeleteMyShard(j){
     return new Promise( (resolve,reject)=>{
+      var mkyReply = null;
+      var n = 0;
       const gtime = setTimeout( ()=>{
-        console.log('Delete Request Timeout:',j);
-        resolve(null);
+        console.log('Delete Request Timeout At:'+n+' of:',j);
+        this.net.removeListener('mkyReply', mkyReply);
+        resolve(n);
       },5*1000);
-      //console.log('bcasting reques for shard data: ',j);
       var req = {
         to : 'shardCells',
         req : 'deleteShard',
@@ -705,12 +730,59 @@ class shardTreeObj {
       }
 
       this.net.broadcast(req);
-      this.net.once('mkyReply', r =>{
-        //console.log('mkyReply is:',r);
+      this.net.on('mkyReply',mkyReply = (r) =>{
+        console.log('mkyReply DeleteShard is:',r);
         if (r.req == 'pShardDeleteResult'){
-          //console.log('shardData Request',r);
-          clearTimeout(gtime);
-          resolve(r);
+          n += 1;
+          console.log('shardDelete responses:',n);
+          if (n >= j.shard.nCopys){
+            clearTimeout(gtime);
+            this.net.removeListener('mkyReply', mkyReply);
+            resolve(n);
+          }
+        }
+      });
+    });
+  }
+  receptorReqStopIPGen(work){
+    var req = {
+      to : 'shardCells',
+      req : 'stopNodeGenIP',
+      work  : work
+    }
+    this.net.broadcast(req);
+  }
+  receptorReqNodeList(j){
+    return new Promise( (resolve,reject)=>{
+      var mkyReply = null;
+      const maxIP = j.shard.nCopys;
+      var   IPs = [];
+      const gtime = setTimeout( ()=>{
+        console.log('Send Node List Request Timeout:');
+        this.net.removeListener('mkyReply', mkyReply);
+        resolve(IPs);
+      },7*1000);
+
+      var req = {
+        to : 'shardCells',
+        req : 'sendNodeList',
+        nodes : maxIP,
+        work  : crypto.randomBytes(20).toString('hex') 
+      }
+
+      this.net.broadcast(req);
+      this.net.on('mkyReply', mkyReply = (r)=>{
+        if (r.req == 'pNodeListGenIP'){
+          console.log('mkyReply NodeGen is:',r);
+          if (IPs.length < maxIP){
+            IPs.push(r.remIp);
+          }
+          else {
+            this.receptorReqStopIPGen(req.work);
+            clearTimeout(gtime);
+            this.net.removeListener('mkyReply', mkyReply);
+            resolve(IPs);
+          }
         }
       });
     });
@@ -772,7 +844,8 @@ class shardTreeObj {
 	  resolve(null);
         }
         else {
-          resolve(result[0].newSownID);
+          const nres = result[1];
+          resolve(nres[0].newSownID);
         }
       });
     });
