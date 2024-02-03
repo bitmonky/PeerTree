@@ -283,7 +283,7 @@ class ftreeFileMgrCellReceptor{
     var n = 0;
     var hosts = [];
     var nStored = 0;
-  
+    var repo = this.createLocalRepo(j); 
     for (var IP of IPs){
       try {
         var qres = await this.peer.receptorReqCreateRepo(j,IP);
@@ -303,6 +303,71 @@ class ftreeFileMgrCellReceptor{
       n = n + 1;
     }
     return;
+  }
+  getRepoHash(repo,repoID){
+    return new Promise((resolve,reject)=>{
+      var hstr = repo.ownerMUID+repo.name;
+      var SQL = "select smgrID, concat(smgrFileName,smgrCheckSum,smgrDate,smgrExpires,smgrEncrypted,smgrFileType,smgrFileSize,"+
+          "smgrFVersionNbr,smgrSignature,smgrShardList) hstr, "+
+          "concat(sfilCheckSum,sfilShardHash,sfilNCopies,sfilDate,sfilExpires,sfilEncrypted,sfilShardNbr) sfilStr "+
+          "FROM `ftreeFileMgr`.`tblShardFileMgr`"+
+          "inner join  `ftreeFileMgr`.`tblShardFiles` on sfilFileMgrID = smgrID "+
+          "where smgrRepoID = "+repoID;
+      con.query(SQL , (err, result,fields)=>{
+        if (err){
+          console.log(err);
+          resolve(null);
+        }
+        else {
+          var smgrID = null;
+          if (result.length == 0){
+            resolve(this.shardToken.calculateHash(txt));
+          }
+          else {
+            result.forEach( (rec)=>{
+              hstr = hstr+rec.hstr+rec.sfilStr;
+            });
+            resolve(nthis.shardToken.calculateHash(hstr));
+          }
+        }
+      });
+    });
+  }
+  createLocalRepo(repo){
+    return new Promise((resolve,reject)=>{
+      var SQL = "INSERT INTO `ftreeFileMgr`.`tblRepo` " +
+      "(`repoName`,`repoPubKey`,`repoOwner`,`repoLastUpdate`,`repoSignature`,`repoHash`) " +
+      "VALUES ('"+repo.name+"','"+repo.pubKey+"','"+repo.ownerMUID+"',now(),<{repoSignature: }>,<{repoHash: }>);" +
+      "SELECT LAST_INSERT_ID()newRepoID;";
+      con.query(SQL , async (err, result,fields)=>{
+        if (err){
+          console.log(err);
+          resolve(null);
+        }
+        else {
+          const newRepoID = result[0].newRepoID;
+	  rhash = await this.getRepoHash(repo,newRepoID)
+          this.updateAndSignRepo(newRepoID,repo.ownerMUID+repo.name+rhash);		
+          resolve (newRepoID);		
+        }
+      });
+    });
+  }
+  updateAndSignRepo(repoID,token){
+    return new Promise((resolve,reject)=>{
+      var signature = this.shardToken.signToken(stoken);
+      var SQL = "update `ftreeFileMgr`.`tblRepo` " +
+      "set repoSignature = '"+signature+"' where repoID = "+repoID;
+      con.query(SQL , (err, result,fields)=>{
+        if (err){
+          console.log(err);
+          resolve(false);
+        }
+        else {
+          resolve (true);
+        }
+      });
+    });
   }
 };
 /*----------------------------
@@ -735,7 +800,7 @@ class ftreeFileMgrObj {
     //console.log('receptorReqCreateRepo',j);
     return new Promise( (resolve,reject)=>{	  
       const gtime = setTimeout( ()=>{
-        console.log('Store Request Timeout:');
+        console.log('Create New Repo Timeout:');
         resolve(null);
       },500);  
       console.log('Store Repo To: ',toIp);
