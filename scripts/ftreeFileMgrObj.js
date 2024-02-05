@@ -271,13 +271,13 @@ class ftreeFileMgrCellReceptor{
     const newRepoID = await this.createLocalRepo(j.repo); 
     j.repo.data = await this.getLocalRepoRec(newRepoID);
     console.log(JSON.stringify(j.repo));
-    res.end('{"result":"repoOK","nCopies":0,"repo":"Local Repo Created","data":'+JSON.stringify(j.repo.data)+'}');
-    return;
+    //res.end('{"result":"repoOK","nCopies":0,"repo":"Local Repo Created","data":'+JSON.stringify(j.repo.data)+'}');
+    //return;
 
     var IPs = await this.peer.receptorReqNodeList(j);
     console.log('XXRANDNODES:',IPs);
-    j.repo.token = this.openShardKeyFile(j);
-    j.repo.signature = this.signRequest(j);
+    //j.repo.token = this.openShardKeyFile(j);
+    //j.repo.signature = this.signRequest(j);
 
     if (IPs.length == 0){
       res.end('{"result":"repoOK","nRecs":0,"repo":"No Nodes Available"}');
@@ -354,7 +354,7 @@ class ftreeFileMgrCellReceptor{
            }
 	  });
 	  const rhash = await this.getRepoHash(repo,newRepoID)
-          this.updateAndSignRepo(newRepoID,repo.ownerMUID+repo.name+rhash,rhash);		
+          this.updateAndSignRepo(newRepoID,repo.from+repo.name+rhash,rhash);		
           resolve (newRepoID);		
         }
       });
@@ -397,8 +397,8 @@ End Receptor Code
 */
 var con = mysql.createConnection({
   host: "localhost",
-  user: "peerShardDBA",
-  password: "1b21287cae12fffc6d309bbd2be7cce643d2",
+  user: "username",
+  password: "password",
   database: "ftreeFileMgr",
   dateStrings: "date",
   multipleStatements: true,
@@ -505,8 +505,8 @@ class ftreeFileMgrObj {
       this.pushQryResult(j,res);
       return true;
     }
-    if (j.req == 'storeShard'){
-      this.storeShard(j,res);
+    if (j.req == 'storeRepo'){
+      this.storeRepo(j,res);
       return true;
     }
     if (!this.isRoot && this.status != 'Online'){
@@ -761,7 +761,7 @@ class ftreeFileMgrObj {
   receptorReqNodeList(j){
     return new Promise( (resolve,reject)=>{
       var mkyReply = null;
-      const maxIP = j.shard.nCopys;
+      const maxIP = j.repo.nCopys;
       var   IPs = [];
       const gtime = setTimeout( ()=>{
         console.log('Send Node List Request Timeout:');
@@ -827,7 +827,7 @@ class ftreeFileMgrObj {
       console.log('Store Repo To: ',toIp);
       var req = {
         req : 'storeRepo',
-	shard : j.repo
+	repo : j.repo
       }
 
       this.net.sendMsg(toIp,req);
@@ -841,9 +841,11 @@ class ftreeFileMgrObj {
     });
   }	
   createNewRepo(r){
+    return new Promise((resolve,reject)=>{
+    const d = r.data;
     var SQL = "INSERT INTO `ftreeFileMgr`.`tblRepo` " +
       "(`repoName`,`repoPubKey`,`repoOwner`,`repoLastUpdate`,`repoSignature`,`repoHash`) " +
-      "VALUES ('"+r.repoName+"','"+r.repoPubKey+"','"+r.RepoOwner+"','"+r.repoLastUpdate+"','"+r.repoSignature+"','"+r.repoHash+"');" +
+      "VALUES ('"+d.repoName+"','"+d.repoPubKey+"','"+d.repoOwner+"','"+d.repoLastUpdate+"','"+d.repoSignature+"','"+d.repoHash+"');" +
       "SELECT LAST_INSERT_ID()newRepoID;";
       con.query(SQL , async (err, result,fields)=>{
         if (err){
@@ -881,14 +883,25 @@ class ftreeFileMgrObj {
       }
     });
   }
+  composeRepoSig(j){
+    var sig = {
+      pubKey    : j.repoPubKey,
+      ownMUID   : j.repoOwner,
+      token     : j.repoOwner+j.repoName+j.repoHash,
+      signature : j.repoSignature
+   }
+    return sig;	  
+  }	  
   storeRepo(j,remIp){
+    console.log('got full request store repo',j.repo.data);	  
+    j.repo.signature = this.composeRepoSig(j.repo.data);
     console.log('got request store repo',j.repo.signature);
-    if (!this.isValidSig(j.shard.signature)){
+    if (!this.isValidSig(j.repo.signature)){
       console.log('Repo Signature Invalid... NOT stored');
         this.net.endRes(remIp,'{"repoStoreRes":false,"error":"Invalid Signature For Request"');
         return;
     }
-    var SQL = "select repoID from ftreeFileMgr.tblRepo where repoOwner = '"+j.repo.ownerMUID+"' && repoName = '"+j.repo.name+"'";
+    var SQL = "select repoID from ftreeFileMgr.tblRepo where repoOwner = '"+j.repoOwner+"' && repoName = '"+j.repoName+"'";
 
     con.query(SQL , async(err, result,fields)=>{
       if (err){
