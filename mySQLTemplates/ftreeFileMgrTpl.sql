@@ -30,11 +30,12 @@ CREATE TABLE `tblRepo` (
   `repoLastUpdate` datetime DEFAULT NULL,
   `repoSignature` varchar(245) DEFAULT NULL,
   `repoHash` varchar(84) DEFAULT NULL,
+  `repoCopies` int(11) DEFAULT NULL,
   PRIMARY KEY (`repoID`),
   KEY `ndxRepoName` (`repoName`),
   KEY `ndxRepoLastUpdate` (`repoLastUpdate`),
   KEY `ndxRepoOwner` (`repoOwner`)
-) ENGINE=InnoDB DEFAULT CHARSET=latin1;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=latin1;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -43,6 +44,7 @@ CREATE TABLE `tblRepo` (
 
 LOCK TABLES `tblRepo` WRITE;
 /*!40000 ALTER TABLE `tblRepo` DISABLE KEYS */;
+INSERT INTO `tblRepo` VALUES (1,'dougy','sdafdsaf','sdafdsaf',NULL,NULL,NULL,NULL);
 /*!40000 ALTER TABLE `tblRepo` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -70,7 +72,7 @@ CREATE TABLE `tblShardFileMgr` (
   KEY `ndxSmgrFVersionNbr` (`smgrFVersionNbr`),
   KEY `ndxSmgrFileName` (`smgrFileName`(191)),
   KEY `ndxSmgrDate` (`smgrDate`)
-) ENGINE=InnoDB AUTO_INCREMENT=108 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_czech_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=109 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_czech_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -79,6 +81,7 @@ CREATE TABLE `tblShardFileMgr` (
 
 LOCK TABLES `tblShardFileMgr` WRITE;
 /*!40000 ALTER TABLE `tblShardFileMgr` DISABLE KEYS */;
+INSERT INTO `tblShardFileMgr` VALUES (108,1,'file1','dsafdsaf','0000-00-00 00:00:00','2024-02-02 19:57:12',0,'junk',78,1,'sadfds','asdfsdf');
 /*!40000 ALTER TABLE `tblShardFileMgr` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -107,7 +110,7 @@ CREATE TABLE `tblShardFiles` (
   KEY `ndxSfilExpires` (`sfilExpires`),
   KEY `ndxSfilFileMgrID` (`sfilFileMgrID`),
   KEY `ndxSfilShardNbr` (`sfilShardNbr`)
-) ENGINE=InnoDB AUTO_INCREMENT=384 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_czech_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=385 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_czech_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -116,6 +119,7 @@ CREATE TABLE `tblShardFiles` (
 
 LOCK TABLES `tblShardFiles` WRITE;
 /*!40000 ALTER TABLE `tblShardFiles` DISABLE KEYS */;
+INSERT INTO `tblShardFiles` VALUES (384,108,'safsdfds','sdafdsaf',1,'2024-02-02 20:08:47','2024-02-02 20:08:47',0,1);
 /*!40000 ALTER TABLE `tblShardFiles` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -155,4 +159,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2024-01-31 18:11:07
+-- Dump completed on 2024-02-05 17:30:06
