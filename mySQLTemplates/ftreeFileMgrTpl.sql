@@ -35,7 +35,7 @@ CREATE TABLE `tblRepo` (
   KEY `ndxRepoName` (`repoName`),
   KEY `ndxRepoLastUpdate` (`repoLastUpdate`),
   KEY `ndxRepoOwner` (`repoOwner`)
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=latin1;
+) ENGINE=InnoDB DEFAULT CHARSET=latin1;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -44,7 +44,6 @@ CREATE TABLE `tblRepo` (
 
 LOCK TABLES `tblRepo` WRITE;
 /*!40000 ALTER TABLE `tblRepo` DISABLE KEYS */;
-INSERT INTO `tblRepo` VALUES (1,'dougy','sdafdsaf','sdafdsaf',NULL,NULL,NULL,NULL);
 /*!40000 ALTER TABLE `tblRepo` ENABLE KEYS */;
 UNLOCK TABLES;
 
@@ -159,4 +158,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2024-02-05 17:30:06
+-- Dump completed on 2024-02-05 17:35:38
