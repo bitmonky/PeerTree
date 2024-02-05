@@ -269,15 +269,13 @@ class ftreeFileMgrCellReceptor{
   async reqCreateRepo(j,res){
     console.log('CreateRepoReq:',j);
     const newRepoID = await this.createLocalRepo(j.repo); 
-    res.end('{"result":"repoOK","nCopies":0,"repo":"Local Repo Created","repoID":"'+newRepoID+'"}');
+    j.repo.data = await this.getLocalRepoRec(newRepoID);
+    console.log(JSON.stringify(j.repo));
+    res.end('{"result":"repoOK","nCopies":0,"repo":"Local Repo Created","data":'+JSON.stringify(j.repo.data)+'}');
     return;
 
     var IPs = await this.peer.receptorReqNodeList(j);
     console.log('XXRANDNODES:',IPs);
-    if(j.repo.encrypt){
-      j.repo.data = encrypt(j.repo.data,this.shardToken.shardCipher);
-      j.repo.data = j.repo.data.toString('base64');
-    }
     j.repo.token = this.openShardKeyFile(j);
     j.repo.signature = this.signRequest(j);
 
@@ -288,7 +286,6 @@ class ftreeFileMgrCellReceptor{
     var n = 0;
     var hosts = [];
     var nStored = 0;
-    var repo = this.createLocalRepo(j); 
     for (var IP of IPs){
       try {
         var qres = await this.peer.receptorReqCreateRepo(j,IP);
@@ -359,6 +356,20 @@ class ftreeFileMgrCellReceptor{
 	  const rhash = await this.getRepoHash(repo,newRepoID)
           this.updateAndSignRepo(newRepoID,repo.ownerMUID+repo.name+rhash,rhash);		
           resolve (newRepoID);		
+        }
+      });
+    });
+  }
+  getLocalRepoRec(repoID){
+    return new Promise((resolve,reject)=>{
+      var SQL = "select * from  `ftreeFileMgr`.`tblRepo` where repoID="+repoID;
+      con.query(SQL , (err, result,fields)=>{
+        if (err){
+          console.log(err);
+          resolve(null);
+        }
+        else {
+          resolve (result[0]);
         }
       });
     });
@@ -816,7 +827,7 @@ class ftreeFileMgrObj {
       console.log('Store Repo To: ',toIp);
       var req = {
         req : 'storeRepo',
-	shard : j.shard
+	shard : j.repo
       }
 
       this.net.sendMsg(toIp,req);
@@ -829,19 +840,24 @@ class ftreeFileMgrObj {
       });
     });
   }	
-  createNewRepo(repo){
-    return new Promise((resolve,reject)=>{
-      var SQL = "INSERT INTO `ftreeFileMgr`.`tblRepo` " +
+  createNewRepo(r){
+    var SQL = "INSERT INTO `ftreeFileMgr`.`tblRepo` " +
       "(`repoName`,`repoPubKey`,`repoOwner`,`repoLastUpdate`,`repoSignature`,`repoHash`) " +
-      "VALUES ('"+repo.name+"','"+repo.pubKey+"','"+repo.ownerMUID+"',now(),<{repoSignature: }>,<{repoHash: }>);" +
-      "SELECT LAST_INSERT_ID()newSownID;";
-      con.query(SQL , (err, result,fields)=>{
+      "VALUES ('"+r.repoName+"','"+r.repoPubKey+"','"+r.RepoOwner+"','"+r.repoLastUpdate+"','"+r.repoSignature+"','"+r.repoHash+"');" +
+      "SELECT LAST_INSERT_ID()newRepoID;";
+      con.query(SQL , async (err, result,fields)=>{
         if (err){
           console.log(err);
-	  resolve(null);
+          resolve(null);
         }
         else {
-          resolve(result[0].newSownID);
+          var newRepoID = null;
+          result.forEach((rec,index)=>{
+           if(index === 1){
+             newRepoID = rec[0].newRepoID;
+           }
+          });
+          resolve(newRepoID);
         }
       });
     });
