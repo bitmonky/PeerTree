@@ -556,6 +556,10 @@ class ftreeFileMgrObj {
       this.storeRepo(j,res);
       return true;
     }
+    if (j.req == 'insertRepoFile'){
+      this.insertRepoFile(j,res);
+      return true;
+    }
     if (!this.isRoot && this.status != 'Online'){
       this.net.endRes(res,'');
       return true;
@@ -570,8 +574,8 @@ class ftreeFileMgrObj {
     if (!j.msg.to) {return;}
     if (j.msg.to == 'ftreeCells'){
       if (j.msg.req){
-        if (j.msg.req == 'sendShard')
-          this.doSendShardToOwner(j.msg,j.remIp);
+        if (j.msg.req == 'sendActiveRepo')
+          this.doSendActiveRepo(j.msg,j.remIp);
         if (j.msg.req == 'deleteShard')
           this.doDeleteShardByOwner(j.msg,j.remIp);
         if (j.msg.req == 'sendNodeList'){
@@ -677,6 +681,30 @@ class ftreeFileMgrObj {
   }
   doPow(j,remIp){
     this.net.gpow.doPow(2,j.work,remIp);
+  }
+  doSendActiveRepo(j,remIp){
+    var SQL = "select * from ftreeFileMgr.tblRepo where repoOwner = '"+j.repo.ownerID+"' and repoName = '"+j.repo.name+"'";
+     con.query(SQL , async(err, result,fields)=>{
+       if (err){
+         console.log('error reading repo ',err);
+       }
+       else {
+         var repo = null;
+         if (result.length == 0){
+           console.log('repo Not Found On This Node.');
+           return;
+         }
+         else {
+           repo = result[0];
+           var qres = {
+             req : 'sendActiveRepoResult',
+             repo : repo
+	   }
+           //console.log('sending activeRepoResult :',qres);
+           this.net.sendReply(remIp,qres);
+         }
+       }
+     });
   }
   /******************************************************
   Delete All Shard Files And Owner Record from this node
@@ -805,6 +833,9 @@ class ftreeFileMgrObj {
     }
     this.net.broadcast(req);
   }
+  verifyActiveRepo(r){
+    return true;
+  }	  
   getActiveRepoList(j){
     return new Promise( (resolve,reject)=>{
       var mkyReply = null;
@@ -818,21 +849,24 @@ class ftreeFileMgrObj {
 
       var req = {
         to : 'ftreeCells',
-        req : 'sendActiveRepo'
+        req : 'sendActiveRepo',
+        repo : j.repo
       }
 
       this.net.broadcast(req);
       this.net.on('mkyReply', mkyReply = (r)=>{
         if (r.req == 'activeRepoIP'){
           console.log('mkyReply Active Repo is:',r);
-          if (IPs.length < maxIP){
-            IPs.push(r.remIp);
-          }
-          else {
-            clearTimeout(gtime);
-            this.net.removeListener('mkyReply', mkyReply);
-            resolve(IPs);
-          }
+          if (this.verifyActiveRepo(r)){
+	    if (IPs.length < maxIP){
+              IPs.push(r.remIp);
+            }
+            else {
+              clearTimeout(gtime);
+              this.net.removeListener('mkyReply', mkyReply);
+              resolve(IPs);
+            }
+          }		  
         }
       });
     });
