@@ -167,6 +167,10 @@ class ftreeFileMgrCellReceptor{
                 this.reqCreateRepo(j.msg,res);
                 return;
 	      }	      
+              if (j.msg.req == 'insertRSfile'){
+                this.reqInsertRSfile(j.msg,res);
+                return;
+              }
               if (j.msg.req == 'requestShard'){
                 this.reqRetrieveShard(j.msg,res);
                 return;
@@ -301,6 +305,7 @@ class ftreeFileMgrCellReceptor{
         j.repo.token.privateKey = '**********';
         j.repo.token.publicKey  = '**********';
         res.end('{"result":"repoOK","nStored":'+nStored+',"repo":'+JSON.stringify(j)+',"hosts":'+JSON.stringify(hosts)+'}');
+        return;
       }
       n = n + 1;
     }
@@ -338,8 +343,8 @@ class ftreeFileMgrCellReceptor{
   createLocalRepo(repo){
     return new Promise((resolve,reject)=>{
       var SQL = "INSERT INTO `ftreeFileMgr`.`tblRepo` " +
-      "(`repoName`,`repoPubKey`,`repoOwner`,`repoLastUpdate`,`repoSignature`,`repoHash`) " +
-      "VALUES ('"+repo.name+"','"+repo.pubKey+"','"+repo.from+"',now(),'NS','NA');" +
+      "(`repoName`,`repoPubKey`,`repoOwner`,`repoLastUpdate`,`repoSignature`,`repoHash`,`repoCopies`) " +
+      "VALUES ('"+repo.name+"','"+repo.pubKey+"','"+repo.from+"',now(),'NS','NA',"+repo.nCopys+");" +
       "SELECT LAST_INSERT_ID()newRepoID;";
       con.query(SQL , async (err, result,fields)=>{
         if (err){
@@ -377,6 +382,7 @@ class ftreeFileMgrCellReceptor{
   updateAndSignRepo(repoID,token,rhash){
     return new Promise((resolve,reject)=>{
       var signature = this.shardToken.signToken(token);
+      console.log('Signing Token: ',token);
       var SQL = "update `ftreeFileMgr`.`tblRepo` " +
       "set repoPubKey = '"+this.shardToken.publicKey+"',repoSignature = '"+signature+"',repoHash = '"+rhash+"'  where repoID = "+repoID;
       con.query(SQL , (err, result,fields)=>{
@@ -389,6 +395,47 @@ class ftreeFileMgrCellReceptor{
         }
       });
     });
+  }
+  async reqInsertRSfile(j,res){
+    console.log('Insert Repo Shard File:',j);
+    const newFileID = await this.insertLocalRepoFile(j.repo.file);
+    j.repo.data = await this.getLocalRepoFileRec(newFileID);
+    console.log(JSON.stringify(j.repo));
+    //res.end('{"result":"repoOK","nCopies":0,"repo":"Local Repo Created","data":'+JSON.stringify(j.repo.data)+'}');
+    //return;
+
+    var IPs = await this.getActiveRepoList(j);
+    var IPs = await this.peer.receptorReqNodeList(j);
+    console.log('XXRANDNODES:',IPs);
+    //j.repo.token = this.openShardKeyFile(j);
+    //j.repo.signature = this.signRequest(j);
+
+    if (IPs.length == 0){
+      res.end('{"result":"repoOK","nRecs":0,"repo":"No Nodes Available"}');
+      return;
+    }
+    var n = 0;
+    var hosts = [];
+    var nStored = 0;
+    for (var IP of IPs){
+      try {
+        var qres = await this.peer.receptorReqCreateRepo(j,IP);
+        if (qres){
+          nStored = nStored +1;
+          hosts.push({host:qres.remMUID,ip:qres.remIp});
+        }
+      }
+      catch(err) {
+        console.log('repo storage failed on:',IP);
+      }
+      if (n==IPs.length -1){
+        j.repo.token.privateKey = '**********';
+        j.repo.token.publicKey  = '**********';
+        res.end('{"result":"repoOK","nStored":'+nStored+',"repo":'+JSON.stringify(j)+',"hosts":'+JSON.stringify(hosts)+'}');
+      }
+      n = n + 1;
+    }
+    return;
   }
 };
 /*----------------------------
@@ -758,6 +805,38 @@ class ftreeFileMgrObj {
     }
     this.net.broadcast(req);
   }
+  getActiveRepoList(j){
+    return new Promise( (resolve,reject)=>{
+      var mkyReply = null;
+      const maxIP = j.repo.nCopys;
+      var   IPs = [];
+      const gtime = setTimeout( ()=>{
+        console.log('Send Node List Request Timeout:');
+        this.net.removeListener('mkyReply', mkyReply);
+        resolve(IPs);
+      },7*1000);
+
+      var req = {
+        to : 'ftreeCells',
+        req : 'sendActiveRepo'
+      }
+
+      this.net.broadcast(req);
+      this.net.on('mkyReply', mkyReply = (r)=>{
+        if (r.req == 'activeRepoIP'){
+          console.log('mkyReply Active Repo is:',r);
+          if (IPs.length < maxIP){
+            IPs.push(r.remIp);
+          }
+          else {
+            clearTimeout(gtime);
+            this.net.removeListener('mkyReply', mkyReply);
+            resolve(IPs);
+          }
+        }
+      });
+    });
+  }
   receptorReqNodeList(j){
     return new Promise( (resolve,reject)=>{
       var mkyReply = null;
@@ -844,8 +923,8 @@ class ftreeFileMgrObj {
     return new Promise((resolve,reject)=>{
     const d = r.data;
     var SQL = "INSERT INTO `ftreeFileMgr`.`tblRepo` " +
-      "(`repoName`,`repoPubKey`,`repoOwner`,`repoLastUpdate`,`repoSignature`,`repoHash`) " +
-      "VALUES ('"+d.repoName+"','"+d.repoPubKey+"','"+d.repoOwner+"','"+d.repoLastUpdate+"','"+d.repoSignature+"','"+d.repoHash+"');" +
+      "(`repoName`,`repoPubKey`,`repoOwner`,`repoLastUpdate`,`repoSignature`,`repoHash`,`repoCopies`) " +
+      "VALUES ('"+d.repoName+"','"+d.repoPubKey+"','"+d.repoOwner+"','"+d.repoLastUpdate+"','"+d.repoSignature+"','"+d.repoHash+"',"+d.repoCopies+");" +
       "SELECT LAST_INSERT_ID()newRepoID;";
       con.query(SQL , async (err, result,fields)=>{
         if (err){
@@ -889,11 +968,11 @@ class ftreeFileMgrObj {
       ownMUID   : j.repoOwner,
       token     : j.repoOwner+j.repoName+j.repoHash,
       signature : j.repoSignature
-   }
+    }
     return sig;	  
   }	  
   storeRepo(j,remIp){
-    console.log('got full request store repo',j.repo.data);	  
+    console.log('got full request store repo',j);	  
     j.repo.signature = this.composeRepoSig(j.repo.data);
     console.log('got request store repo',j.repo.signature);
     if (!this.isValidSig(j.repo.signature)){
