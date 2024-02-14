@@ -397,14 +397,14 @@ class ftreeFileMgrCellReceptor{
   }
   async reqInsertRSfile(j,res){
     console.log('Insert Repo Shard File:',j);
-    const newFileID = await this.insertLocalRepoFile(j.repo.file);
-    j.repo.data = await this.getLocalRepoFileRec(newFileID);
-    console.log(JSON.stringify(j.repo));
+    //const newFileID = await this.insertLocalRepoFile(j.repo.file);
+    //j.repo.data = await this.getLocalRepoFileRec(newFileID);
+    //console.log(JSON.stringify(j.repo));
     //res.end('{"result":"repoOK","nCopies":0,"repo":"Local Repo Created","data":'+JSON.stringify(j.repo.data)+'}');
     //return;
 
-    var IPs = await this.getActiveRepoList(j);
-    var IPs = await this.peer.receptorReqNodeList(j);
+    var IPs = await this.peer.getActiveRepoList(j);
+    //var IPs = await this.peer.receptorReqNodeList(j);
     console.log('XXRANDNODES:',IPs);
     //j.repo.token = this.openShardKeyFile(j);
     //j.repo.signature = this.signRequest(j);
@@ -682,7 +682,8 @@ class ftreeFileMgrObj {
     this.net.gpow.doPow(2,j.work,remIp);
   }
   doSendActiveRepo(j,remIp){
-    var SQL = "select * from ftreeFileMgr.tblRepo where repoOwner = '"+j.repo.ownerID+"' and repoName = '"+j.repo.name+"'";
+     var SQL = "select * from ftreeFileMgr.tblRepo where repoOwner = '"+j.repo.from+"' and repoName = '"+j.repo.name+"'";
+     console.log('doSendActiveRep: '+SQL,j);
      con.query(SQL , async(err, result,fields)=>{
        if (err){
          console.log('error reading repo ',err);
@@ -696,7 +697,7 @@ class ftreeFileMgrObj {
          else {
            repo = result[0];
            var qres = {
-             req : 'sendActiveRepoResult',
+             req : 'activeRepoIP',
              repo : repo
 	   }
            //console.log('sending activeRepoResult :',qres);
@@ -833,7 +834,14 @@ class ftreeFileMgrObj {
     this.net.broadcast(req);
   }
   verifyActiveRepo(r){
-    return true;
+     console.log('verifyActiveRepo: ',r);
+     var signature = this.composeRepoSig(r.repo);
+     console.log('building ActiveRep Signature',signature);
+     if (this.isValidSig(signature)){
+       console.log('ActiveRep Signature Is Valid:',signature);
+       return true;
+     }
+     return false;
   }	  
   getActiveRepoList(j){
     return new Promise( (resolve,reject)=>{
