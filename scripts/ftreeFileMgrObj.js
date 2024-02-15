@@ -395,9 +395,81 @@ class ftreeFileMgrCellReceptor{
       });
     });
   }
+  getRepoID(r){
+    return new Promise((resolve,reject)=>{
+      var SQL = "select * from  `ftreeFileMgr`.`tblRepo` where repoName="+r.from+" and repoName='"+r.name+"'";
+      con.query(SQL , async (err, result,fields)=>{
+        if (err){
+          console.log(err);
+          resolve(null);
+        }
+        else {
+          resolve(result[0].newRepoID);
+        }
+      });
+    });
+  }
+  insertLocalFileShard(r,fileID,repoID){
+    return new Promise(async (resolve,reject)=>{
+      var repoID = await getRepoID(r);
+      var f = r.file;
+      var SQL = "INSERT INTO `ftreeFileMgr`.`tblShardFiles` (`sfilFileMgrID`,`sfilCheckSum`,`sfilShardHash`,`sfilNCopies`,`sfilDate`,"+
+        "`sfilExpires`, `sfilEncrypted`, `sfilShardNbr`) VALUES "+
+        "(<{sfilFileMgrID: }>,<{sfilCheckSum: }>,<{sfilShardHash: }>,<{sfilNCopies: }>,<{sfilDate: }>,<{sfilExpires: }>,<{sfilEncrypted: }>,"+
+        "<{sfilShardNbr: }>)";
+      con.query(SQL , async (err, result,fields)=>{
+        if (err){
+          console.log(err);
+          resolve(false);
+        }
+        else {
+          resolve (true);
+        }
+      });
+    });
+  }
+  async insertLocalFileShards(r,fileID,repoID){
+    var shards = r.shards;
+    var result = false;
+    for(let i = 0; i < shards.length; i++) {
+      result = await insertLocalFileShard(shards[i],fileID,repoID); 
+      if (!result){
+        break;
+      }
+    }
+    return result;
+  }
+  insertLocalRepoFile(r){
+    return new Promise(async (resolve,reject)=>{
+      var repoID = await getRepoID(r);
+      var f = r.file;
+      var SQL = "INSERT INTO `ftreeFileMgr`.`tblShardFileMgr` (`smgrRepoID`,`smgrFileName`,`smgrCheckSum`,`smgrDate`,`smgrExpires`,`smgrEncrypted`,"+
+        "`smgrFileType`,`smgrFileSize`,`smgrFVersionNbr`,`smgrSignature`,`smgrShardList`) "+
+        "VALUES ("+repoID+",'"+f.filename+"',<{smgrCheckSum: }>,now(),now(),0,'"+f.type+"',"+
+        "<{smgrFileSize: }>,<{smgrFVersionNbr: }>,<{smgrSignature: }>,<{smgrShardList: }>);"+
+        "SELECT LAST_INSERT_ID()newRFileID;";
+      con.query(SQL , async (err, result,fields)=>{
+        if (err){
+          console.log(err);
+          resolve(null);
+        }
+        else {
+          var newRFileID = null;
+          result.forEach((rec,index)=>{
+           if(index === 1){
+             newRepoID = rec[0].newRFileID;
+           }
+          });
+          const rhash = await this.getRepoHash(repo,newRepoID)
+          this.updateAndSignRepo(newRepoID,repo.from+repo.name+rhash,rhash);
+          resolve (newRepoID);
+        }
+      });
+    });
+  }
   async reqInsertRSfile(j,res){
     console.log('Insert Repo Shard File:',j);
-    //const newFileID = await this.insertLocalRepoFile(j.repo.file);
+    const newFileID = await this.insertLocalRepoFile(j.repo.file);
     //j.repo.data = await this.getLocalRepoFileRec(newFileID);
     //console.log(JSON.stringify(j.repo));
     //res.end('{"result":"repoOK","nCopies":0,"repo":"Local Repo Created","data":'+JSON.stringify(j.repo.data)+'}');
@@ -418,7 +490,7 @@ class ftreeFileMgrCellReceptor{
     var nStored = 0;
     for (var IP of IPs){
       try {
-        var qres = await this.peer.receptorReqCreateRepo(j,IP);
+        var qres = await this.peer.receptorInsertRepoFile(j,IP);
         if (qres){
           nStored = nStored +1;
           hosts.push({host:qres.remMUID,ip:qres.remIp});
@@ -837,7 +909,7 @@ class ftreeFileMgrObj {
      console.log('verifyActiveRepo: ',r);
      var signature = this.composeRepoSig(r.repo);
      console.log('building ActiveRep Signature',signature);
-     if (this.isValidSig(signature)){
+     if (this.isValidSig(signature)){ 
        console.log('ActiveRep Signature Is Valid:',signature);
        return true;
      }
