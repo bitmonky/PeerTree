@@ -8,11 +8,12 @@ var dateFormat     = require('./mkyDatef');
 const EventEmitter = require('events');
 const https        = require('https');
 const fs           = require('fs');
+const mkyPubKey    = '04a5dc8478989c0122c3eb6750c08039a91abf175c458ff5d64dbf448df8f1ba6ac4a6839e5cb0c9c711b15e85dae98f04697e4126186c4eab425064a97910dedc';
 const EC           = require('elliptic').ec;
 const ec           = new EC('secp256k1');
 const bitcoin      = require('bitcoinjs-lib');
 const crypto       = require('crypto');
-const mysql        = require('mysql2');
+const mysql        = require('mysql');
 const schedule     = require('node-schedule');
 const {MkyWebConsole} = require('./networkWebConsole.js');
 const {pcrypt}        = require('./peerCrypt');
@@ -397,14 +398,20 @@ class ftreeFileMgrCellReceptor{
   }
   getRepoID(r){
     return new Promise((resolve,reject)=>{
-      var SQL = "select * from  `ftreeFileMgr`.`tblRepo` where repoName="+r.from+" and repoName='"+r.name+"'";
+      var SQL = "select repoID from  `ftreeFileMgr`.`tblRepo` where repoOwner='"+r.from+"' and repoName='"+r.name+"'";
       con.query(SQL , async (err, result,fields)=>{
         if (err){
           console.log(err);
           resolve(null);
+     	  return;	
         }
         else {
-          resolve(result[0].newRepoID);
+          if (result.length > 0){
+	    resolve(result[0].repoID);
+            return;		  
+          }	
+          console.log('Repo File Not Found: '+SQL);
+	  resolve(null);
         }
       });
     });
@@ -435,19 +442,20 @@ class ftreeFileMgrCellReceptor{
       result = await insertLocalFileShard(shards[i],fileID,repoID); 
       if (!result){
         break;
-      }
+      }      
     }
     return result;
   }
-  insertLocalRepoFile(r){
+  insertLocalRepoFile(repo){
     return new Promise(async (resolve,reject)=>{
-      var repoID = await getRepoID(r);
-      var f = r.file;
+      var repoID = await this.getRepoID(repo);
+      var f = repo.file;
       var SQL = "INSERT INTO `ftreeFileMgr`.`tblShardFileMgr` (`smgrRepoID`,`smgrFileName`,`smgrCheckSum`,`smgrDate`,`smgrExpires`,`smgrEncrypted`,"+
         "`smgrFileType`,`smgrFileSize`,`smgrFVersionNbr`,`smgrSignature`,`smgrShardList`) "+
-        "VALUES ("+repoID+",'"+f.filename+"',<{smgrCheckSum: }>,now(),now(),0,'"+f.type+"',"+
-        "<{smgrFileSize: }>,<{smgrFVersionNbr: }>,<{smgrSignature: }>,<{smgrShardList: }>);"+
+        "VALUES ("+repoID+",'"+f.filename+"','"+f.checksum+"',now(),now(),0,'"+f.type+"',"+
+        "0,0,'NA','NA');"+
         "SELECT LAST_INSERT_ID()newRFileID;";
+      console.log(SQL);
       con.query(SQL , async (err, result,fields)=>{
         if (err){
           console.log(err);
@@ -457,19 +465,21 @@ class ftreeFileMgrCellReceptor{
           var newRFileID = null;
           result.forEach((rec,index)=>{
            if(index === 1){
-             newRepoID = rec[0].newRFileID;
+             newRFileID = rec[0].newRFileID;
            }
           });
-          const rhash = await this.getRepoHash(repo,newRepoID)
-          this.updateAndSignRepo(newRepoID,repo.from+repo.name+rhash,rhash);
-          resolve (newRepoID);
+          const rhash = await this.getRepoHash(repo,repoID)
+          this.updateAndSignRepo(repoID,repo.from+repo.name+rhash,rhash);
+          resolve (newRFileID);
         }
       });
     });
   }
   async reqInsertRSfile(j,res){
     console.log('Insert Repo Shard File:',j);
-    const newFileID = await this.insertLocalRepoFile(j.repo.file);
+    const newFileID = await this.insertLocalRepoFile(j.repo);
+    console.log('Got newFileID: ',newFileID);
+
     //j.repo.data = await this.getLocalRepoFileRec(newFileID);
     //console.log(JSON.stringify(j.repo));
     //res.end('{"result":"repoOK","nCopies":0,"repo":"Local Repo Created","data":'+JSON.stringify(j.repo.data)+'}');
