@@ -484,7 +484,7 @@ class ftreeFileMgrCellReceptor{
     const newFileRepoID = await this.insertLocalRepoFile(j.repo);
     console.log('Got newFileID: ',newFileRepoID);
 
-    //j.repo.data = await this.getLocalRepoFileRec(newFileRepoID);
+    j.repo.data = await this.getLocalRepoRec(newFileRepoID);
     //console.log(JSON.stringify(j.repo));
     //res.end('{"result":"repoOK","nCopies":0,"repo":"Local Repo Created","data":'+JSON.stringify(j.repo.data)+'}');
     //return;
@@ -728,7 +728,7 @@ class ftreeFileMgrObj {
     return new Promise(async(resolve,reject)=>{
       var repoID = await this.receptor.getRepoID(repo);
       var SQL = "update `ftreeFileMgr`.`tblRepo` " +
-      "set repoSignature = '"+repo.signature+"',repoHash = '"+repo.hash+"'  where repoID = "+repoID;
+      "set repoSignature = '"+repo.data.repoSignature+"',repoHash = '"+repo.data.repoHash+"'  where repoID = "+repoID;
       console.log('Updating Repo Hash: ',repo);
       console.log('Updating Repo Hash: ',SQL);
       con.query(SQL , (err, result,fields)=>{
