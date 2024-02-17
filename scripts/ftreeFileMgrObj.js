@@ -302,8 +302,6 @@ class ftreeFileMgrCellReceptor{
         console.log('repo storage failed on:',IP);
       }
       if (n==IPs.length -1){
-        j.repo.token.privateKey = '**********';
-        j.repo.token.publicKey  = '**********';
         res.end('{"result":"repoOK","nStored":'+nStored+',"repo":'+JSON.stringify(j)+',"hosts":'+JSON.stringify(hosts)+'}');
         return;
       }
@@ -514,8 +512,6 @@ class ftreeFileMgrCellReceptor{
         console.log('repo storage failed on:',IP);
       }
       if (n==IPs.length -1){
-        j.repo.token.privateKey = '**********';
-        j.repo.token.publicKey  = '**********';
         res.end('{"result":"repoInsertFileOK","nStored":'+nStored+',"repo":'+JSON.stringify(j)+',"hosts":'+JSON.stringify(hosts)+'}');
       }
       n = n + 1;
@@ -617,7 +613,7 @@ class ftreeFileMgrObj {
       SQL =  "truncate table ftreeFileMgr.tblRepo; ";
       SQL += "truncate table ftreeFileMgr.tblShardFileMgr; ";
       SQL += "truncate table ftreeFileMgr.tblShardFiles; ";
-      SQL += "truncate table ftreeFileMgr.tblshardHosts; ";
+      SQL += "truncate table ftreeFileMgr.tblShardHosts; ";
       con.query(SQL, async (err, result, fields)=>{
         if (err) {console.log(err);reject(err);}
         else {
