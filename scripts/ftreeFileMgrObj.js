@@ -13,7 +13,7 @@ const EC           = require('elliptic').ec;
 const ec           = new EC('secp256k1');
 const bitcoin      = require('bitcoinjs-lib');
 const crypto       = require('crypto');
-const mysql        = require('mysql');
+const mysql        = require('mysql2');
 const schedule     = require('node-schedule');
 const {MkyWebConsole} = require('./networkWebConsole.js');
 const {pcrypt}        = require('./peerCrypt');
@@ -442,7 +442,7 @@ class ftreeFileMgrCellReceptor{
     }
     return result;
   }
-  insertLocalRepoFile(repo){
+  insertLocalRepoFile(repo,doSignRepo=true){
     return new Promise(async (resolve,reject)=>{
       var repoID = await this.getRepoID(repo);
 
@@ -466,8 +466,10 @@ class ftreeFileMgrCellReceptor{
            }
           });
           if (this.insertLocalFileShards(repo.file.shards,newRFileID,repoID)){
-	    const rhash = await this.getRepoHash(repo,repoID)
-            this.updateAndSignRepo(repoID,repo.from+repo.name+rhash,rhash);
+            if (doSignRepo){
+	      const rhash = await this.getRepoHash(repo,repoID)
+              this.updateAndSignRepo(repoID,repo.from+repo.name+rhash,rhash);
+            }		    
             resolve (repoID);
           }
           else {
@@ -480,9 +482,9 @@ class ftreeFileMgrCellReceptor{
   async reqInsertRSfile(j,res){
     console.log('Insert Repo Shard File:',j);
     const newFileRepoID = await this.insertLocalRepoFile(j.repo);
-    console.log('Got newFileID: ',newFileID);
+    console.log('Got newFileID: ',newFileRepoID);
 
-    j.repo.data = await this.getLocalRepoFileRec(newFileID);
+    //j.repo.data = await this.getLocalRepoFileRec(newFileRepoID);
     //console.log(JSON.stringify(j.repo));
     //res.end('{"result":"repoOK","nCopies":0,"repo":"Local Repo Created","data":'+JSON.stringify(j.repo.data)+'}');
     //return;
@@ -502,7 +504,7 @@ class ftreeFileMgrCellReceptor{
     var nStored = 0;
     for (var IP of IPs){
       try {
-        var qres = await this.peer.receptorUpdateRepoInsertFile(j,IP);
+        var qres = await this.peer.receptorReqUpdateRepoInsertFile(j,IP);
         if (qres){
           nStored = nStored +1;
           hosts.push({host:qres.remMUID,ip:qres.remIp});
@@ -514,7 +516,7 @@ class ftreeFileMgrCellReceptor{
       if (n==IPs.length -1){
         j.repo.token.privateKey = '**********';
         j.repo.token.publicKey  = '**********';
-        res.end('{"result":"repoOK","nStored":'+nStored+',"repo":'+JSON.stringify(j)+',"hosts":'+JSON.stringify(hosts)+'}');
+        res.end('{"result":"repoInsertFileOK","nStored":'+nStored+',"repo":'+JSON.stringify(j)+',"hosts":'+JSON.stringify(hosts)+'}');
       }
       n = n + 1;
     }
@@ -639,8 +641,8 @@ class ftreeFileMgrObj {
       this.storeRepo(j,res);
       return true;
     }
-    if (j.req == 'insertRepoFile'){
-      this.insertRepoFile(j,res);
+    if (j.req == 'updateRepoInsertFile'){
+      this.updateRepoInsertFile(j,res);
       return true;
     }
     if (!this.isRoot && this.status != 'Online'){
@@ -702,6 +704,43 @@ class ftreeFileMgrObj {
     //verify the signature token with the public key
     const publicKey = ec.keyFromPublic(sig.pubKey,'hex');
     return publicKey.verify(calculateHash(sig.token), sig.signature);
+  }
+  updateRepoInsertFile(r,remIp){
+      var result = false;
+      var ermsg  = null;
+      var doSignRepo = false;
+      if (this.receptor.insertLocalRepoFile(r.repo,doSignRepo)){
+        if (this.doUpdateRepoHash(r.repo)){
+	  result = true;
+	}
+	else {ermsg = 'Update Repo Hash Record Failed';}      
+      }
+      else {ermsg = 'Update Repo Insert File Record Failed';}
+
+      var qres = {
+        req : 'updateRepoInsertFileResult',
+        result : result,
+        ermsg : ermsg
+      }
+      this.net.sendReply(remIp,qres);	  
+  }
+  doUpdateRepoHash(repo){
+    return new Promise(async(resolve,reject)=>{
+      var repoID = await this.receptor.getRepoID(repo);
+      var SQL = "update `ftreeFileMgr`.`tblRepo` " +
+      "set repoSignature = '"+repo.signature+"',repoHash = '"+repo.hash+"'  where repoID = "+repoID;
+      console.log('Updating Repo Hash: ',repo);
+      console.log('Updating Repo Hash: ',SQL);
+      con.query(SQL , (err, result,fields)=>{
+        if (err){
+          console.log(err);
+          resolve(false);
+        }
+        else {
+          resolve (true);
+        }
+      });
+    });
   }
   doSendShardToOwner(j,remIp){
      //console.log('shard request from: ',remIp);
@@ -1015,6 +1054,29 @@ class ftreeFileMgrObj {
         //console.log('mkyReply is:',r);
 	if (r.req == 'pShardDataResult'){
           //console.log('shardData Request',r);
+          clearTimeout(gtime);
+          resolve(r);
+        }
+      });
+    });
+  }
+  receptorReqUpdateRepoInsertFile(j,toIp){
+    //console.log('receptorReqCreateRepo',j);
+    return new Promise( (resolve,reject)=>{
+      const gtime = setTimeout( ()=>{
+        console.log('Update Repo Insert File Timeout:');
+        resolve(null);
+      },500);
+      console.log('Store Repo To: ',toIp);
+      var req = {
+        req : 'updateRepoInsertFile',
+        repo : j.repo
+      }
+
+      this.net.sendMsg(toIp,req);
+      this.net.once('mkyReply', r =>{
+        if (r.repoUpdateInsertFile && r.remIp == toIp){
+          //console.log('repoStoreRes OK!!',r);
           clearTimeout(gtime);
           resolve(r);
         }
