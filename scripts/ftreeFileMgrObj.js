@@ -240,26 +240,6 @@ class ftreeFileMgrCellReceptor{
     }
     return decodeURIComponent(str);
   }
-  async reqRetrieveShard(j,res){
-    //console.log(j);
-    var data = {result : 0, msg : 'no results found'};
-    var stime = Date.now();
-    data = await this.peer.receptorReqSendMyShard(j);
-    if (data){
-      if (j.shard.encrypted) {
-        var scrm  = Buffer.from(data.data.data).toString();
-        scrm  = decrypt(Buffer.from(scrm,'base64'),this.shardToken.shardCipher);
-        data.data = scrm.toJSON();
-
-      }
-      data.data = this.bufferToBase64(data.data.data); 
-      console.log('Shard Request Time: ',Date.now() - stime);
-      res.end('{"result": 1,"data" : '+JSON.stringify(data)+'}');
-    }
-    else {
-      res.end('{"result" : 0, "msg" : "no results found"}');
-    }
-  }
   signRequest(j){
     const stoken = j.shard.token.ownMUID + new Date(); 
     const sig = {
@@ -566,6 +546,10 @@ class ftreeFileMgrObj {
       await this.resetDb(this.resetBlock);
     }
   }
+  /****************************************************************
+  Local Modules
+  =================================================================
+  */
   getGoldRate(){
     return new Promise( (resolve,reject)=>{
       const https = require('https');
@@ -622,6 +606,21 @@ class ftreeFileMgrObj {
       });
     });
   }
+  sayHelloPeerGroup(){
+    var breq = {
+      to : 'ftreeCells',
+      token : 'some token'
+    }
+    //console.log('bcast greeting to shardCell group: ',breq);
+    this.net.broadcast(breq);
+    const gtime = setTimeout( ()=>{
+      this.sayHelloPeerGroup();
+    },50*1000);
+  }
+  /*******************************************************************
+  Network Handlers
+  ====================================================================
+  */
   handleXhrError(j){
     if (!j.msg)
       return;    
@@ -671,17 +670,10 @@ class ftreeFileMgrObj {
     } 
     return;
   }
-  sayHelloPeerGroup(){
-    var breq = {
-      to : 'ftreeCells',
-      token : 'some token'
-    }
-    //console.log('bcast greeting to shardCell group: ',breq);
-    this.net.broadcast(breq);
-    const gtime = setTimeout( ()=>{
-      this.sayHelloPeerGroup();
-    },50*1000);
-  }
+  /******************************************************************************
+  Shared Modules:
+  ===============================================================================
+  */
   isValidSig(sig) {
     if (!sig){console.log('remMessage signature is null',sig);return false;}
     if (sig.hasOwnProperty('pubKey') === false) {console.log('remSig.pubKey is undefined',sig);return false;}
@@ -700,6 +692,35 @@ class ftreeFileMgrObj {
     //verify the signature token with the public key
     const publicKey = ec.keyFromPublic(sig.pubKey,'hex');
     return publicKey.verify(calculateHash(sig.token), sig.signature);
+  }
+  /********************************************************************************
+  Remote Peer To Peer Modules (Replys):
+  =================================================================================
+  */
+  doSendActiveRepo(j,remIp){
+     var SQL = "select * from ftreeFileMgr.tblRepo where repoOwner = '"+j.repo.from+"' and repoName = '"+j.repo.name+"'";
+     console.log('doSendActiveRep: '+SQL,j);
+     con.query(SQL , async(err, result,fields)=>{
+       if (err){
+         console.log('error reading repo ',err);
+       }
+       else {
+         var repo = null;
+         if (result.length == 0){
+           console.log('repo Not Found On This Node.');
+           return;
+         }
+         else {
+           repo = result[0];
+           var qres = {
+             req : 'activeRepoIP',
+             repo : repo
+           }
+           //console.log('sending activeRepoResult :',qres);
+           this.net.sendReply(remIp,qres);
+         }
+       }
+     });
   }
   updateRepoInsertFile(r,remIp){
       var result = false;
@@ -738,421 +759,7 @@ class ftreeFileMgrObj {
       });
     });
   }
-  doSendShardToOwner(j,remIp){
-     //console.log('shard request from: ',remIp);
-     //console.log('here is the req..',j);
-     var SQL = "select sownID from ftreeFileMgr.shardOwners where sownMUID = '"+j.shard.ownerID+"'";
-     con.query(SQL , async(err, result,fields)=>{
-       if (err){
-         console.log(err);
-       }
-       else {
-         var sownID = null;
-         if (result.length == 0){
-           console.log('Shard Owner Not Found On This Node.');
-           return;
-         }
-         else {
-           sownID = result[0].sownID;
-           var fsdat = null;
-	   const fname = ftreeRoot+sownID+'-'+j.shard.hash+'.srd'; 
-           try {
-             fsdat =  fs.readFileSync(fname);
-	     var qres = {
-               req : 'pShardDataResult',
-               data : fsdat,
-               qry : j
-             }
-             //console.log('sending shard result:',qres);
-             this.net.sendReply(remIp,qres);
-           }    
-           catch (err) {
-             console.log('error reading from srootTree:',err);
-             //console.log('Wallet Created And Saved!');
-           }
-           return;
-           var SQL = "select shardData from ftreeFileMgr.shards where shardOwnerID = "+sownID+" and shardHash = '"+j.shard.hash+"'";
-           //console.log(SQL);
-           con.query(SQL, (err, result, fields)=> {
-             if (err) console.log(err);
-             else {
-               if (result.length > 0){
-                 var qres = {
-                   req : 'pShardDataResult',
- 	           data : result[0].shardData,
-                   qry : j		   
-                 }
-                 //console.log('sending shard result:',qres);
-		 this.net.sendReply(remIp,qres);
-               } 
-	       else {
-		 console.log('Shard Not Stored On This Node.');
-	       }
-             }		    
-           });
-         }
-       }
-     });
-  }
-  doPowStop(remIp){
-    this.net.gpow.doStop(remIp);
-  }
-  doPow(j,remIp){
-    this.net.gpow.doPow(2,j.work,remIp);
-  }
-  doSendActiveRepo(j,remIp){
-     var SQL = "select * from ftreeFileMgr.tblRepo where repoOwner = '"+j.repo.from+"' and repoName = '"+j.repo.name+"'";
-     console.log('doSendActiveRep: '+SQL,j);
-     con.query(SQL , async(err, result,fields)=>{
-       if (err){
-         console.log('error reading repo ',err);
-       }
-       else {
-         var repo = null;
-         if (result.length == 0){
-           console.log('repo Not Found On This Node.');
-           return;
-         }
-         else {
-           repo = result[0];
-           var qres = {
-             req : 'activeRepoIP',
-             repo : repo
-	   }
-           //console.log('sending activeRepoResult :',qres);
-           this.net.sendReply(remIp,qres);
-         }
-       }
-     });
-  }
-  /******************************************************
-  Delete All Shard Files And Owner Record from this node
-  =======================================================
-  */
-  doDeleteAllByOwner(j,remIp){
-
-     if (!this.isValidSig(j.shard.signature)){
-       console.log('repo Signature Invalid... NOT deleted');
-       return;
-     }
-     var SQL = "select sownID from ftreeFileMgr.tblRepo where repoOwner = '"+j.repo.ownerID+"'";
-     con.query(SQL , async(err, result,fields)=>{
-       if (err){
-         console.log('repo delete',err);
-       }
-       else {
-         var sownID = null;
-         if (result.length == 0){
-           console.log('repo Owner Not Found On This Node.');
-           return;
-         }
-         else {
-           sownID = result[0].sownID;
-           var fsdat = null;
-           const fname = ftreeRoot+sownID+'-*.srd';
-           fs.unlink(fname, (err)=>{
-             if (err) {console.log('repo delete all.. File not found:',fname);}
-             else {
-               var SQL = "delete from ftreeFileMgr.shardOwners where sownMUID = '"+j.shard.ownerID+"'";
-               con.query(SQL , async(err, result,fields)=>{
-                 if (err){
-                   console.log('shard delete all fail',err);
-                 }
-	       });	       
-               var qres = {
-                 req : 'delAllShardsResult',
-                 result : 1,
-                 qry : j
-               }
-               //console.log('sending shard delete result:',qres);
-               this.net.sendReply(remIp,qres);
-             }
-           });
-           return;
-         }
-       }
-     });
-  }
-  /******************************************************
-  Delete Shard File Specified By Owner from this nodee
-  =======================================================
-  */
-  doDeleteShardByOwner(j,remIp){
-     if (!this.isValidSig(j.shard.signature)){
-       console.log('Shard Signature Invalid... NOT deleted');
-       return;
-     }
-     var SQL = "select sownID from ftreeFileMgr.shardOwners where sownMUID = '"+j.shard.ownerID+"'";
-     con.query(SQL , async(err, result,fields)=>{
-       if (err){
-         console.log('shard delete',err);
-       }
-       else {
-         var sownID = null;
-         if (result.length == 0){
-           console.log('Shard Owner Not Found On This Node.');
-           return;
-         }
-         else {
-           sownID = result[0].sownID;
-           var fsdat = null;
-           const fname = ftreeRoot+sownID+'-'+j.shard.hash+'.srd';
-           fs.unlink(fname, (err)=>{
-             if (err) {console.log('shard delete file not found:',fname);}
-	     else {
-	       var qres = {
-                 req : 'pShardDeleteResult',
-                 result : 1,
-		 qry : j
-               }
-               //console.log('sending shard delete result:',qres);
-               this.net.sendReply(remIp,qres);
-             }
-           });
-           return;
-         }
-       }
-     });
-  }
-  receptorReqDeleteMyShard(j){
-    return new Promise( (resolve,reject)=>{
-      var mkyReply = null;
-      var n = 0;
-      const gtime = setTimeout( ()=>{
-        console.log('Delete Request Timeout At:'+n+' of:',j);
-        this.net.removeListener('mkyReply', mkyReply);
-        resolve(n);
-      },5*1000);
-      var req = {
-        to : 'ftreeCells',
-        req : 'deleteShard',
-        shard : j.shard
-      }
-
-      this.net.broadcast(req);
-      this.net.on('mkyReply',mkyReply = (r) =>{
-        console.log('mkyReply DeleteShard is:',r);
-        if (r.req == 'pShardDeleteResult'){
-          n += 1;
-          console.log('shardDelete responses:',n);
-          if (n >= j.shard.nCopys){
-            clearTimeout(gtime);
-            this.net.removeListener('mkyReply', mkyReply);
-            resolve(n);
-          }
-        }
-      });
-    });
-  }
-  receptorReqStopIPGen(work){
-    var req = {
-      to : 'ftreeCells',
-      req : 'stopNodeGenIP',
-      work  : work
-    }
-    this.net.broadcast(req);
-  }
-  verifyActiveRepo(r){
-     console.log('verifyActiveRepo: ',r);
-     var signature = this.composeRepoSig(r.repo);
-     console.log('building ActiveRep Signature',signature);
-     if (this.isValidSig(signature)){ 
-       console.log('ActiveRep Signature Is Valid:',signature);
-       return true;
-     }
-     return false;
-  }	  
-  getActiveRepoList(j){
-    return new Promise( (resolve,reject)=>{
-      var mkyReply = null;
-      const maxIP = j.repo.nCopys;
-      var   IPs = [];
-      const gtime = setTimeout( ()=>{
-        console.log('Send Node List Request Timeout:');
-        this.net.removeListener('mkyReply', mkyReply);
-        resolve(IPs);
-      },7*1000);
-
-      var req = {
-        to : 'ftreeCells',
-        req : 'sendActiveRepo',
-        repo : j.repo
-      }
-
-      this.net.broadcast(req);
-      this.net.on('mkyReply', mkyReply = (r)=>{
-        if (r.req == 'activeRepoIP'){
-          console.log('mkyReply Active Repo is:',r);
-          if (this.verifyActiveRepo(r)){
-	    if (IPs.length < maxIP){
-              IPs.push(r.remIp);
-            }
-            else {
-              clearTimeout(gtime);
-              this.net.removeListener('mkyReply', mkyReply);
-              resolve(IPs);
-            }
-          }		  
-        }
-      });
-    });
-  }
-  receptorReqNodeList(j){
-    return new Promise( (resolve,reject)=>{
-      var mkyReply = null;
-      const maxIP = j.repo.nCopys;
-      var   IPs = [];
-      const gtime = setTimeout( ()=>{
-        console.log('Send Node List Request Timeout:');
-        this.net.removeListener('mkyReply', mkyReply);
-        resolve(IPs);
-      },7*1000);
-
-      var req = {
-        to : 'ftreeCells',
-        req : 'sendNodeList',
-        nodes : maxIP,
-        work  : crypto.randomBytes(20).toString('hex') 
-      }
-
-      this.net.broadcast(req);
-      this.net.on('mkyReply', mkyReply = (r)=>{
-        if (r.req == 'pNodeListGenIP'){
-          console.log('mkyReply NodeGen is:',r);
-          if (IPs.length < maxIP){
-            IPs.push(r.remIp);
-          }
-          else {
-            this.receptorReqStopIPGen(req.work);
-            clearTimeout(gtime);
-            this.net.removeListener('mkyReply', mkyReply);
-            resolve(IPs);
-          }
-        }
-      });
-    });
-  }
-  receptorReqSendMyShard(j){
-    return new Promise( (resolve,reject)=>{
-      const gtime = setTimeout( ()=>{
-        console.log('Send Shard Request Timeout:',j);
-        resolve(null);
-      },20*1000);
-      //console.log('bcasting reques for shard data: ',j);
-      var req = {
-        to : 'ftreeCells',
-	req : 'sendShard',
-        shard : j.shard
-      }
-
-      this.net.broadcast(req);
-      this.net.once('mkyReply', r =>{
-        //console.log('mkyReply is:',r);
-	if (r.req == 'pShardDataResult'){
-          //console.log('shardData Request',r);
-          clearTimeout(gtime);
-          resolve(r);
-        }
-      });
-    });
-  }
-  receptorReqUpdateRepoInsertFile(j,toIp){
-    //console.log('receptorReqCreateRepo',j);
-    return new Promise( (resolve,reject)=>{
-      const gtime = setTimeout( ()=>{
-        console.log('Update Repo Insert File Timeout:');
-        resolve(null);
-      },5000);
-      console.log('Store Repo To: ',toIp);
-      var req = {
-        req : 'updateRepoInsertFile',
-        repo : j.repo
-      }
-
-      this.net.sendMsg(toIp,req);
-      this.net.once('mkyReply', r =>{
-        if (r.req = 'updateRepoInsertFileResult' && r.remIp == toIp){
-          clearTimeout(gtime);
-          resolve(r);
-        }
-      });
-    });
-  }
-  receptorReqCreateRepo(j,toIp){
-    //console.log('receptorReqCreateRepo',j);
-    return new Promise( (resolve,reject)=>{	  
-      const gtime = setTimeout( ()=>{
-        console.log('Create New Repo Timeout:');
-        resolve(null);
-      },5000);  
-      console.log('Store Repo To: ',toIp);
-      var req = {
-        req : 'storeRepo',
-	repo : j.repo
-      }
-
-      this.net.sendMsg(toIp,req);
-      this.net.once('mkyReply', r =>{
-        if (r.reply == 'repoStoreRes' && r.remIp == toIp){ 
-          clearTimeout(gtime);   
-	  resolve(r);
-        }		    
-      });
-    });
-  }	
-  createNewRepo(r){
-    return new Promise((resolve,reject)=>{
-    const d = r.data;
-    var SQL = "INSERT INTO `ftreeFileMgr`.`tblRepo` " +
-      "(`repoName`,`repoPubKey`,`repoOwner`,`repoLastUpdate`,`repoSignature`,`repoHash`,`repoCopies`) " +
-      "VALUES ('"+d.repoName+"','"+d.repoPubKey+"','"+d.repoOwner+"','"+d.repoLastUpdate+"','"+d.repoSignature+"','"+d.repoHash+"',"+d.repoCopies+");" +
-      "SELECT LAST_INSERT_ID()newRepoID;";
-      con.query(SQL , async (err, result,fields)=>{
-        if (err){
-          console.log(err);
-          resolve(null);
-        }
-        else {
-          var newRepoID = null;
-          result.forEach((rec,index)=>{
-           if(index === 1){
-             newRepoID = rec[0].newRepoID;
-           }
-          });
-          resolve(newRepoID);
-        }
-      });
-    });
-  }
-  createInvoiceRec(sownID,hash,sig){
-    var invSig = {
-       token : sig.token,
-       sig   : sig.signature
-    }
-    var SQL = "INSERT INTO `ftreeFileMgr`.`shards` SET ?";
-    var values = {
-      shardOwnerID : sownID,
-      shardHash    : hash,
-      shardDate    : new Date(),
-      shardExpire  : null,
-      shardOwnSignature : JSON.stringify(invSig)
-    };
-    con.query(SQL ,values, (err, result,fields)=>{
-      if (err){
-        console.log(err);
-      }
-    });
-  }
-  composeRepoSig(j){
-    var sig = {
-      pubKey    : j.repoPubKey,
-      ownMUID   : j.repoOwner,
-      token     : j.repoOwner+j.repoName+j.repoHash,
-      signature : j.repoSignature
-    }
-    return sig;	  
-  }	  
-    storeRepo(j,remIp){
+  storeRepo(j,remIp){
     console.log('got full request store repo',j);
     j.repo.signature = this.composeRepoSig(j.repo.data);
     console.log('got request store repo',j.repo.signature);
@@ -1213,6 +820,185 @@ class ftreeFileMgrObj {
       }
     });
   }
+  createNewRepo(r){
+    return new Promise((resolve,reject)=>{
+    const d = r.data;
+    var SQL = "INSERT INTO `ftreeFileMgr`.`tblRepo` " +
+      "(`repoName`,`repoPubKey`,`repoOwner`,`repoLastUpdate`,`repoSignature`,`repoHash`,`repoCopies`) " +
+      "VALUES ('"+d.repoName+"','"+d.repoPubKey+"','"+d.repoOwner+"','"+d.repoLastUpdate+"','"+d.repoSignature+"','"+d.repoHash+"',"+d.repoCopies+");" +
+      "SELECT LAST_INSERT_ID()newRepoID;";
+      con.query(SQL , async (err, result,fields)=>{
+        if (err){
+          console.log(err);
+          resolve(null);
+        }
+        else {
+          var newRepoID = null;
+          result.forEach((rec,index)=>{
+           if(index === 1){
+             newRepoID = rec[0].newRepoID;
+           }
+          });
+          resolve(newRepoID);
+        }
+      });
+    });
+  }
+  composeRepoSig(j){
+    var sig = {
+      pubKey    : j.repoPubKey,
+      ownMUID   : j.repoOwner,
+      token     : j.repoOwner+j.repoName+j.repoHash,
+      signature : j.repoSignature
+    }
+    return sig;
+  }
+  /**********************************************************************
+  Local Node BroadCasts:
+  =======================================================================
+  */
+  receptorReqStopIPGen(work){
+    var req = {
+      to : 'ftreeCells',
+      req : 'stopNodeGenIP',
+      work  : work
+    }
+    this.net.broadcast(req);
+  }
+  getActiveRepoList(j){
+    return new Promise( (resolve,reject)=>{
+      var mkyReply = null;
+      const maxIP = j.repo.nCopys;
+      var   IPs = [];
+      const gtime = setTimeout( ()=>{
+        console.log('Send Node List Request Timeout:');
+        this.net.removeListener('mkyReply', mkyReply);
+        resolve(IPs);
+      },7*1000);
+
+      var req = {
+        to : 'ftreeCells',
+        req : 'sendActiveRepo',
+        repo : j.repo
+      }
+
+      this.net.broadcast(req);
+      this.net.on('mkyReply', mkyReply = (r)=>{
+        if (r.req == 'activeRepoIP'){
+          console.log('mkyReply Active Repo is:',r);
+          if (this.verifyActiveRepo(r)){
+            if (IPs.length < maxIP){
+              IPs.push(r.remIp);
+            }
+            else {
+              clearTimeout(gtime);
+              this.net.removeListener('mkyReply', mkyReply);
+              resolve(IPs);
+            }
+          }
+        }
+      });
+    });
+  }
+  verifyActiveRepo(r){
+     console.log('verifyActiveRepo: ',r);
+     var signature = this.composeRepoSig(r.repo);
+     console.log('building ActiveRep Signature',signature);
+     if (this.isValidSig(signature)){ 
+       console.log('ActiveRep Signature Is Valid:',signature);
+       return true;
+     }
+     return false;
+  }	  
+  receptorReqNodeList(j){
+    return new Promise( (resolve,reject)=>{
+      var mkyReply = null;
+      const maxIP = j.repo.nCopys;
+      var   IPs = [];
+      const gtime = setTimeout( ()=>{
+        console.log('Send Node List Request Timeout:');
+        this.net.removeListener('mkyReply', mkyReply);
+        resolve(IPs);
+      },7*1000);
+
+      var req = {
+        to : 'ftreeCells',
+        req : 'sendNodeList',
+        nodes : maxIP,
+        work  : crypto.randomBytes(20).toString('hex') 
+      }
+
+      this.net.broadcast(req);
+      this.net.on('mkyReply', mkyReply = (r)=>{
+        if (r.req == 'pNodeListGenIP'){
+          console.log('mkyReply NodeGen is:',r);
+          if (IPs.length < maxIP){
+            IPs.push(r.remIp);
+          }
+          else {
+            this.receptorReqStopIPGen(req.work);
+            clearTimeout(gtime);
+            this.net.removeListener('mkyReply', mkyReply);
+            resolve(IPs);
+          }
+        }
+      });
+    });
+  }
+  doPowStop(remIp){
+    this.net.gpow.doStop(remIp);
+  }
+  doPow(j,remIp){
+    this.net.gpow.doPow(2,j.work,remIp);
+  }
+  /****************************************************************************
+  Peer To Peer Requests:
+  =============================================================================
+  */
+  receptorReqUpdateRepoInsertFile(j,toIp){
+    //console.log('receptorReqCreateRepo',j);
+    return new Promise( (resolve,reject)=>{
+      const gtime = setTimeout( ()=>{
+        console.log('Update Repo Insert File Timeout:');
+        resolve(null);
+      },5000);
+      console.log('Store Repo To: ',toIp);
+      var req = {
+        req : 'updateRepoInsertFile',
+        repo : j.repo
+      }
+
+      this.net.sendMsg(toIp,req);
+      this.net.once('mkyReply', r =>{
+        if (r.req = 'updateRepoInsertFileResult' && r.remIp == toIp){
+          clearTimeout(gtime);
+          resolve(r);
+        }
+      });
+    });
+  }
+  receptorReqCreateRepo(j,toIp){
+    //console.log('receptorReqCreateRepo',j);
+    return new Promise( (resolve,reject)=>{	  
+      const gtime = setTimeout( ()=>{
+        console.log('Create New Repo Timeout:');
+        resolve(null);
+      },5000);  
+      console.log('Store Repo To: ',toIp);
+      var req = {
+        req : 'storeRepo',
+	repo : j.repo
+      }
+
+      this.net.sendMsg(toIp,req);
+      this.net.once('mkyReply', r =>{
+        if (r.reply == 'repoStoreRes' && r.remIp == toIp){ 
+          clearTimeout(gtime);   
+	  resolve(r);
+        }		    
+      });
+    });
+  }	
 };
 function sleep(ms){
     return new Promise(resolve=>{
