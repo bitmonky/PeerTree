@@ -494,7 +494,7 @@ class ftreeFileMgrCellReceptor{
     //j.repo.signature = this.signRequest(j);
 
     if (IPs.length == 0){
-      res.end('{"result":"repoOK","nRecs":0,"repo":"No Nodes Available For File Insert"}');
+      res.end('{"result":false,"nRecs":0,"repo":"No Nodes Available For File Insert"}');
       return;
     }
     var n = 0;
@@ -1062,7 +1062,7 @@ class ftreeFileMgrObj {
       const gtime = setTimeout( ()=>{
         console.log('Update Repo Insert File Timeout:');
         resolve(null);
-      },500);
+      },5000);
       console.log('Store Repo To: ',toIp);
       var req = {
         req : 'updateRepoInsertFile',
@@ -1071,8 +1071,7 @@ class ftreeFileMgrObj {
 
       this.net.sendMsg(toIp,req);
       this.net.once('mkyReply', r =>{
-        if (r.repoUpdateInsertFile && r.remIp == toIp){
-          //console.log('repoStoreRes OK!!',r);
+        if (r.req = 'updateRepoInsertFileResult' && r.remIp == toIp){
           clearTimeout(gtime);
           resolve(r);
         }
@@ -1085,7 +1084,7 @@ class ftreeFileMgrObj {
       const gtime = setTimeout( ()=>{
         console.log('Create New Repo Timeout:');
         resolve(null);
-      },500);  
+      },5000);  
       console.log('Store Repo To: ',toIp);
       var req = {
         req : 'storeRepo',
@@ -1094,9 +1093,8 @@ class ftreeFileMgrObj {
 
       this.net.sendMsg(toIp,req);
       this.net.once('mkyReply', r =>{
-        if (r.repoStoreRes && r.remIp == toIp){
-          //console.log('repoStoreRes OK!!',r);
-          clearTimeout(gtime);
+        if (r.reply == 'repoStoreRes' && r.remIp == toIp){ 
+          clearTimeout(gtime);   
 	  resolve(r);
         }		    
       });
@@ -1154,39 +1152,68 @@ class ftreeFileMgrObj {
     }
     return sig;	  
   }	  
-  storeRepo(j,remIp){
-    console.log('got full request store repo',j);	  
+    storeRepo(j,remIp){
+    console.log('got full request store repo',j);
     j.repo.signature = this.composeRepoSig(j.repo.data);
     console.log('got request store repo',j.repo.signature);
     if (!this.isValidSig(j.repo.signature)){
       console.log('Repo Signature Invalid... NOT stored');
-        this.net.endRes(remIp,'{"repoStoreRes":false,"error":"Invalid Signature For Request"');
-        return;
+      this.net.sendReply(remIp,{reply : 'repoStoreRes',result :false,error : "Invalid Signature For Request"});
+      return;
     }
     var SQL = "select repoID from ftreeFileMgr.tblRepo where repoOwner = '"+j.repoOwner+"' && repoName = '"+j.repoName+"'";
 
     con.query(SQL , async(err, result,fields)=>{
       if (err){
         console.log(err);
-        this.net.endRes(remIp,'{"repoStoreRes":false,"error":"'+err+'"');
-        return;
+        var qres = {
+          reply : 'repoStoreRes',
+          result : false,
+          error : err,
+          repoID : null
+        }
+        this.net.sendReply(remIp,qres);
+        return null;
       }
       else {
         var repoID = null;
-	if (result.length == 0){
+        if (result.length == 0){
           repoID = await this.createNewRepo(j.repo);
+          console.log('New Repo Created:',repoID);
           if (!repoID){
-            this.net.endRes(remIp,'{"repoStoreRes":false,"error":"failed to create new repo record for repoOwner"}');
+            var qres = {
+              reply : 'repoStoreRes',
+              result : false,
+              error : "failed to create new repo record for repoOwner",
+              repoID : null
+            }
+            this.net.sendReply(remIp,qres);
             return null;
           }
-	}
+          else {
+            var qres = {
+              reply : 'repoStoreRes',
+              result : true,
+              repoID : repoID
+            }
+            console.log('sending storeRepo:'+remIp,qres);
+            this.net.sendReply(remIp,qres);
+          }
+        }
         else {
-	  repoID = result[0].repoID;
-	}
+          var qres = {
+            reply : 'repoStoreRes',
+            result : false,
+            error : 'Something Fishy Happend',
+            repoID : repoID
+          }
+          console.log('sending storeRepo:'+remIp,qres);
+          this.net.sendReply(remIp,qres);
+        }
       }
     });
   }
-};	  
+};
 function sleep(ms){
     return new Promise(resolve=>{
         setTimeout(resolve,ms)
