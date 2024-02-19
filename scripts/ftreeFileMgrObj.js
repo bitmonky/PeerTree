@@ -501,7 +501,7 @@ class ftreeFileMgrCellReceptor{
 };
 /*----------------------------
 End Receptor Code
-==============================
+=============================
 */
 var con = mysql.createConnection({
   host: "localhost",
@@ -514,6 +514,18 @@ var con = mysql.createConnection({
 });
 con.connect(function(err) {
   if (err) throw err;
+});
+
+var mysqlp = require('mysql');
+var pool  = mysqlp.createPool({
+  connectionLimit : 100,
+  host            : 'localhost',
+  user            : 'peerShardDBA',
+  password        : '1b21287cae12fffc6d309bbd2be7cce643d2',
+  database        : 'ftreeFileMgr',
+  dateStrings     : "date",
+  multipleStatements: true,
+  supportBigNumbers : true
 });
 
 function getRandomInt(max) {
@@ -598,12 +610,29 @@ class ftreeFileMgrObj {
       SQL += "truncate table ftreeFileMgr.tblShardFileMgr; ";
       SQL += "truncate table ftreeFileMgr.tblShardFiles; ";
       SQL += "truncate table ftreeFileMgr.tblShardHosts; ";
-      con.query(SQL, async (err, result, fields)=>{
-        if (err) {console.log(err);reject(err);}
-        else {
-          resolve("OK");
-        }
-      });
+      pool.getConnection(function(err, con) {
+        if (err){
+	  resolve(false);
+          return;		
+	}
+        con.beginTransaction(function(err) {
+          if (err) { throw err; }
+	});	
+	con.query(SQL, async (err, result, fields)=>{
+          if (err) {console.log(err);reject(err);}
+          else {
+            resolve("OK");
+          }
+        });
+        con.commit(function(err) {
+          if (err) {
+            return con.rollback(function() {
+              throw err;
+            });
+          }
+        }); 
+	con.release();
+      }); 	      
     });
   }
   sayHelloPeerGroup(){
