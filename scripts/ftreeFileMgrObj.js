@@ -252,11 +252,14 @@ class ftreeFileMgrCellReceptor{
   }
   async reqCreateRepo(j,res){
     console.log('CreateRepoReq:',j);
-    const newRepoID = await this.createLocalRepo(j.repo);
-    if (!newRepoID){	  
-      res.end('{"result":"repoFail","nRecs":0,"repo":"Creat Local Repo Blew Up"}');
+    var newRepoID = null;
+    const pj = await this.createLocalRepo(j.repo);
+    if (!pj.result){	  
+      res.end('{"result":"repoFail","nRecs":0,"repo":"'+pj.msg+'"}');
       return;
     }
+    newRepoID = pj.value;
+
     j.repo.data = await this.getLocalRepoRec(newRepoID);
     console.log(JSON.stringify(j.repo));
 
@@ -334,7 +337,7 @@ class ftreeFileMgrCellReceptor{
 	  }
           else {      
             return con.query(SQL , async (err, result,fields)=>{
-              if (err){con.release();return resolve(newRepoID);}
+              if (err){return dbFail(con,resolve,'Insert Local Repo Failed');}
               else {
                 result.forEach((rec,index)=>{ 
 	          if(index === 1){	  
@@ -342,13 +345,15 @@ class ftreeFileMgrCellReceptor{
                   }
 	        });
 	        const rhash = await this.getRepoHash(repo,newRepoID,con)
-                this.updateAndSignRepo(newRepoID,repo.from+repo.name+rhash,rhash,con);		
-	        return con.commit((err)=> {
-                  if (err) {con.rollback(); con.release();return resolve(newRepoID);}
+                const sig = await this.updateAndSignRepo(newRepoID,repo.from+repo.name+rhash,rhash,con);		
+	        if (!sig){
+		  return dbFail(con,resolve,'Update Signature Failed');	
+		}
+		return con.commit((err)=> {
+                  if (err) {return dbFail(con,resolve,'Local Commit Failed');}
 	  	  else {
-		    con.release();
 		    console.log('New RepoID IS:',newRepoID);
-                    return resolve(newRepoID);
+                    return dbResult(con,resolve,newRepoID);
 	          }
 		});
 	      }		
@@ -535,14 +540,23 @@ var mysqlp = require('mysql');
 var pool  = mysqlp.createPool({
   connectionLimit : 100,
   host            : 'localhost',
-  user            : 'peerShardDBA',
-  password        : '1b21287cae12fffc6d309bbd2be7cce643d2',
+  user            : 'username',
+  password        : 'password',
   database        : 'ftreeFileMgr',
   dateStrings     : "date",
   multipleStatements: true,
   supportBigNumbers : true
 });
-
+function dbResult(con,resolve,value){
+  con.release();
+  return resolve({result:true,value:value});
+}
+function dbFail(con,resolve,msg){
+  con.rollback();
+  con.release();
+  console.log(msg);
+  return resolve({result:false,msg:'dbERROR : '+msg});
+}
 function getRandomInt(max) {
   return Math.floor(Math.random() * Math.floor(max));
 }
