@@ -328,12 +328,12 @@ class ftreeFileMgrCellReceptor{
       "SELECT LAST_INSERT_ID()newRepoID;";
       var newRepoID = null
       return pool.getConnection((err, con)=>{
-        if (err){ return resolve(newRepoID);}
+        if (err){ return dbConFail(resolve,'CreateLocalRepo Conection Failed');}
       
 	return con.beginTransaction((err)=>{
           if (err) { 
 	    con.release();
-	    return resolve(newRepoID);
+	    return dbFail(con,resolve,'CreatLocalRep begTransaction Failed');
 	  }
           else {      
             return con.query(SQL , async (err, result,fields)=>{
@@ -366,15 +366,19 @@ class ftreeFileMgrCellReceptor{
   getLocalRepoRec(repoID){
     return new Promise((resolve,reject)=>{
       var SQL = "select * from  `ftreeFileMgr`.`tblRepo` where repoID="+repoID;
-      con.query(SQL , (err, result,fields)=>{
-        if (err){
-          console.log(err);
-          resolve(null);
-        }
-        else {
-          resolve (result[0]);
-        }
-      });
+      return pool.getConnection((err, con)=>{
+        if (err){ return resolve(null);}
+
+        return con.query(SQL , (err, result,fields)=>{
+          if (err){
+            console.log(err);
+	    con.release();
+            return resolve(null);
+          }
+          con.release();		  
+          return  resolve(result[0]);
+        });
+      });	      
     });
   }
   updateAndSignRepo(repoID,token,rhash,con){
@@ -414,7 +418,7 @@ class ftreeFileMgrCellReceptor{
       });
     });
   }
-  insertLocalFileShard(s,fileID,repoID,shardNbr){
+  insertLocalFileShard(s,fileID,repoID,shardNbr,con){
     return new Promise(async (resolve,reject)=>{
       var SQL = "INSERT INTO `ftreeFileMgr`.`tblShardFiles` (`sfilFileMgrID`,`sfilCheckSum`,`sfilShardHash`,`sfilNCopies`,`sfilDate`,"+
         "`sfilExpires`, `sfilEncrypted`, `sfilShardNbr`) VALUES "+
@@ -430,10 +434,10 @@ class ftreeFileMgrCellReceptor{
       });
     });
   }
-  async insertLocalFileShards(shards,fileID,repoID){
+  async insertLocalFileShards(shards,fileID,repoID,con){
     var result = false;
     for(let i = 0; i < shards.length; i++) {
-      result = await this.insertLocalFileShard(shards[i],fileID,repoID,i); 
+      result = await this.insertLocalFileShard(shards[i],fileID,repoID,i,con); 
       if (!result){
         break;
       }      
@@ -450,49 +454,46 @@ class ftreeFileMgrCellReceptor{
         "VALUES ("+repoID+",'"+f.filename+"','"+f.checksum+"',now(),now(),0,'"+f.type+"',"+
         "0,0,'NA','NA');"+
         "SELECT LAST_INSERT_ID()newRFileID;";
-      console.log(SQL);
-      con.query(SQL , async (err, result,fields)=>{
-        if (err){
-          console.log(err);
-          resolve(null);
-        }
-        else {
+      return pool.getConnection((err, con)=>{
+        if (err){ return dbConFail(resolve,'InsertLocalRepFile::getConnection Failed');}
+        return con.query(SQL , async (err, result,fields)=>{
+          if (err){
+            return dbFail(con,resolve,'Insert File Record Failed');
+          }
           var newRFileID = null;
           result.forEach((rec,index)=>{
            if(index === 1){
              newRFileID = rec[0].newRFileID;
            }
           });
-          if (this.insertLocalFileShards(repo.file.shards,newRFileID,repoID)){
+          if (this.insertLocalFileShards(repo.file.shards,newRFileID,repoID,con)){
             if (doSignRepo){
 	      const rhash = await this.getRepoHash(repo,repoID,con)
               this.updateAndSignRepo(repoID,repo.from+repo.name+rhash,rhash,con);
             }		    
-            resolve (repoID);
+            return dbResult(con,resolve,repoID);
           }
           else {
-            resolve(null);
+            return dbFail(con,resolve,'InsertLocalRepoFile::insertLocalFileShards Failed');
 	  }
-        }
+	});	
       });
     });
   }
   async reqInsertRSfile(j,res){
     console.log('Insert Repo Shard File:',j);
-    const newFileRepoID = await this.insertLocalRepoFile(j.repo);
+    var newFileRepoID = null;
+    const pj = await this.insertLocalRepoFile(j.repo);
+    if (!pj.result){
+      res.end('{"result":false,"nRecs":0,"repo":"'+pj.msg+'"}');
+      return;
+    }
+    newFileRepoID = pj.value;  
     console.log('Got newFileID: ',newFileRepoID);
 
     j.repo.data = await this.getLocalRepoRec(newFileRepoID);
-    //console.log(JSON.stringify(j.repo));
-    //res.end('{"result":"repoOK","nCopies":0,"repo":"Local Repo Created","data":'+JSON.stringify(j.repo.data)+'}');
-    //return;
 
     var IPs = await this.peer.getActiveRepoList(j);
-    //var IPs = await this.peer.receptorReqNodeList(j);
-    console.log('XXRANDNODES:',IPs);
-    //j.repo.token = this.openShardKeyFile(j);
-    //j.repo.signature = this.signRequest(j);
-
     if (IPs.length == 0){
       res.end('{"result":false,"nRecs":0,"repo":"No Nodes Available For File Insert"}');
       return;
@@ -525,8 +526,8 @@ End Receptor Code
 */
 var con = mysql.createConnection({
   host: "localhost",
-  user: "username",
-  password: "password",
+  user: "peerShardDBA",
+  password: "1b21287cae12fffc6d309bbd2be7cce643d2",
   database: "ftreeFileMgr",
   dateStrings: "date",
   multipleStatements: true,
@@ -540,13 +541,17 @@ var mysqlp = require('mysql');
 var pool  = mysqlp.createPool({
   connectionLimit : 100,
   host            : 'localhost',
-  user            : 'username',
-  password        : 'password',
+  user            : 'peerShardDBA',
+  password        : '1b21287cae12fffc6d309bbd2be7cce643d2',
   database        : 'ftreeFileMgr',
   dateStrings     : "date",
   multipleStatements: true,
   supportBigNumbers : true
 });
+function dbConFail(resolve,msg){
+  console.log(msg);
+  return resolve({result:false,msg:'dbERROR : '+msg});
+}
 function dbResult(con,resolve,value){
   con.release();
   return resolve({result:true,value:value});
@@ -779,17 +784,19 @@ class ftreeFileMgrObj {
        }
      });
   }
-  updateRepoInsertFile(r,remIp){
+  async updateRepoInsertFile(r,remIp){
       var result = false;
       var ermsg  = null;
       var doSignRepo = false;
-      if (this.receptor.insertLocalRepoFile(r.repo,doSignRepo)){
-        if (this.doUpdateRepoHash(r.repo)){
+      const pj = await this.receptor.insertLocalRepoFile(j.repo,doSignRepo);
+      result = pj.result;
+      if (result){
+        if (await this.doUpdateRepoHash(r.repo)){
 	  result = true;
 	}
 	else {ermsg = 'Update Repo Hash Record Failed';}      
       }
-      else {ermsg = 'Update Repo Insert File Record Failed';}
+      else {ermsg = 'Update Repo Insert File Record Failed: '+pj.msg;}
 
       var qres = {
         req : 'updateRepoInsertFileResult',
