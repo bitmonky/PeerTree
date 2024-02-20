@@ -252,17 +252,16 @@ class ftreeFileMgrCellReceptor{
   }
   async reqCreateRepo(j,res){
     console.log('CreateRepoReq:',j);
-    const newRepoID = await this.createLocalRepo(j.repo); 
+    const newRepoID = await this.createLocalRepo(j.repo);
+    if (!newRepoID){	  
+      res.end('{"result":"repoFail","nRecs":0,"repo":"Creat Local Repo Blew Up"}');
+      return;
+    }
     j.repo.data = await this.getLocalRepoRec(newRepoID);
     console.log(JSON.stringify(j.repo));
-    //res.end('{"result":"repoOK","nCopies":0,"repo":"Local Repo Created","data":'+JSON.stringify(j.repo.data)+'}');
-    //return;
 
     var IPs = await this.peer.receptorReqNodeList(j);
     console.log('XXRANDNODES:',IPs);
-    //j.repo.token = this.openShardKeyFile(j);
-    //j.repo.signature = this.signRequest(j);
-
     if (IPs.length == 0){
       res.end('{"result":"repoOK","nRecs":0,"repo":"No Nodes Available"}');
       return;
@@ -289,7 +288,7 @@ class ftreeFileMgrCellReceptor{
     }
     return;
   }
-  getRepoHash(repo,repoID){
+  getRepoHash(repo,repoID,con){
     return new Promise((resolve,reject)=>{
       var hstr = repo.ownerMUID+repo.name;
       var SQL = "select smgrID, concat(smgrFileName,smgrCheckSum,smgrDate,smgrExpires,smgrEncrypted,smgrFileType,smgrFileSize,"+
@@ -324,23 +323,39 @@ class ftreeFileMgrCellReceptor{
       "(`repoName`,`repoPubKey`,`repoOwner`,`repoLastUpdate`,`repoSignature`,`repoHash`,`repoCopies`) " +
       "VALUES ('"+repo.name+"','"+repo.pubKey+"','"+repo.from+"',now(),'NS','NA',"+repo.nCopys+");" +
       "SELECT LAST_INSERT_ID()newRepoID;";
-      con.query(SQL , async (err, result,fields)=>{
-        if (err){
-          console.log(err);
-          resolve(null);
-        }
-        else {
-          var newRepoID = null;
-          result.forEach((rec,index)=>{ 
-	   if(index === 1){	  
-	     newRepoID = rec[0].newRepoID;
-           }
-	  });
-	  const rhash = await this.getRepoHash(repo,newRepoID)
-          this.updateAndSignRepo(newRepoID,repo.from+repo.name+rhash,rhash);		
-          resolve (newRepoID);		
-        }
-      });
+      var newRepoID = null
+      return pool.getConnection((err, con)=>{
+        if (err){ return resolve(newRepoID);}
+      
+	return con.beginTransaction((err)=>{
+          if (err) { 
+	    con.release();
+	    return resolve(newRepoID);
+	  }
+          else {      
+            return con.query(SQL , async (err, result,fields)=>{
+              if (err){con.release();return resolve(newRepoID);}
+              else {
+                result.forEach((rec,index)=>{ 
+	          if(index === 1){	  
+	            newRepoID = rec[0].newRepoID;
+                  }
+	        });
+	        const rhash = await this.getRepoHash(repo,newRepoID,con)
+                this.updateAndSignRepo(newRepoID,repo.from+repo.name+rhash,rhash,con);		
+	        return con.commit((err)=> {
+                  if (err) {con.rollback(); con.release();return resolve(newRepoID);}
+	  	  else {
+		    con.release();
+		    console.log('New RepoID IS:',newRepoID);
+                    return resolve(newRepoID);
+	          }
+		});
+	      }		
+	    });
+	  } 	    
+	});
+      });	      
     });
   }
   getLocalRepoRec(repoID){
@@ -357,7 +372,7 @@ class ftreeFileMgrCellReceptor{
       });
     });
   }
-  updateAndSignRepo(repoID,token,rhash){
+  updateAndSignRepo(repoID,token,rhash,con){
     return new Promise((resolve,reject)=>{
       var signature = this.shardToken.signToken(token);
       console.log('Signing Token: ',token);
@@ -445,8 +460,8 @@ class ftreeFileMgrCellReceptor{
           });
           if (this.insertLocalFileShards(repo.file.shards,newRFileID,repoID)){
             if (doSignRepo){
-	      const rhash = await this.getRepoHash(repo,repoID)
-              this.updateAndSignRepo(repoID,repo.from+repo.name+rhash,rhash);
+	      const rhash = await this.getRepoHash(repo,repoID,con)
+              this.updateAndSignRepo(repoID,repo.from+repo.name+rhash,rhash,con);
             }		    
             resolve (repoID);
           }
@@ -610,28 +625,27 @@ class ftreeFileMgrObj {
       SQL += "truncate table ftreeFileMgr.tblShardFileMgr; ";
       SQL += "truncate table ftreeFileMgr.tblShardFiles; ";
       SQL += "truncate table ftreeFileMgr.tblShardHosts; ";
-      pool.getConnection(function(err, con) {
+      return pool.getConnection((err, con)=>{
         if (err){
-	  resolve(false);
-          return;		
+	  return resolve(false);
 	}
-        con.beginTransaction(function(err) {
-          if (err) { throw err; }
-	});	
-	con.query(SQL, async (err, result, fields)=>{
-          if (err) {console.log(err);reject(err);}
-          else {
-            resolve("OK");
-          }
+	return con.beginTransaction((err)=> {
+          if (err) { return resolve(false); }
+		
+          return con.query(SQL, async (err, result, fields)=>{
+            if (err) {con.release(); return resolve(false);}
+            return con.commit((err)=>{
+              if (err) { 
+	        return con.rollback(()=>{
+                  return resolve(false);
+                });
+	      }	
+	      con.release();
+              console.log('Database Reset: conection released');
+	      return resolve('OK');
+	    });
+          });
         });
-        con.commit(function(err) {
-          if (err) {
-            return con.rollback(function() {
-              throw err;
-            });
-          }
-        }); 
-	con.release();
       }); 	      
     });
   }
