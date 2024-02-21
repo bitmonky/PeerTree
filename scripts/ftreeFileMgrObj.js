@@ -8,7 +8,6 @@ var dateFormat     = require('./mkyDatef');
 const EventEmitter = require('events');
 const https        = require('https');
 const fs           = require('fs');
-const mkyPubKey    = '04a5dc8478989c0122c3eb6750c08039a91abf175c458ff5d64dbf448df8f1ba6ac4a6839e5cb0c9c711b15e85dae98f04697e4126186c4eab425064a97910dedc';
 const EC           = require('elliptic').ec;
 const ec           = new EC('secp256k1');
 const bitcoin      = require('bitcoinjs-lib');
@@ -332,7 +331,6 @@ class ftreeFileMgrCellReceptor{
       
 	return con.beginTransaction((err)=>{
           if (err) { 
-	    con.release();
 	    return dbFail(con,resolve,'CreatLocalRep begTransaction Failed');
 	  }
           else {      
@@ -526,8 +524,8 @@ End Receptor Code
 */
 var con = mysql.createConnection({
   host: "localhost",
-  user: "peerShardDBA",
-  password: "1b21287cae12fffc6d309bbd2be7cce643d2",
+  user: "username",
+  password: "password",
   database: "ftreeFileMgr",
   dateStrings: "date",
   multipleStatements: true,
@@ -541,8 +539,8 @@ var mysqlp = require('mysql');
 var pool  = mysqlp.createPool({
   connectionLimit : 100,
   host            : 'localhost',
-  user            : 'peerShardDBA',
-  password        : '1b21287cae12fffc6d309bbd2be7cce643d2',
+  user: "username",
+  password: "password",
   database        : 'ftreeFileMgr',
   dateStrings     : "date",
   multipleStatements: true,
@@ -589,7 +587,7 @@ class ftreeFileMgrObj {
   }
   async init(){
     if (this.reset){
-      await this.resetDb(this.resetBlock);
+      await this.resetDb();
     }
   }
   /****************************************************************
@@ -644,28 +642,17 @@ class ftreeFileMgrObj {
       SQL += "truncate table ftreeFileMgr.tblShardFileMgr; ";
       SQL += "truncate table ftreeFileMgr.tblShardFiles; ";
       SQL += "truncate table ftreeFileMgr.tblShardHosts; ";
+
       return pool.getConnection((err, con)=>{
         if (err){
-	  return resolve(false);
-	}
-	return con.beginTransaction((err)=> {
-          if (err) { return resolve(false); }
-		
-          return con.query(SQL, async (err, result, fields)=>{
-            if (err) {con.release(); return resolve(false);}
-            return con.commit((err)=>{
-              if (err) { 
-	        return con.rollback(()=>{
-                  return resolve(false);
-                });
-	      }	
-	      con.release();
-              console.log('Database Reset: conection released');
-	      return resolve('OK');
-	    });
-          });
+          return dbConFail(resolve,err);
+        }
+        return con.query(SQL, async (err, result, fields)=>{
+          if (err) {return dbFail(con,resolve,err+SQL);}
+          console.log('Database Reset: connection released');
+          return dbResult(con,resolve,'OK');
         });
-      }); 	      
+      });
     });
   }
   sayHelloPeerGroup(){
@@ -788,7 +775,7 @@ class ftreeFileMgrObj {
       var result = false;
       var ermsg  = null;
       var doSignRepo = false;
-      const pj = await this.receptor.insertLocalRepoFile(j.repo,doSignRepo);
+      const pj = await this.receptor.insertLocalRepoFile(r.repo,doSignRepo);
       result = pj.result;
       if (result){
         if (await this.doUpdateRepoHash(r.repo)){
