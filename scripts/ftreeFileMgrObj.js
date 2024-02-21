@@ -253,6 +253,7 @@ class ftreeFileMgrCellReceptor{
     console.log('CreateRepoReq:',j);
     var newRepoID = null;
     const pj = await this.createLocalRepo(j.repo);
+    console.log('Local Repo Create Status:',pj);
     if (!pj.result){	  
       res.end('{"result":"repoFail","nRecs":0,"repo":"'+pj.msg+'"}');
       return;
@@ -344,10 +345,11 @@ class ftreeFileMgrCellReceptor{
 	        });
 	        const rhash = await this.getRepoHash(repo,newRepoID,con)
                 const sig = await this.updateAndSignRepo(newRepoID,repo.from+repo.name+rhash,rhash,con);		
-	        if (!sig){
+                console.log('YYYYYYYYY:',sig);
+		if (!sig){
 		  return dbFail(con,resolve,'Update Signature Failed');	
 		}
-		return con.commit((err)=> {
+		con.commit((err)=> {
                   if (err) {return dbFail(con,resolve,'Local Commit Failed');}
 	  	  else {
 		    console.log('New RepoID IS:',newRepoID);
@@ -466,10 +468,11 @@ class ftreeFileMgrCellReceptor{
           });
           if (this.insertLocalFileShards(repo.file.shards,newRFileID,repoID,con)){
             if (doSignRepo){
-	      const rhash = await this.getRepoHash(repo,repoID,con)
-              this.updateAndSignRepo(repoID,repo.from+repo.name+rhash,rhash,con);
+	      const rhash = await this.getRepoHash(repo,repoID,con);
+              await this.updateAndSignRepo(repoID,repo.from+repo.name+rhash,rhash,con);
             }		    
-            return dbResult(con,resolve,repoID);
+            console.log('XXXXXXXXXXX');
+	    return dbResult(con,resolve,repoID);
           }
           else {
             return dbFail(con,resolve,'InsertLocalRepoFile::insertLocalFileShards Failed');
@@ -535,13 +538,13 @@ con.connect(function(err) {
   if (err) throw err;
 });
 
-var mysqlp = require('mysql');
+var mysqlp = require('mysql2');
 var pool  = mysqlp.createPool({
   connectionLimit : 100,
   host            : 'localhost',
   user: "username",
   password: "password",
-  database        : 'ftreeFileMgr',
+  database: "ftreeFileMgr",
   dateStrings     : "date",
   multipleStatements: true,
   supportBigNumbers : true
@@ -557,7 +560,7 @@ function dbResult(con,resolve,value){
 function dbFail(con,resolve,msg){
   con.rollback();
   con.release();
-  console.log(msg);
+  console.log('dbFAIL::',msg);
   return resolve({result:false,msg:'dbERROR : '+msg});
 }
 function getRandomInt(max) {
