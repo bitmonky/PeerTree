@@ -35,7 +35,8 @@ CREATE TABLE `tblRepo` (
   PRIMARY KEY (`repoID`),
   KEY `ndxRepoName` (`repoName`),
   KEY `ndxRepoLastUpdate` (`repoLastUpdate`),
-  KEY `ndxRepoOwner` (`repoOwner`)
+  KEY `ndxRepoOwner` (`repoOwner`),
+  KEY `ndxRepoType` (`repoType`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -159,4 +160,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2024-02-23 11:03:06
+-- Dump completed on 2024-02-23 11:08:34
