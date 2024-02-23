@@ -323,8 +323,8 @@ class ftreeFileMgrCellReceptor{
   createLocalRepo(repo){
     return new Promise((resolve,reject)=>{
       var SQL = "INSERT INTO `ftreeFileMgr`.`tblRepo` " +
-      "(`repoName`,`repoPubKey`,`repoOwner`,`repoLastUpdate`,`repoSignature`,`repoHash`,`repoCopies`) " +
-      "VALUES ('"+repo.name+"','"+repo.pubKey+"','"+repo.from+"',now(),'NS','NA',"+repo.nCopys+");" +
+      "(`repoName`,`repoPubKey`,`repoOwner`,`repoLastUpdate`,`repoSignature`,`repoHash`,`repoCopies`,`repoType`) " +
+      "VALUES ('"+repo.name+"','"+repo.pubKey+"','"+repo.from+"',now(),'NS','NA',"+repo.nCopys+",'Master');" +
       "SELECT LAST_INSERT_ID()newRepoID;";
       var newRepoID = null
       return pool.getConnection((err, con)=>{
@@ -386,7 +386,8 @@ class ftreeFileMgrCellReceptor{
       var signature = this.shardToken.signToken(token);
       console.log('Signing Token: ',token);
       var SQL = "update `ftreeFileMgr`.`tblRepo` " +
-      "set repoPubKey = '"+this.shardToken.publicKey+"',repoSignature = '"+signature+"',repoHash = '"+rhash+"'  where repoID = "+repoID;
+      "set repoPubKey = '"+this.shardToken.publicKey+"',repoSignature = '"+signature+"',repoHash = '"+rhash+"',repoLastUpdate=now() "+
+      "where repoID = "+repoID;
       con.query(SQL , (err, result,fields)=>{
         if (err){
           console.log(err);
@@ -799,7 +800,8 @@ class ftreeFileMgrObj {
     return new Promise(async(resolve,reject)=>{
       var repoID = await this.receptor.getRepoID(repo);
       var SQL = "update `ftreeFileMgr`.`tblRepo` " +
-      "set repoSignature = '"+repo.data.repoSignature+"',repoHash = '"+repo.data.repoHash+"'  where repoID = "+repoID;
+      "set repoSignature = '"+repo.data.repoSignature+"',repoHash = '"+repo.data.repoHash+"',repoLastUpdate='"+repo.data.repoLastUpdate+
+      "' where repoID = "+repoID;
       console.log('Updating Repo Hash: ',repo);
       console.log('Updating Repo Hash: ',SQL);
       con.query(SQL , (err, result,fields)=>{
@@ -878,8 +880,9 @@ class ftreeFileMgrObj {
     return new Promise((resolve,reject)=>{
     const d = r.data;
     var SQL = "INSERT INTO `ftreeFileMgr`.`tblRepo` " +
-      "(`repoName`,`repoPubKey`,`repoOwner`,`repoLastUpdate`,`repoSignature`,`repoHash`,`repoCopies`) " +
-      "VALUES ('"+d.repoName+"','"+d.repoPubKey+"','"+d.repoOwner+"','"+d.repoLastUpdate+"','"+d.repoSignature+"','"+d.repoHash+"',"+d.repoCopies+");" +
+      "(`repoName`,`repoPubKey`,`repoOwner`,`repoLastUpdate`,`repoSignature`,`repoHash`,`repoCopies`,`repoType`) " +
+      "VALUES ('"+d.repoName+"','"+d.repoPubKey+"','"+d.repoOwner+"','"+d.repoLastUpdate+"','"+d.repoSignature+"','"+d.repoHash+"',"+d.repoCopies+
+      ",'Public');" +
       "SELECT LAST_INSERT_ID()newRepoID;";
       con.query(SQL , async (err, result,fields)=>{
         if (err){
