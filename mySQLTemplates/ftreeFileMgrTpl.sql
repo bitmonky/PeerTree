@@ -31,6 +31,7 @@ CREATE TABLE `tblRepo` (
   `repoSignature` varchar(245) DEFAULT NULL,
   `repoHash` varchar(84) DEFAULT NULL,
   `repoCopies` int(11) DEFAULT NULL,
+  `repoType` varchar(15) DEFAULT NULL,
   PRIMARY KEY (`repoID`),
   KEY `ndxRepoName` (`repoName`),
   KEY `ndxRepoLastUpdate` (`repoLastUpdate`),
@@ -158,4 +159,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2024-02-05 17:35:38
+-- Dump completed on 2024-02-23 10:54:30
