@@ -175,7 +175,7 @@ class ftreeFileMgrCellReceptor{
                 return;
               }
               if (j.msg.req == 'deleteShard'){
-                this.reqDeleteShard(j.msg,res);
+                this.reqDeleteRSfile(j.msg,res);
                 return;
               }
 
@@ -445,6 +445,38 @@ class ftreeFileMgrCellReceptor{
     }
     return result;
   }
+  deleteLocalRepoFile(repo,doSignRepo=true){
+    return new Promise(async (resolve,reject)=>{
+      var repoFileID = await this.getRepoFileID(repo);
+
+      var f = repo.file;
+      var SQL = "Delete From `ftreeFileMgr`.`tblShardFileMgr` where smgrID = "+repoFileID+";"+
+        "Delete From `ftreeFileMgr`.`tblShardFiles` where sfilFileMgrID = ".repoFile.ID;
+      return pool.getConnection((err, con)=>{
+        if (err){ return dbConFail(resolve,'DeleteLocalRepFile::getConnection Failed');}
+        return con.query(SQL , async (err, result,fields)=>{
+          if (err){
+            return dbFail(con,resolve,'Delete File Record Failed');
+          }
+          var actionFail = null;
+	  result.forEach((rec,index)=>{
+            //check each result for success;
+	    if(index === 1){
+              newRFileID = rec[0].newRFileID;
+            }
+          });
+	  if (actionFail){
+            return dbFail(con,resolve,'DeleteLocalRepoFile::insertLocalFileShards Failed Rolled Back');
+	  }	  
+          if (doSignRepo){
+            const rhash = await this.getRepoHash(repo,repoID,con);
+            await this.updateAndSignRepo(repoID,repo.from+repo.name+rhash,rhash,con);
+          }
+          return dbResult(con,resolve,repoID);
+	});	
+      });
+    });
+  }
   insertLocalRepoFile(repo,doSignRepo=true){
     return new Promise(async (resolve,reject)=>{
       var repoID = await this.getRepoID(repo);
@@ -516,6 +548,45 @@ class ftreeFileMgrCellReceptor{
       }
       if (n==IPs.length -1){
         res.end('{"result":"repoInsertFileOK","nStored":'+nStored+',"repo":'+JSON.stringify(j)+',"hosts":'+JSON.stringify(hosts)+'}');
+      }
+      n = n + 1;
+    }
+    return;
+  }
+  async reqDeleteRSfile(j,res){
+    console.log('Delete Repo Shard File:',j);
+    var delFileRepoID = null;
+    const pj = await this.deleteLocalRepoFile(j.repo);
+    if (!pj.result){
+      res.end('{"result":false,"nRecs":0,"repo":"'+pj.msg+'"}');
+      return;
+    }
+    delFileRepoID = pj.value;
+    console.log('Got delFileID: ',delFileRepoID);
+
+    j.repo.data = await this.getLocalRepoRec(delFileRepoID);
+
+    var IPs = await this.peer.getActiveRepoList(j);
+    if (IPs.length == 0){
+      res.end('{"result":false,"nRecs":0,"repo":"No Nodes Available For File Delete"}');
+      return;
+    }
+    var n = 0;
+    var hosts = [];
+    var nStored = 0;
+    for (var IP of IPs){
+      try {
+        var qres = await this.peer.receptorReqUpdateRepoDeleteFile(j,IP);
+        if (qres){
+          nStored = nStored +1;
+          hosts.push({host:qres.remMUID,ip:qres.remIp});
+        }
+      }
+      catch(err) {
+        console.log('repo delete file failed on:',IP);
+      }
+      if (n==IPs.length -1){
+        res.end('{"result":"repoDeleteFileOK","nStored":'+nStored+',"repo":'+JSON.stringify(j)+',"hosts":'+JSON.stringify(hosts)+'}');
       }
       n = n + 1;
     }
@@ -681,8 +752,8 @@ class ftreeFileMgrObj {
   }
   handleReq(res,j){
     //console.log('root recieved: ',j);
-    if (j.req == 'pShardQryResult'){
-      this.pushQryResult(j,res);
+    if (j.req == 'fetchRepo'){
+      this.fetchRepo(j,res);
       return true;
     }
     if (j.req == 'storeRepo'){
@@ -691,6 +762,10 @@ class ftreeFileMgrObj {
     }
     if (j.req == 'updateRepoInsertFile'){
       this.updateRepoInsertFile(j,res);
+      return true;
+    }
+    if (j.req == 'updateRepoDeleteFile'){
+      this.updateRepoDeleteFile(j,res);
       return true;
     }
     if (!this.isRoot && this.status != 'Online'){
@@ -747,7 +822,7 @@ class ftreeFileMgrObj {
     return publicKey.verify(calculateHash(sig.token), sig.signature);
   }
   /********************************************************************************
-  Remote Peer To Peer Modules (Replys):
+  Remote Peer To Peer Modules (Replies):
   =================================================================================
   */
   doSendActiveRepo(j,remIp){
@@ -774,6 +849,27 @@ class ftreeFileMgrObj {
          }
        }
      });
+  }
+  async updateRepoDeleteFile(r,remIp){
+      var result = false;
+      var ermsg  = null;
+      var doSignRepo = false;
+      const pj = await this.receptor.deleteLocalRepoFile(r.repo,doSignRepo);
+      result = pj.result;
+      if (result){
+        if (await this.doUpdateRepoHash(r.repo)){
+          result = true;
+        }
+        else {ermsg = 'Update Repo Hash Record Failed In Delete Repo File action.';}
+      }
+      else {ermsg = 'Update Repo Delete File Record Failed: '+pj.msg;}
+
+      var qres = {
+        req : 'updateRepoDeleteFileResult',
+        result : result,
+        ermsg : ermsg
+      }
+      this.net.sendReply(remIp,qres);
   }
   async updateRepoInsertFile(r,remIp){
       var result = false;
@@ -1028,6 +1124,28 @@ class ftreeFileMgrObj {
       this.net.sendMsg(toIp,req);
       this.net.once('mkyReply', r =>{
         if (r.req = 'updateRepoInsertFileResult' && r.remIp == toIp){
+          clearTimeout(gtime);
+          resolve(r);
+        }
+      });
+    });
+  }
+  receptorReqUpdateRepoDeleteFile(j,toIp){
+    //console.log('receptorReqDeleteRepo',j);
+    return new Promise( (resolve,reject)=>{
+      const gtime = setTimeout( ()=>{
+        console.log('Update Repo Delete File Timeout:');
+        resolve(null);
+      },5000);
+      console.log('Delete Repo File On: ',toIp);
+      var req = {
+        req : 'updateRepoDeleteFile',
+        repo : j.repo
+      }
+
+      this.net.sendMsg(toIp,req);
+      this.net.once('mkyReply', r =>{
+        if (r.req = 'updateRepoDeleteFileResult' && r.remIp == toIp){
           clearTimeout(gtime);
           resolve(r);
         }
