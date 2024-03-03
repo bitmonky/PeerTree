@@ -170,6 +170,10 @@ class ftreeFileMgrCellReceptor{
                 this.reqInsertRSfile(j.msg,res);
                 return;
               }
+              if (j.msg.req == 'deleteRSfile'){
+                this.reqDeleteRSfile(j.msg,res);
+                return;
+              }
               if (j.msg.req == 'requestShard'){
                 this.reqRetrieveShard(j.msg,res);
                 return;
@@ -445,13 +449,47 @@ class ftreeFileMgrCellReceptor{
     }
     return result;
   }
+  getRepoFileID(repo){
+    return new Promise(async (resolve,reject)=>{
+      var fileID = null;
+      var repoID = null;
+      console.log('getRepFileID::',repo);
+      var f = repo.file;
+      var SQL = "SELECT repoID,smgrID FROM ftreeFileMgr.tblRepo " + 
+          "inner join ftreeFileMgr.tblShardFileMgr on repoID = smgrRepoID " +
+          "where  repoName = '"+repo.name+"' and repoOwner = '"+repo.from+"' and smgrFileName = '"+repo.file.filename+"';";
+      return pool.getConnection((err, con)=>{
+        if (err){ return dbConFail(resolve,'getRepoFileID::getConnection Failed');}
+        return con.query(SQL , async (err, result,fields)=>{
+          if (err){
+            return dbFail(con,resolve,'getRepoFileID::sql look failed'+sql);
+          }
+          console.log(SQL,result);
+          if (result.length === 0){
+            return dbFaile(con,resolve,'getRepoFileID::sql empty set'+sql);
+          }		  
+	  fileID = result[0].smgrID;
+          repoID = result[0].repoID;		
+	  return dbResult(con,resolve,{fileID:fileID,repoID:repoID});
+        });		
+      });		
+    });
+  }	  
   deleteLocalRepoFile(repo,doSignRepo=true){
     return new Promise(async (resolve,reject)=>{
-      var repoFileID = await this.getRepoFileID(repo);
+      var repoFileID = null;
+      var repoID     = null;
+      var qr = await this.getRepoFileID(repo);
 
+      if (qr.result){
+	repoFileID = qr.value.fileID;
+        repoID     = qr.value.repoID;
+      }
       var f = repo.file;
       var SQL = "Delete From `ftreeFileMgr`.`tblShardFileMgr` where smgrID = "+repoFileID+";"+
-        "Delete From `ftreeFileMgr`.`tblShardFiles` where sfilFileMgrID = ".repoFile.ID;
+        "Delete From `ftreeFileMgr`.`tblShardFiles` where sfilFileMgrID = "+repoFileID;
+      console.log('deleteLocalRepoFile::',SQL);
+
       return pool.getConnection((err, con)=>{
         if (err){ return dbConFail(resolve,'DeleteLocalRepFile::getConnection Failed');}
         return con.query(SQL , async (err, result,fields)=>{
@@ -461,8 +499,9 @@ class ftreeFileMgrCellReceptor{
           var actionFail = null;
 	  result.forEach((rec,index)=>{
             //check each result for success;
+	    console.log('delete result::',rec);
 	    if(index === 1){
-              newRFileID = rec[0].newRFileID;
+             // newRFileID = rec[0].newRFileID;
             }
           });
 	  if (actionFail){
