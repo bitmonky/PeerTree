@@ -1440,6 +1440,7 @@ class PeerTreeNet extends  EventEmitter {
        this.genNetKeyPair();
        this.nIp = null;
        this.nIp = await(this.netIp());
+       //this.nIp = '172.105.99.203=>192.168.129.43'; //await(this.netIp());
        checkInternetAccess(this.nIp,this.port);
        this.startServer();
        this.rnet = new MkyRouting(this.nIp,this);
@@ -1448,9 +1449,6 @@ class PeerTreeNet extends  EventEmitter {
        setTimeout ( ()=>{
 	 this.heartBeat();
        },this.pulseRate);
-       setTimeout ( ()=>{
-	 this.groupPing(this.nodes,'170.187.179.251');
-       },5*1000);
        resolve(true);
      });
    }
@@ -1720,14 +1718,6 @@ class PeerTreeNet extends  EventEmitter {
         } 		
       }
       
-      /*
-      if (this.isRoot){ 
-        setTimeout( ()=>{
-          this.groupPing(ipList,targetIp);
-        },10000);
-      }
-      */
-      
    }
    reviewTargetStatus(grpPing){
      return 'needs coding';
@@ -1888,9 +1878,12 @@ class PeerTreeNet extends  EventEmitter {
        console.log('remAddress not matching');
        return false;
      }
-
+     var rip = j.remIp;
+     if (j.INTERNIP){
+       rip = rip+'=>'+j.INTERNIP;
+     }
      const publicKey = ec.keyFromPublic(j.remPublicKey, 'hex');
-     const msgHash   = this.calculateHash(j.remIp + j.msgTime);
+     const msgHash   = this.calculateHash(rip + j.msgTime);
      return publicKey.verify(msgHash, j.signature);
   }
   processMsgQue(){
@@ -1941,8 +1934,8 @@ class PeerTreeNet extends  EventEmitter {
   sendMsg(toHost,msg,corx=false){
       if (!toHost) {console.log('Send Message Host '+toHost+' Missing',msg);return;}
       if (!msg)    {console.log('Send Message Msg  Missing');return;} 
+      msg.INTERNIP = this.getInternalIpOnly(this.rnet.myIp);
       toHost = this.getExternlIpOnly(toHost);
-      msg.INTERNIP = this.getInternalIpOnly(toHost);
 
       if (toHost == this.rnet.myIp)
         return;
@@ -2210,10 +2203,16 @@ function getExternalIp() {
     }
   });
 }
+function getExternlIpOnly(host) {
+  var regex = /=>.*$/;
+  var result = host.replace(regex, '');
+  return result;
+}
 function checkInternetAccess(ip,port=1350){
   const portscanner = require('portscanner');
 
-  const ipAddress = ip;
+  const ipAddress = getExternlIpOnly(ip);
+  console.log('Portscan::',ipAddress);
   const portToCheck = port; // Change this to the port you want to check
 
   portscanner.checkPortStatus(portToCheck, ipAddress, (error, status) => {
