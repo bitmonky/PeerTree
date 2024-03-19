@@ -14,9 +14,10 @@ const options = {
   //cert: fs.readFileSync('/etc/letsencrypt/live/admin.bitmonky.com/fullchain.pem')
 };
 class MkyWebConsole {
-  constructor(network,db=null,bank=null){
+  constructor(network,db=null,bank=null,peerAppName='shardTreeCell'){
     this.db  = db;
     this.bank = bank;
+    this.appName = peerAppName;
     this.dbMon = new MkyDbMonitor(db,bank);
     this.net = network;
     this.srv = webCon.createServer(options, async (req, res) => {
@@ -44,6 +45,21 @@ class MkyWebConsole {
                 var report = this.sendReport();
                 res.end(report);
               }
+              else if (j.what == 'getErLog'){
+                var report = await this.sendErLog(j);
+                res.end(report);
+              }
+              else if (j.what == 'getConsole'){
+                var report = await this.sendConsole(j);
+                res.end(report);
+              }
+              else if (j.what == 'flushLogs'){
+                var report = this.flushLogs();
+                res.end(report);
+              }
+              else { 
+                res.end("No what Handler Found For:\n\n "+JSON.stringify(j));
+              }  
             }
             else 
               res.end("No Handler Found For:\n\n "+JSON.stringify(j));
@@ -63,6 +79,35 @@ class MkyWebConsole {
     this.srv.listen(this.net.wmon);
     console.log('PeerTree networkWebConsole Server running at admin.bitmonky.com:'+this.net.wmon);
   }
+  flushLogs(){
+    const { exec } = require('child_process');
+    exec('pm2 flush '+this.appName, (error, stdout, stderr) => {
+      if (error) {
+        console.error(`exec error: ${error}`);
+        return;
+      }
+    }); 
+    console.log(this.appName+ ': Log files flushed');
+    return this.appName + ': Log files flushed';
+  }
+  async sendErLog(j){
+    const log = await readTextFileToArrayAsync('/root/.pm2/logs/'+this.appName+'-out.log');
+    var erlogPg = {
+      pageNbr    : j.pageNbr,
+      pageLength : j.pageLength,
+      page       : paginateArray(log, j.pageNbr, j.pageLength) 
+    }
+    return JSON.stringify(erlogPg);
+  }
+  async sendConsole(j){
+    const log = await readTextFileToArrayAsync('/root/.pm2/logs/'+this.appName+'-error.log');
+    var erlogPg = {
+      pageNbr    : j.pageNbr,
+      pageLength : j.pageLength,
+      page       : paginateArray(log, j.pageNbr, j.pageLength)
+    }
+    return JSON.stringify(erlogPg);
+  }
   sendReport(){
     var node = {
       r        : this.net.rnet.r,
@@ -78,6 +123,22 @@ class MkyWebConsole {
     return JSON.stringify(node);
   }
 };
-
+function readTextFileToArrayAsync(filename) {
+  return new Promise((resolve, reject) => {
+    fs.readFile(filename, 'utf8', (err, data) => {
+      if (err) {
+        resolve(err.message.split('\n'));
+      } else {
+        const linesArray = data.split('\n');
+        resolve(linesArray);
+      }
+    });
+  });
+}
+function paginateArray(logs, pageNumber, pageLength) {
+    const startIndex = (pageNumber - 1) * pageLength;
+    const endIndex = startIndex + pageLength;
+    return logs.slice(startIndex, endIndex);
+}
 module.exports.MkyWebConsole = MkyWebConsole;
 

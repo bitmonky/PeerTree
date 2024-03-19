@@ -9,12 +9,11 @@ var dateFormat     = require('./mkyDatef');
 const EventEmitter = require('events');
 const https        = require('https');
 const fs           = require('fs');
-const mkyPubKey    = '04a5dc8478989c0122c3eb6750c08039a91abf175c458ff5d64dbf448df8f1ba6ac4a6839e5cb0c9c711b15e85dae98f04697e4126186c4eab425064a97910dedc';
 const EC           = require('elliptic').ec;
 const ec           = new EC('secp256k1');
 const bitcoin      = require('bitcoinjs-lib');
 const crypto       = require('crypto');
-const mysql        = require('mysql');
+const mysql        = require('mysql2');
 const schedule     = require('node-schedule');
 const {MkyWebConsole} = require('./networkWebConsole.js');
 const {pcrypt}        = require('./peerCrypt');
@@ -574,7 +573,7 @@ class shardTreeObj {
        else {
          var sownID = null;
          if (result.length == 0){
-           console.log('Shard Owner Not Found On This Node.');
+           console.log('DoSendShardToOwner:: Shard Owner Not Found On This Node.');
            return;
          }
          else {
@@ -592,7 +591,7 @@ class shardTreeObj {
              this.net.sendReply(remIp,qres);
            }    
            catch (err) {
-             console.log('error reading from srootTree:',err);
+             console.log('error reading from srootTree::Shared Not On Node');
              //console.log('Wallet Created And Saved!');
            }
            return;
@@ -643,7 +642,7 @@ class shardTreeObj {
        else {
          var sownID = null;
          if (result.length == 0){
-           console.log('Shard Owner Not Found On This Node.');
+           console.log('doDeleteAllByOwner:: Shard Owner Not Found On This Node.');
            return;
          }
          else {
@@ -789,8 +788,10 @@ class shardTreeObj {
   }
   receptorReqSendMyShard(j){
     return new Promise( (resolve,reject)=>{
+      var mkyReply = null;
       const gtime = setTimeout( ()=>{
         console.log('Send Shard Request Timeout:',j);
+        this.net.removeListener('mkyReply', mkyReply);
         resolve(null);
       },20*1000);
       //console.log('bcasting reques for shard data: ',j);
@@ -801,23 +802,26 @@ class shardTreeObj {
       }
 
       this.net.broadcast(req);
-      this.net.once('mkyReply', r =>{
+      this.net.on('mkyReply',mkyReply = (r) =>{
         //console.log('mkyReply is:',r);
 	if (r.req == 'pShardDataResult'){
           //console.log('shardData Request',r);
           clearTimeout(gtime);
+          this.net.removeListener('mkyReply', mkyReply);
           resolve(r);
         }
       });
     });
   }
   receptorReqStoreShard(j,toIp){
-    //console.log('receptorReqStoreShard',j);
+    console.log('receptorReqStoreShard');
     return new Promise( (resolve,reject)=>{	  
+      var mkyReply = null;
       const gtime = setTimeout( ()=>{
-        console.log('Store Request Timeout:');
+        console.log('Store Request Timeout:5000');
+        this.net.removeListener('mkyReply', mkyReply);
         resolve(null);
-      },500);  
+      },5000);  
       console.log('Store Shard To: ',toIp);
       var req = {
         req : 'storeShard',
@@ -825,10 +829,11 @@ class shardTreeObj {
       }
 
       this.net.sendMsg(toIp,req);
-      this.net.once('mkyReply', r =>{
+      this.net.on('mkyReply',mkyReply = (r) =>{
         if (r.shardStoreRes && r.remIp == toIp){
-          //console.log('shardStoreRes OK!!',r);
+          console.log('shardStoreRes OK!!');
           clearTimeout(gtime);
+          this.net.removeListener('mkyReply', mkyReply);
 	  resolve(r);
         }		    
       });
@@ -873,8 +878,8 @@ class shardTreeObj {
     console.log('got request store shard',j.shard.signature);
     if (!this.isValidSig(j.shard.signature)){
       console.log('Shard Signature Invalid... NOT stored');
-        this.net.endRes(remIp,'{"shardStoreRes":false,"error":"Invalid Signature For Request"');
-        return;
+      this.net.endRes(remIp,'{"shardStoreRes":false,"error":"Invalid Signature For Request"');
+      return;
     }
     var SQL = "select sownID from shardTree.shardOwners where sownMUID = '"+j.shard.from+"'";
     con.query(SQL , async(err, result,fields)=>{
@@ -888,6 +893,7 @@ class shardTreeObj {
 	if (result.length == 0){
           sownID = await this.createNewSOWN(j.shard.from);
           if (!sownID){
+            console.log('{"shardStoreRes":false,"error":"failed to create new owner record for shardOwner"}',remIp);
             this.net.endRes(remIp,'{"shardStoreRes":false,"error":"failed to create new owner record for shardOwner"}');
             return null;
           }
@@ -920,6 +926,7 @@ class shardTreeObj {
 	  else {
 	    this.createInvoiceRec(sownID,j.shard.hash,j.shard.signature);
             this.net.endRes(remIp,'{"shardStoreRes":true,"shardStorHash":"' + j.shard.hash + '"}');
+            console.log('{"shardStoreRes":true,"shardStorHash":"' + j.shard.hash + '"}',remIp);
 	  }
         });
       });

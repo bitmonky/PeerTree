@@ -1441,7 +1441,7 @@ class PeerTreeNet extends  EventEmitter {
        this.nIp = null;
        this.nIp = await(this.netIp());
        //this.nIp = '172.105.99.203=>192.168.129.43'; //await(this.netIp());
-       checkInternetAccess(this.nIp,this.port);
+       //checkInternetAccess(this.nIp,this.port);
        this.startServer();
        this.rnet = new MkyRouting(this.nIp,this);
        this.gpow = new gPowKey(this.nIp,this);
@@ -1621,7 +1621,9 @@ class PeerTreeNet extends  EventEmitter {
           }
         }
         else {
-          this.endResCX(res,'Welcome To PeerTree Network Sevices\nWaiting...\n' + decodeURI(req.url) + ' You Are: ' + this.remIp );
+          res.writeHead(200);
+          res.end('{"result":"Welcome To PeerTree Network Sevices\nWaiting...\n' + decodeURI(req.url) + ' You Are: ' + this.remIp+'"}\n');
+          this.endResCX(res,'Welcome To PeerTree Network Sevices\nWaiting...\n' + decodeURI(req.url) + ' You Are: ' + this.remIp+'\n');
           clearTimeout(this.svtime);
           this.resHandled = true;
         }}
@@ -1744,13 +1746,15 @@ class PeerTreeNet extends  EventEmitter {
      };	     
      var hListener = null;
      var rListener = null;
-     this.rnet.net.once('xhrFail',hListener = (J)=>{
+     this.rnet.net.on('xhrFail',hListener = (J)=>{
+       this.rnet.net.removeListener('xhrFail', hListener);
        reply.gpingResult.targetIP = j.target;
        reply.gpingResult.pStatus  = 'targDead';
        reply.gpingResult.ptime    = null;
        this.sendReplyCX(j.remIp,reply);
      });
-     this.rnet.net.once('peerTReply',rListener  = (J)=>{
+     this.rnet.net.on('peerTReply',rListener  = (J)=>{
+       this.rnet.net.removeListener('peerTReply', rListener);
        var pres = {
          pingTargResult : {
   	   ptime   : Date.now() - reply.gpingResult.ptime,
