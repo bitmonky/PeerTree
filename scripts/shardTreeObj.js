@@ -101,7 +101,6 @@ class peerShardToken{
 
         var wallet = '{"shardOwnMUID":"'+ this.branchMUID+'","publicKey":"' + this.publicKey + '","privateKey":"' + this.privateKey + '",';
         wallet += '"shardCipher":"'+this.shardCipher+'"}';
-        console.log(wallet);
 	fs.writeFile('keys/peerShardToken.key', wallet, function (err) {
           if (err) throw err;
          //console.log('Wallet Created And Saved!');
@@ -124,7 +123,6 @@ class shardTreeCellReceptor{
       cert: fs.readFileSync('keys/fullchain.pem')
     };
     this.shardToken = new peerShardToken();
-    console.log(this.shardToken);
     var bserver = https.createServer(options, (req, res) => {
       if (req.url == '/keyGEN'){
         // Generate a new key pair and convert them to hex-strings

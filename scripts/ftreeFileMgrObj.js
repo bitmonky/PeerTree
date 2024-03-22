@@ -166,6 +166,14 @@ class ftreeFileMgrCellReceptor{
                 this.reqCreateRepo(j.msg,res);
                 return;
 	      }	      
+              if (j.msg.req == 'getMyRepoList'){
+                this.reqReadMyRepoList(res);
+                return;
+              }
+              if (j.msg.req == 'getMyRepoFiles'){
+                this.reqReadMyRepoFiles(j.msg,res);
+                return;
+              }
               if (j.msg.req == 'insertRSfile'){
                 this.reqInsertRSfile(j.msg,res);
                 return;
@@ -256,6 +264,10 @@ class ftreeFileMgrCellReceptor{
   async reqCreateRepo(j,res){
     console.log('CreateRepoReq:',j);
     var newRepoID = null;
+    if(await this.repoExists(j.repo.name,j.repo.from) > 0){
+      res.end('{"result":"repoFail","nRecs":0,"repo":"Repo Already Exists"}');
+      return;
+    }
     const pj = await this.createLocalRepo(j.repo);
     console.log('Local Repo Create Status:',pj);
     if (!pj.result){	  
@@ -294,6 +306,76 @@ class ftreeFileMgrCellReceptor{
       n = n + 1;
     }
     return;
+  }
+  async reqReadMyRepoList(res){
+    const result = {
+      result : true,
+      list   : await this.doReadMyRepoList()
+    }
+    res.end(JSON.stringify(result));
+  }
+  doReadMyRepoList(){
+    return new Promise((resolve,reject)=>{
+      var SQL = "select * FROM `ftreeFileMgr`.`tblRepo` where NOT repoType = 'Public'";
+      con.query(SQL , (err, result,fields)=>{
+        if (err){
+          console.log(err);
+          resolve(null);
+          return;
+        }
+        resolve(result);
+      });
+    });
+  }
+  async reqReadMyRepoFiles(j,res){
+    const result = {
+      result : true,
+      list   : await this.doReadMyRepoFiles(j)
+    }
+    res.end(JSON.stringify(result));
+  }
+  doReadMyRepoFiles(j){
+    return new Promise((resolve,reject)=>{
+      var SQL = "select tblShardFileMgr.* FROM `ftreeFileMgr`.`tblRepo` "+
+        "inner join `ftreeFileMgr`.`tblShardFileMgr` on repoID = smgrRepoID "+
+        "where repoName = '"+j.repo.name+"' and repoOwner = '"+j.repo.from+"'";
+      con.query(SQL , (err, result,fields)=>{
+        if (err){
+          console.log(err);
+          resolve(null);
+          return;
+        }
+        resolve(result);
+      });
+    });
+  }
+  repoExists(name,owner){
+    return new Promise((resolve,reject)=>{
+      var SQL = "select count(*)nRec FROM `ftreeFileMgr`.`tblRepo` where repoName = '"+name+"' and repoOwner = '"+owner+"'";
+      con.query(SQL , (err, result,fields)=>{
+        if (err){
+          console.log(err);
+          resolve(null);
+          return;
+        }
+        resolve(result[0].nRec);
+      });
+    });
+  }
+  repoFileExists(filename,rname,owner){
+    return new Promise((resolve,reject)=>{
+      var SQL = "select count(*)nRec FROM `ftreeFileMgr`.`tblRepo` "+
+         "inner join `ftreeFileMgr`.`tblShardFileMgr` on repoID = smgrRepoID "+
+         "where repoName = '"+rname+"' and repoOwner = '"+owner+"' and smgrFileName = '"+filename+"'";
+      con.query(SQL , (err, result,fields)=>{
+        if (err){
+          console.log(err);
+          resolve(null);
+          return;
+        }
+        resolve(result[0].nRec);
+      });
+    });
   }
   getRepoHash(repo,repoID,con){
     return new Promise((resolve,reject)=>{
@@ -556,6 +638,11 @@ class ftreeFileMgrCellReceptor{
   async reqInsertRSfile(j,res){
     console.log('Insert Repo Shard File:',j);
     var newFileRepoID = null;
+    if (await this.repoFileExists(j.repo.file,j.repo.name,j.repo.from) > 0){
+      res.end('{"result":false,"nRecs":0,"repo":"Repo'+j.repo.name+' File Aready Exists: '+j.repo.file+'"}');
+      return;
+    }
+    
     const pj = await this.insertLocalRepoFile(j.repo);
     if (!pj.result){
       res.end('{"result":false,"nRecs":0,"repo":"'+pj.msg+'"}');
@@ -684,7 +771,7 @@ class ftreeFileMgrObj {
     this.status     = 'starting';
     this.net        = peerTree;
     this.receptor   = null;
-    this.wcon       = new MkyWebConsole(this.net,con,this);
+    this.wcon       = new MkyWebConsole(this.net,con,this,'ftreeFileMgrCell');
     this.init();
     this.setNetErrHandle();
     this.sayHelloPeerGroup();
@@ -1150,8 +1237,10 @@ class ftreeFileMgrObj {
   receptorReqUpdateRepoInsertFile(j,toIp){
     //console.log('receptorReqCreateRepo',j);
     return new Promise( (resolve,reject)=>{
+      var mkyReply = null;
       const gtime = setTimeout( ()=>{
         console.log('Update Repo Insert File Timeout:');
+        this.net.removeListener('mkyReply', mkyReply);
         resolve(null);
       },5000);
       console.log('Store Repo To: ',toIp);
@@ -1161,9 +1250,10 @@ class ftreeFileMgrObj {
       }
 
       this.net.sendMsg(toIp,req);
-      this.net.once('mkyReply', r =>{
+      this.net.on('mkyReply',mkyReply = (r) =>{
         if (r.req = 'updateRepoInsertFileResult' && r.remIp == toIp){
           clearTimeout(gtime);
+          this.net.removeListener('mkyReply', mkyReply);
           resolve(r);
         }
       });
@@ -1172,8 +1262,10 @@ class ftreeFileMgrObj {
   receptorReqUpdateRepoDeleteFile(j,toIp){
     //console.log('receptorReqDeleteRepo',j);
     return new Promise( (resolve,reject)=>{
+      var mkyReply = null;
       const gtime = setTimeout( ()=>{
         console.log('Update Repo Delete File Timeout:');
+        this.net.removeListener('mkyReply', mkyReply);
         resolve(null);
       },5000);
       console.log('Delete Repo File On: ',toIp);
@@ -1183,9 +1275,10 @@ class ftreeFileMgrObj {
       }
 
       this.net.sendMsg(toIp,req);
-      this.net.once('mkyReply', r =>{
+      this.net.on('mkyReply',mkyReply = (r) =>{
         if (r.req = 'updateRepoDeleteFileResult' && r.remIp == toIp){
           clearTimeout(gtime);
+          this.net.removeListener('mkyReply', mkyReply);
           resolve(r);
         }
       });
@@ -1194,8 +1287,10 @@ class ftreeFileMgrObj {
   receptorReqCreateRepo(j,toIp){
     //console.log('receptorReqCreateRepo',j);
     return new Promise( (resolve,reject)=>{	  
+      var mkyReply = null;
       const gtime = setTimeout( ()=>{
         console.log('Create New Repo Timeout:');
+        this.net.removeListener('mkyReply', mkyReply);
         resolve(null);
       },5000);  
       console.log('Store Repo To: ',toIp);
@@ -1205,9 +1300,10 @@ class ftreeFileMgrObj {
       }
 
       this.net.sendMsg(toIp,req);
-      this.net.once('mkyReply', r =>{
+      this.net.on('mkyReply',mkyReply = (r) =>{
         if (r.reply == 'repoStoreRes' && r.remIp == toIp){ 
           clearTimeout(gtime);   
+          this.net.removeListener('mkyReply', mkyReply);
 	  resolve(r);
         }		    
       });

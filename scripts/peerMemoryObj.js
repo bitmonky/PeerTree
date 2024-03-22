@@ -8,7 +8,7 @@ const EC           = require('elliptic').ec;
 const ec           = new EC('secp256k1');
 const bitcoin      = require('bitcoinjs-lib');
 const crypto       = require('crypto');
-const mysql        = require('mysql');
+const mysql        = require('mysql2');
 const schedule     = require('node-schedule');
 const {MkyWebConsole} = require('./networkWebConsole.js');
 const {pcrypt}        = require('./peerCrypt');
@@ -372,7 +372,7 @@ class peerMemoryObj {
     this.status   = 'starting';
     this.net      = peerTree;
     this.receptor = null;
-    this.wcon     = new MkyWebConsole(this.net,con,this);
+    this.wcon     = new MkyWebConsole(this.net,con,this,'peerMemoryCell');
     this.init();
     this.setNetErrHandle();
     this.sayHelloPeerGroup();
