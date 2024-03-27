@@ -123,7 +123,6 @@ class ftreeFileMgrCellReceptor{
       cert: fs.readFileSync('keys/fullchain.pem')
     };
     this.shardToken = new peerShardToken();
-    console.log(this.shardToken);
     var bserver = https.createServer(options, (req, res) => {
       if (req.url == '/keyGEN'){
         // Generate a new key pair and convert them to hex-strings
@@ -166,6 +165,14 @@ class ftreeFileMgrCellReceptor{
                 this.reqCreateRepo(j.msg,res);
                 return;
 	      }	      
+              if (j.msg.req == 'createRepoFolder'){
+                this.reqCreateRepoFolder(j.msg,res);
+                return;
+              }
+              if (j.msg.req == 'getMyRepoFilePath'){
+                this.reqMyRepoFilePath(j.msg,res);
+                return;
+              }
               if (j.msg.req == 'getMyRepoList'){
                 this.reqReadMyRepoList(res);
                 return;
@@ -309,10 +316,32 @@ class ftreeFileMgrCellReceptor{
   }
   async reqReadMyRepoList(res){
     const result = {
-      result : true,
-      list   : await this.doReadMyRepoList()
+      result  : true,
+      list    : await this.doReadMyRepoList()
     }
     res.end(JSON.stringify(result));
+  }
+  doReadMyRepoFolders(j){
+    return new Promise((resolve,reject)=>{
+      var fid = null;
+      if (j.repo.parentID === null){
+        fid = " and rfoldParentID is null ";
+      }
+      else {
+        fid = " and rfoldParentID ="+j.repo.parentID;
+      }
+      var SQL = "select tblRepoFolder.* FROM `ftreeFileMgr`.`tblRepo` "+
+        "inner join `ftreeFileMgr`.`tblRepoFolder` on repoID = rfoldRepoID "+
+        "where repoName = '"+j.repo.name+"' and repoOwner = '"+j.repo.from+"' "+fid;
+      con.query(SQL , (err, result,fields)=>{
+        if (err){
+          console.log(err);
+          resolve(null);
+          return;
+        }
+        resolve(result);
+      });
+    });
   }
   doReadMyRepoList(){
     return new Promise((resolve,reject)=>{
@@ -329,16 +358,21 @@ class ftreeFileMgrCellReceptor{
   }
   async reqReadMyRepoFiles(j,res){
     const result = {
-      result : true,
-      list   : await this.doReadMyRepoFiles(j)
+      result  : true,
+      folders : await this.doReadMyRepoFolders(j),
+      list    : await this.doReadMyRepoFiles(j)
     }
     res.end(JSON.stringify(result));
   }
   doReadMyRepoFiles(j){
     return new Promise((resolve,reject)=>{
+      var fld = ' and smgrFileFolderID is null';      
+      if(j.repo.parentID !== null){
+        fld = ' and smgrFileFolderID = '+j.repo.parentID;
+      }
       var SQL = "select tblShardFileMgr.* FROM `ftreeFileMgr`.`tblRepo` "+
         "inner join `ftreeFileMgr`.`tblShardFileMgr` on repoID = smgrRepoID "+
-        "where repoName = '"+j.repo.name+"' and repoOwner = '"+j.repo.from+"'";
+        "where repoName = '"+j.repo.name+"' and repoOwner = '"+j.repo.from+"' "+fld;
       con.query(SQL , (err, result,fields)=>{
         if (err){
           console.log(err);
@@ -402,6 +436,87 @@ class ftreeFileMgrCellReceptor{
             });
             resolve(this.shardToken.calculateHash(hstr));
           }
+        }
+      });
+    });
+  }
+  async reqCreateRepoFolder(j,res){
+    const result = {
+      result : await this.createLocalFolder(j.repo),
+      msg : "OK"
+    }
+    res.end(JSON.stringify(result));
+  }
+  async reqMyRepoFilePath(j,res){
+    var folders = [];
+    if (j.repo.fname === null || j.repo.fname == ''){
+      res.end(JSON.stringify({result:true,path:'/',folders:[]}));
+      return;
+    }
+    var path = "/"+j.repo.fname;
+    var folderID = j.repo.folderID;
+    folders.push({name:j.repo.fname,fnbr:j.repo.folderID});
+    var pf = null;
+    while (folderID){
+      pf = await this.getParentFolder(folderID);
+      if (pf){
+        folderID = pf.parentID;
+        if (folderID){
+          path = pf.name+path;
+          folders.push({name:pf.name,fnbr:folderID});
+        }
+      }
+      else {
+        res.end(JSON.stringify({result:false,error:'Failed To Get Path Form Database'}));
+        return;
+      }
+    }
+    const result = {
+      result : true,
+      path   : path,
+      folders : folders
+    }
+    res.end(JSON.stringify(result));
+  }
+  getParentFolder(folderID){
+    return new Promise(async (resolve,reject)=>{
+      var SQL = "select rfoldName,rfoldParentID from `ftreeFileMgr`.`tblRepoFolder` where rfoldID = "+folderID;
+      con.query(SQL , async (err, result,fields)=>{
+        if (err){
+          console.log(err);
+          resolve(null);
+        }
+        else {
+          console.log(result);
+          resolve ({name:result[0].rfoldName,parentID:result[0].rfoldParentID});
+        }
+      });
+    });
+  }
+  createLocalFolder(repo){
+    return new Promise(async (resolve,reject)=>{
+      if (repo.parent === null){
+        repo.parent = 'null';
+      }
+      const repoID = await this.getRepoID(repo);
+
+      var SQL = "INSERT INTO `ftreeFileMgr`.`tblRepoFolder` (`rfoldRepoID`,`rfoldName`,`rfoldParentID`) "+
+        "VALUES ("+repoID+",'"+repo.folder+"',"+repo.parent+");" +
+        "SELECT LAST_INSERT_ID()newFolderID;";
+      var newFolderID = null;
+      con.query(SQL , async (err, result,fields)=>{
+        if (err){
+          console.log(err);
+          resolve(false);
+        }
+        else {
+          console.log(result);
+          result.forEach((rec,index)=>{
+            if(index === 1){
+              newFolderID = rec[0].newFolderID;
+            }
+          });
+          resolve (newFolderID);
         }
       });
     });
@@ -840,6 +955,7 @@ class ftreeFileMgrObj {
     return new Promise( (resolve,reject)=>{
       var SQL = "";
       SQL =  "truncate table ftreeFileMgr.tblRepo; ";
+      SQL += "truncate table ftreeFileMgr.tblRepoFolder; ";
       SQL += "truncate table ftreeFileMgr.tblShardFileMgr; ";
       SQL += "truncate table ftreeFileMgr.tblShardFiles; ";
       SQL += "truncate table ftreeFileMgr.tblShardHosts; ";
