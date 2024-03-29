@@ -415,7 +415,7 @@ class ftreeFileMgrCellReceptor{
     return new Promise((resolve,reject)=>{
       var hstr = repo.ownerMUID+repo.name;
       var SQL = "select smgrID, concat(smgrFileName,smgrCheckSum,smgrDate,smgrExpires,smgrEncrypted,smgrFileType,smgrFileSize,"+
-          "smgrFVersionNbr,smgrSignature,smgrShardList) hstr, "+
+          "smgrFVersionNbr,smgrSignature,smgrShardList,smgrFileFolderID,smgrFilePath) hstr, "+
           "concat(sfilCheckSum,sfilShardHash,sfilNCopies,sfilDate,sfilExpires,sfilEncrypted,sfilShardNbr) sfilStr "+
           "FROM `ftreeFileMgr`.`tblShardFileMgr`"+
           "inner join  `ftreeFileMgr`.`tblShardFiles` on sfilFileMgrID = smgrID "+
@@ -718,16 +718,20 @@ class ftreeFileMgrCellReceptor{
       var repoID = await this.getRepoID(repo);
 
       var f = repo.file;
+      if (repo.folderID === null || repo.folderID == ''){
+        repo.folderID = 'null';
+      }
+      console.log(repo);
       var SQL = "INSERT INTO `ftreeFileMgr`.`tblShardFileMgr` (`smgrRepoID`,`smgrFileName`,`smgrCheckSum`,`smgrDate`,`smgrExpires`,`smgrEncrypted`,"+
-        "`smgrFileType`,`smgrFileSize`,`smgrFVersionNbr`,`smgrSignature`,`smgrShardList`) "+
+        "`smgrFileType`,`smgrFileSize`,`smgrFVersionNbr`,`smgrSignature`,`smgrShardList`,`smgrFileFolderID`,`smgrFilePath`) "+
         "VALUES ("+repoID+",'"+f.filename+"','"+f.checksum+"',now(),now(),0,'"+f.type+"',"+
-        "0,0,'NA','NA');"+
+        "0,0,'NA','NA',"+repo.folderID+",'"+repo.path+"');"+
         "SELECT LAST_INSERT_ID()newRFileID;";
       return pool.getConnection((err, con)=>{
         if (err){ return dbConFail(resolve,'InsertLocalRepFile::getConnection Failed');}
         return con.query(SQL , async (err, result,fields)=>{
           if (err){
-            return dbFail(con,resolve,'Insert File Record Failed');
+            return dbFail(con,resolve,'Insert File Record Failed'+SQL);
           }
           var newRFileID = null;
           result.forEach((rec,index)=>{
