@@ -50,7 +50,104 @@ function ftreeCreateRepo($muid,$name,$nCopys){
 
    $bcRes = tryJFetchURL($post,'POST');
    return $bcRes;
+}
+function ftreeCreateRepoFolder($muid,$name,$folder,$parent){
+   $j = new stdClass;
+   $j->from      = $muid;
+   $j->name      = $name;
+   $j->folder    = $folder;
+   $j->parent    = $parent;
+
+   $post = new stdClass;
+   $post->url   = $GLOBALS['PTC_ftreeRECEPTOR']."/netREQ";
+   $post->postd = '{"msg":{"req":"createRepoFolder","repo":'.json_encode($j).'}}';
+
+   $bcRes = tryJFetchURL($post,'POST');
+   return $bcRes;
 }	
+function ftreeGetMyRepos($muid){
+   $j = new stdClass;
+   $j->from      = $muid;
+
+   $post = new stdClass;
+   $post->url   = $GLOBALS['PTC_ftreeRECEPTOR']."/netREQ";
+   $post->postd = '{"msg":{"req":"getMyRepoList","repo":'.json_encode($j).'}}';
+
+   $bcRes = tryJFetchURL($post,'POST');
+   return $bcRes;
+}
+function ftreeGetMyRepoPath($muid,$name,$fname,$folderID){
+   $j = new stdClass;
+   $j->from     = $muid;
+   $j->name     = $name;
+   $j->fname    = $fname;
+   $j->folderID = $folderID;
+
+   $post = new stdClass;
+   $post->url   = $GLOBALS['PTC_ftreeRECEPTOR']."/netREQ";
+   $post->postd = '{"msg":{"req":"getMyRepoFilePath","repo":'.json_encode($j).'}}';
+
+   $bcRes = tryJFetchURL($post,'POST');
+   return $bcRes;
+}
+function ftreeGetMyRepoFiles($muid,$name,$fparentID=null){
+   $j = new stdClass;
+   $j->from      = $muid;
+   $j->name      = $name;
+   $j->parentID  = $fparentID;
+
+   $post = new stdClass;
+   $post->url   = $GLOBALS['PTC_ftreeRECEPTOR']."/netREQ";
+   $post->postd = '{"msg":{"req":"getMyRepoFiles","repo":'.json_encode($j).'}}';
+
+   $bcRes = tryJFetchURL($post,'POST');
+   return $bcRes;
+}
+function ftreeGetFileFromRepo($muid,$name,$file,$path,$folderID){
+   $j = new stdClass;
+   $j->from      = $muid;
+   $j->name      = $name;
+   $j->file      = $file;
+   $j->path      = $path;
+   $j->folderID  = $folderID;
+
+   $post = new stdClass;
+   $post->url   = $GLOBALS['PTC_ftreeRECEPTOR']."/netREQ";
+   $post->postd = '{"msg":{"req":"getRepoFileData","repo":'.json_encode($j).'}}';
+
+   $bcRes = tryJFetchURL($post,'POST');
+   return $bcRes;
+}
+function ftreeInsertFileToRepo($muid,$name,$file,$path,$folderID,$nCopys){
+   $j = new stdClass;
+   $j->from      = $muid;
+   $j->name      = $name;
+   $j->file      = $file;
+   $j->path      = $path;
+   $j->folderID  = $folderID;
+   $j->nCopys    = 0 + $nCopys;
+
+   $post = new stdClass;
+   $post->url   = $GLOBALS['PTC_ftreeRECEPTOR']."/netREQ";
+   $post->postd = '{"msg":{"req":"insertRSfile","repo":'.json_encode($j).'}}';
+
+   $bcRes = tryJFetchURL($post,'POST');
+   return $bcRes;
+}
+function ftreeDeleteFileFromRepo($muid,$name,$file,$nCopys){
+   $j = new stdClass;
+   $j->from      = $muid;
+   $j->name      = $name;
+   $j->file      = $file;
+   $j->nCopys    = 0 + $nCopys;
+
+   $post = new stdClass;
+   $post->url   = $GLOBALS['PTC_ftreeRECEPTOR']."/netREQ";
+   $post->postd = '{"msg":{"req":"deleteRSfile","repo":'.json_encode($j).'}}';
+
+   $bcRes = tryJFetchURL($post,'POST');
+   return $bcRes;
+}
 function ptreeStoreShard($muid,$hash,$shard,$encrypt=null,$nCopys=3,$expires=null){
    $j = new stdClass;
    $j->from      = $muid;
