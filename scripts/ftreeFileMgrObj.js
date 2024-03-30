@@ -388,7 +388,7 @@ class ftreeFileMgrCellReceptor{
     });
   }
   async reqGetRepoFileData(j,res){
-    var fdata = await doReadRepoLocalFileShards(j);
+    var fdata = await this.doReadRepoLocalFileShards(j);
     var result = null;
     if (fdata){
       result = {
@@ -403,20 +403,23 @@ class ftreeFileMgrCellReceptor{
   }
   doReadRepoLocalFileShards(j){
     return new Promise(async (resolve,reject)=>{
-      var repoID = await repoIsMaster(j.repo.name,j.repo.from);
+      var repoID = await this.repoIsMaster(j.repo.name,j.repo.from);
       if (!repoID){
         resolve(null);
         return;
       }
-      var fileCheckSum = await getFileCheckSum(j.repo.file.filename,j.repo.path,j.repo.name,j.repo.from);
+      console.log(j);
+      var fileCheckSum = await this.getFileCheckSum(j.repo.file,j.repo.path,j.repo.name,j.repo.from);
       if (!fileCheckSum){
         resolve(null);
         return;
       }
+      var outpath = j.repo.path
+      if(outpath === null){outpath = '/';}
       var SQL = "select sfilShardHash shardID ,sfilNCopies nStored FROM `ftreeFileMgr`.`tblRepo` " +
         "inner join `ftreeFileMgr`.`tblShardFileMgr` on repoID = smgrRepoID " +
-        "inner join `ftreeFileMgr`.`tblShardFiles` on sfilFileMgrID = smgrFileID " +
-        "where repoID = "+repoID+" and smgrFileName = '"+j.repo.file.filename+"' and smgrFilePath = '"+j.repo.path+"' " +
+        "inner join `ftreeFileMgr`.`tblShardFiles` on sfilFileMgrID = smgrID " +
+        "where repoID = "+repoID+" and smgrFileName = '"+j.repo.file+"' and smgrFilePath = '"+outpath+"' " +
         "order by smgrID";
       con.query(SQL , (err, result,fields)=>{
         if (err){
@@ -424,21 +427,30 @@ class ftreeFileMgrCellReceptor{
           resolve(null);
           return;
         }
-        resolve({owner:j.repo.from,filename:j.repo.path+j.repo.filename,shards:result,checkSum:fileChecSum});
+        console.log(SQL,result);
+        resolve({owner:j.repo.from,filename:outpath+j.repo.file,shards:result,checkSum:fileCheckSum});
       });
     });
   }
   getFileCheckSum(filename,fpath,rname,owner){
+    
+    if (fpath === null){
+      fpath = "= '/'";
+    }
+    else {
+      fpath = "= '"+fpath+"'";
+    }
     return new Promise((resolve,reject)=>{
       var SQL = "select smgrCheckSum FROM `ftreeFileMgr`.`tblRepo` "+
          "inner join `ftreeFileMgr`.`tblShardFileMgr` on repoID = smgrRepoID "+
-         "where repoName = '"+rname+"' and repoOwner = '"+owner+"' and smgrFileName = '"+filename+"' and smgrFilePage = '"+fpath+"'";
+         "where repoName = '"+rname+"' and repoOwner = '"+owner+"' and smgrFileName = '"+filename+"' and smgrFilePath "+fpath;
       con.query(SQL , (err, result,fields)=>{
         if (err){
           console.log(err);
           resolve(null);
           return;
         }
+        console.log(SQL,result);
         resolve(result[0].smgrCheckSum);
       });
     });
@@ -453,7 +465,11 @@ class ftreeFileMgrCellReceptor{
           resolve(null);
           return;
         }
-        resolve(result[0].repoID);
+        if (result.length > 0){
+          resolve(result[0].repoID);
+          return;
+        }
+        resolve(null);
       });
     });
   }
@@ -799,7 +815,7 @@ class ftreeFileMgrCellReceptor{
       console.log(repo);
       var SQL = "INSERT INTO `ftreeFileMgr`.`tblShardFileMgr` (`smgrRepoID`,`smgrFileName`,`smgrCheckSum`,`smgrDate`,`smgrExpires`,`smgrEncrypted`,"+
         "`smgrFileType`,`smgrFileSize`,`smgrFVersionNbr`,`smgrSignature`,`smgrShardList`,`smgrFileFolderID`,`smgrFilePath`) "+
-        "VALUES ("+repoID+",'"+f.filename+"','"+f.checksum+"',now(),now(),0,'"+f.type+"',"+
+        "VALUES ("+repoID+",'"+f.filename+"','"+f.checksum+"',now(),now(),'"+f.encrypt+"','"+f.type+"',"+
         "0,0,'NA','NA',"+repo.folderID+",'"+repo.path+"');"+
         "SELECT LAST_INSERT_ID()newRFileID;";
       return pool.getConnection((err, con)=>{
