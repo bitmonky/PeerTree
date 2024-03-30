@@ -181,6 +181,10 @@ class ftreeFileMgrCellReceptor{
                 this.reqReadMyRepoFiles(j.msg,res);
                 return;
               }
+              if (j.msg.req == 'getRepoFileData'){
+                this.reqGetRepoFileData(j.msg,res);
+                return;
+              }
               if (j.msg.req == 'insertRSfile'){
                 this.reqInsertRSfile(j.msg,res);
                 return;
@@ -380,6 +384,76 @@ class ftreeFileMgrCellReceptor{
           return;
         }
         resolve(result);
+      });
+    });
+  }
+  async reqGetRepoFileData(j,res){
+    var fdata = await doReadRepoLocalFileShards(j);
+    var result = null;
+    if (fdata){
+      result = {
+        result  : true,
+        file    : fdata
+      }
+    }
+    else {
+      result = {result : false,error:'File not found.'}
+    }
+    res.end(JSON.stringify(result));
+  }
+  doReadRepoLocalFileShards(j){
+    return new Promise(async (resolve,reject)=>{
+      var repoID = await repoIsMaster(j.repo.name,j.repo.from);
+      if (!repoID){
+        resolve(null);
+        return;
+      }
+      var fileCheckSum = await getFileCheckSum(j.repo.file.filename,j.repo.path,j.repo.name,j.repo.from);
+      if (!fileCheckSum){
+        resolve(null);
+        return;
+      }
+      var SQL = "select sfilShardHash shardID ,sfilNCopies nStored FROM `ftreeFileMgr`.`tblRepo` " +
+        "inner join `ftreeFileMgr`.`tblShardFileMgr` on repoID = smgrRepoID " +
+        "inner join `ftreeFileMgr`.`tblShardFiles` on sfilFileMgrID = smgrFileID " +
+        "where repoID = "+repoID+" and smgrFileName = '"+j.repo.file.filename+"' and smgrFilePath = '"+j.repo.path+"' " +
+        "order by smgrID";
+      con.query(SQL , (err, result,fields)=>{
+        if (err){
+          console.log(err);
+          resolve(null);
+          return;
+        }
+        resolve({owner:j.repo.from,filename:j.repo.path+j.repo.filename,shards:result,checkSum:fileChecSum});
+      });
+    });
+  }
+  getFileCheckSum(filename,fpath,rname,owner){
+    return new Promise((resolve,reject)=>{
+      var SQL = "select smgrCheckSum FROM `ftreeFileMgr`.`tblRepo` "+
+         "inner join `ftreeFileMgr`.`tblShardFileMgr` on repoID = smgrRepoID "+
+         "where repoName = '"+rname+"' and repoOwner = '"+owner+"' and smgrFileName = '"+filename+"' and smgrFilePage = '"+fpath+"'";
+      con.query(SQL , (err, result,fields)=>{
+        if (err){
+          console.log(err);
+          resolve(null);
+          return;
+        }
+        resolve(result[0].smgrCheckSum);
+      });
+    });
+  }
+  repoIsMaster(name,owner){
+    return new Promise((resolve,reject)=>{
+      var SQL = "select repoID FROM `ftreeFileMgr`.`tblRepo` "+
+        "where repoName = '"+name+"' and repoOwner = '"+owner+"' and repoType = 'Master'";
+      con.query(SQL , (err, result,fields)=>{
+        if (err){
+          console.log(err);
+          resolve(null);
+          return;
+        }
+        resolve(result[0].repoID);
       });
     });
   }
@@ -653,8 +727,9 @@ class ftreeFileMgrCellReceptor{
       console.log('getRepFileID::',repo);
       var f = repo.file;
       var SQL = "SELECT repoID,smgrID FROM ftreeFileMgr.tblRepo " + 
-          "inner join ftreeFileMgr.tblShardFileMgr on repoID = smgrRepoID " +
-          "where  repoName = '"+repo.name+"' and repoOwner = '"+repo.from+"' and smgrFileName = '"+repo.file.filename+"';";
+        "inner join ftreeFileMgr.tblShardFileMgr on repoID = smgrRepoID " +
+        "where  repoName = '"+repo.name+"' and repoOwner = '"+repo.from+"' " +
+        "and smgrFileName = '"+repo.file.filename+"' and smgrFilePath = '"+repo.path+"';";
       return pool.getConnection((err, con)=>{
         if (err){ return dbConFail(resolve,'getRepoFileID::getConnection Failed');}
         return con.query(SQL , async (err, result,fields)=>{
