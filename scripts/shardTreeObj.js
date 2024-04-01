@@ -267,7 +267,7 @@ class shardTreeCellReceptor{
   async reqStoreShard(j,res){
     var IPs = await this.peer.receptorReqNodeList(j);
     console.log('XXRANDNODES:',IPs);
-    if(j.shard.encrypt){
+    if(j.shard.encrypt == 1){
       j.shard.data = encrypt(j.shard.data,this.shardToken.shardCipher);
       j.shard.data = j.shard.data.toString('base64');
     }
@@ -344,10 +344,16 @@ class shardTreeCellReceptor{
 End Receptor Code
 ==============================
 */
+var dba = null
+try {dba =  fs.readFileSync('dbconf');}
+catch {console.log('database config file `dbconf` NOT Found.');}
+try {dba = JSON.parse(dba);}
+catch {console.log('Error parsing `dbconf` file');}
+
 var con = mysql.createConnection({
   host: "localhost",
-  user: "username",
-  password: "password",
+  user: dba.user,
+  password: dba.pass,
   database: "shardTree",
   dateStrings: "date",
   multipleStatements: true,

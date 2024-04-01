@@ -815,7 +815,7 @@ class ftreeFileMgrCellReceptor{
       console.log(repo);
       var SQL = "INSERT INTO `ftreeFileMgr`.`tblShardFileMgr` (`smgrRepoID`,`smgrFileName`,`smgrCheckSum`,`smgrDate`,`smgrExpires`,`smgrEncrypted`,"+
         "`smgrFileType`,`smgrFileSize`,`smgrFVersionNbr`,`smgrSignature`,`smgrShardList`,`smgrFileFolderID`,`smgrFilePath`) "+
-        "VALUES ("+repoID+",'"+f.filename+"','"+f.checksum+"',now(),now(),'"+f.encrypt+"','"+f.type+"',"+
+        "VALUES ("+repoID+",'"+f.filename+"','"+f.checksum+"',now(),now(),'"+f.encrypt+"','"+f.ftype+"',"+
         "0,0,'NA','NA',"+repo.folderID+",'"+repo.path+"');"+
         "SELECT LAST_INSERT_ID()newRFileID;";
       return pool.getConnection((err, con)=>{
@@ -933,10 +933,16 @@ class ftreeFileMgrCellReceptor{
 End Receptor Code
 =============================
 */
+var dba = null
+try {dba =  fs.readFileSync('dbconf');}
+catch {console.log('database config file `dbconf` NOT Found.');}
+try {dba = JSON.parse(dba);}
+catch {console.log('Error parsing `dbconf` file');}
+
 var con = mysql.createConnection({
   host: "localhost",
-  user: "username",
-  password: "password",
+  user: dba.user,
+  password: dba.pass,
   database: "ftreeFileMgr",
   dateStrings: "date",
   multipleStatements: true,
@@ -950,8 +956,8 @@ var mysqlp = require('mysql2');
 var pool  = mysqlp.createPool({
   connectionLimit : 100,
   host            : 'localhost',
-  user: "username",
-  password: "password",
+  user: dba.user,
+  password: dba.pass,
   database: "ftreeFileMgr",
   dateStrings     : "date",
   multipleStatements: true,
