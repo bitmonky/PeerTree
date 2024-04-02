@@ -409,8 +409,8 @@ class ftreeFileMgrCellReceptor{
         return;
       }
       console.log(j);
-      var fileCheckSum = await this.getFileCheckSum(j.repo.file,j.repo.path,j.repo.name,j.repo.from);
-      if (!fileCheckSum){
+      var fileInfo = await this.getFileCheckSum(j.repo.file,j.repo.path,j.repo.name,j.repo.from);
+      if (!fileInfo){
         resolve(null);
         return;
       }
@@ -428,7 +428,7 @@ class ftreeFileMgrCellReceptor{
           return;
         }
         console.log(SQL,result);
-        resolve({owner:j.repo.from,filename:outpath+j.repo.file,shards:result,checkSum:fileCheckSum});
+        resolve({owner:j.repo.from,filename:outpath+'/'+j.repo.file,shards:result,fileInfo:fileInfo,});
       });
     });
   }
@@ -441,7 +441,7 @@ class ftreeFileMgrCellReceptor{
       fpath = "= '"+fpath+"'";
     }
     return new Promise((resolve,reject)=>{
-      var SQL = "select smgrCheckSum FROM `ftreeFileMgr`.`tblRepo` "+
+      var SQL = "select smgrCheckSum,smgrFileType FROM `ftreeFileMgr`.`tblRepo` "+
          "inner join `ftreeFileMgr`.`tblShardFileMgr` on repoID = smgrRepoID "+
          "where repoName = '"+rname+"' and repoOwner = '"+owner+"' and smgrFileName = '"+filename+"' and smgrFilePath "+fpath;
       con.query(SQL , (err, result,fields)=>{
@@ -451,7 +451,12 @@ class ftreeFileMgrCellReceptor{
           return;
         }
         console.log(SQL,result);
-        resolve(result[0].smgrCheckSum);
+        if (result.length > 0){
+          resolve({checkSum:result[0].smgrCheckSum,fileType:result[0].smgrFileType});
+          return;
+        }
+        console.log(SQL+' No Results Returned');
+        resolve(null);
       });
     });
   }
