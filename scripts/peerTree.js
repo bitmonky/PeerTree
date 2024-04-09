@@ -1473,7 +1473,6 @@ class PeerTreeNet extends  EventEmitter {
         try {
           const pair = keypair.toString();
           const j = JSON.parse(pair);
-          console.log('Peer Wallet:',j);
           this.publicKey  = j.publicKey;
           this.privateKey = j.privateKey;
           this.peerMUID   = j.peerMUID;
@@ -1522,20 +1521,21 @@ class PeerTreeNet extends  EventEmitter {
    }
    startServer(){
       this.server = https.createServer(this.options, (req, res) => {
-        this.resHandled = false;
-        this.svtime = setTimeout( ()=>{
-          if (!this.resHandled){
-            console.log('server response timeout',req.url);
-            //res.end('{"server":"timeout"}');
-            this.resHandled = true;
-          }
-        },5000); 
-   
-	//this.remIp = req.headers['x-forwarded-for'] ||
+        //this.remIp = req.headers['x-forwarded-for'] ||
         this.remIp = req.connection.remoteAddress ||
         req.socket.remoteAddress ||
         req.connection.socket.remoteAddress;
         this.remIp = this.remIp.replace('::ffff:','');
+
+        this.resHandled = false;
+        var jSaver = null;
+        this.svtime = setTimeout( ()=>{
+          if (!this.resHandled){
+            console.log('server response timeout:'+this.remIp+req.url,jSaver);
+            //res.end('{"server":"timeout"}');
+            this.resHandled = true;
+          }
+        },5000); 
 
         if (req.url.indexOf('/netREQ') == 0){
           if (req.method == 'POST') {
@@ -1553,6 +1553,7 @@ class PeerTreeNet extends  EventEmitter {
               var j = null;
               try {
                 j = JSON.parse(body);
+                jSaver = j;
                 if (j.hasOwnProperty('msg') === false) throw 'invalid netREQ no msg body found';
 		if (!j.msg.remIp) j.msg.remIp = this.remIp;
                 this.resHandled = true;
@@ -1569,7 +1570,7 @@ class PeerTreeNet extends  EventEmitter {
               }
               catch (err) {
 		console.log('POST netREQ Error: ',err);
-                console.log('POST msg was ->',j);
+                console.log('POST msg was ->',body);
                 res.setHeader('Content-Type', 'application/json');
                 res.writeHead(500);
                 res.end('{"netReq":"Fail","error":"'+err+'"}');
@@ -2018,6 +2019,7 @@ class PeerTreeNet extends  EventEmitter {
      const pmsg = {msg : msg}
      const data = JSON.stringify(pmsg);
 
+     if (!msg.PNETCOREX )console.log('POSTDATA::',data);
      const options = {
        hostname : toHost,
        port     : this.port,
@@ -2025,10 +2027,10 @@ class PeerTreeNet extends  EventEmitter {
        method: 'POST',
        headers: {
          'Content-Type': 'application/json',
-         'Content-Length': data.length
+         'Content-Length': Buffer.byteLength(data, 'utf8')
        }
      }
-
+     if (!msg.PNETCOREX ) console.log('POSTREQ::headers:',options);
      const req = https.request(options, res => {
        res.on('end',()=>{
          this.sendingReply = false;
