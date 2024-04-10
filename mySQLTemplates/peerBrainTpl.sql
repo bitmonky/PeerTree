@@ -111,7 +111,7 @@ CREATE TABLE `peerMemoryCell` (
   `pmcID` bigint(20) NOT NULL AUTO_INCREMENT,
   `pmcMownerID` varchar(84) DEFAULT NULL,
   `pmcMemObjID` varchar(84) DEFAULT NULL,
-  `pmcMemWord` varchar(45) DEFAULT NULL,
+  `pmcMemWord` varchar(145) DEFAULT NULL,
   `pmcWordSequence` int(11) DEFAULT NULL,
   `pmcMemObjNWords` int(11) DEFAULT NULL,
   `pmcMemObjType` varchar(45) DEFAULT NULL,
@@ -119,7 +119,7 @@ CREATE TABLE `peerMemoryCell` (
   `pmcMemTime` datetime DEFAULT NULL,
   `pmcCityID` bigint(20) DEFAULT NULL,
   `pmcWordCount` int(11) DEFAULT NULL,
-  `pmcWordWeight` int(11) DEFAULT NULL,
+  `pmcWordWeight` int(11) DEFAULT '1',
   PRIMARY KEY (`pmcID`),
   KEY `ndxPmcOwnerID` (`pmcMownerID`),
   KEY `ndxPmcMemObjID` (`pmcMemObjID`),
@@ -183,4 +183,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2023-12-17 17:07:18
+-- Dump completed on 2024-04-10 14:11:36
