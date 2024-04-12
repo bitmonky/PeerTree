@@ -2019,7 +2019,7 @@ class PeerTreeNet extends  EventEmitter {
      const pmsg = {msg : msg}
      const data = JSON.stringify(pmsg);
 
-     if (!msg.PNETCOREX )console.log('POSTDATA::',data);
+     //if (!msg.PNETCOREX )console.log('POSTDATA::',data);
      const options = {
        hostname : toHost,
        port     : this.port,
@@ -2030,7 +2030,7 @@ class PeerTreeNet extends  EventEmitter {
          'Content-Length': Buffer.byteLength(data, 'utf8')
        }
      }
-     if (!msg.PNETCOREX ) console.log('POSTREQ::headers:',options);
+     //if (!msg.PNETCOREX ) console.log('POSTREQ::headers:',options);
      const req = https.request(options, res => {
        res.on('end',()=>{
          this.sendingReply = false;
