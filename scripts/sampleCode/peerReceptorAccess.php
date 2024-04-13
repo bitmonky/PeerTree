@@ -7,16 +7,22 @@ $PTC_shardRECEPTOR  = "https://170.187.179.251:13355";
 $PTC_shardRECEPTOR2 = "https://139.144.110.5:13355";
 $PTC_ftreeRECEPTOR  = "https://172.105.5.29:13361"; 
 $PTC_maxWordLength  = 45;
+include_once('peerMemComWordsInc.php');
 function prepWords($str){
   if ($str === null || mkyTrim($str) == ''){
     return null;
   }
-  $words = [' i ',' in ',' on ',' there ',' is ',' are ',' as ',' the ',' a ',' to ',' and ',' too ',' of ',' for '];
+  $str = ' '.$str.' ';
+
+  $words = json_decode($GLOBALS['comWords']);
   forEach($words as $word){
-    $str = mkyStrIReplace($word,' ',$str);
+    //echo $word->word.", ";
+    $str = str_ireplace(' '.$word->word.' ',' ',$str);
   }
-  $str   = preg_replace("/(?![.=$'€%-])\p{P}/u", " ", $str);
-  $str   = preg_replace("/\W/"," ",$str);
+  $str = mkyTrim($str);
+  $str   = preg_replace("/[\p{P}\p{S}]+/u", " ", $str);
+  $str   = mb_strtolower($str);
+  $str   = str_replace(" s ",'s ',$str);
 
   // Shorten long words
   $list  = explode(' ',$str);
@@ -134,11 +140,12 @@ function ftreeInsertFileToRepo($muid,$name,$file,$path,$folderID,$nCopys){
    $bcRes = tryJFetchURL($post,'POST');
    return $bcRes;
 }
-function ftreeDeleteFileFromRepo($muid,$name,$file,$nCopys){
+function ftreeDeleteFileFromRepo($muid,$name,$file,$path,$nCopys){
    $j = new stdClass;
    $j->from      = $muid;
    $j->name      = $name;
    $j->file      = $file;
+   $j->path      = $path;
    $j->nCopys    = 0 + $nCopys;
 
    $post = new stdClass;
@@ -149,6 +156,9 @@ function ftreeDeleteFileFromRepo($muid,$name,$file,$nCopys){
    return $bcRes;
 }
 function ptreeStoreShard($muid,$hash,$shard,$encrypt=null,$nCopys=3,$expires=null){
+   if ($encrypt == 0){
+     $encrypt = null;
+   }	
    $j = new stdClass;
    $j->from      = $muid;
    $j->hash      = $hash;
@@ -217,20 +227,30 @@ function ptreeSearchMem($muid,$str,$type,$scope=null,$scopeID=null,$qryLimit=nul
    }
    $j->key       = ptreeMakeSearchKey($j);
 
-   $url = $GLOBALS['PTC_memRECEPTOR'].'/netREQ/msg='.mkyUrlEncode('{"req":"searchMemory","qry":'.json_encode($j).'}');
-   $bcRes = tryFetchURL($url,1);
+   $u = new stdClass;
+   $u->url = $GLOBALS['PTC_memRECEPTOR'].'/netREQ/msg='.mkyUrlEncode('{"req":"searchMemory","qry":'.json_encode($j).'}');
+   $bcRes = tryFetchURL($u->url,1);
    return $bcRes;
 }
-function ptreeStoreMem($muid,$acID,$str,$type='generic',$nCopys=3){
+function ptreeStoreMem($muid,$acID,$str,$type='generic',$nCopys=3,$weights=null,$location=null){
    $j = new stdClass;
    $j->from    = $muid;
    $j->memID   = $acID;
    $j->memStr  = $str;
    $j->memType = $type;
    $j->nCopys  = $nCopys;
-
-   $url = $GLOBALS['PTC_memRECEPTOR'].'/netREQ/msg='.mkyUrlEncode('{"req":"storeMemory","memory":'.json_encode($j).'}');
-   $bcRes = tryFetchURL($url,1);
+   $j->weights = $weights;
+   if ($location){
+     $j->cityID        = $location->cityID;
+     $j->stateID       = $location->stateID;
+     $j->countryID     = $location->countryID;
+     $j->worldRegionID = $location->worldRegionID;
+     $j->date          = $location->date;
+   }  
+   $u = new stdClass;
+   $u->url = $GLOBALS['PTC_memRECEPTOR'].'/netREQ/msg='.mkyUrlEncode('{"req":"storeMemory","memory":'.json_encode($j).'}');
+   //echo 'LOGING{"req":"storeMemory","memory":'.json_encode($j).'}';
+   $bcRes = tryFetchURL($u->url,1);
    return $bcRes;
 }
 function tryJFetchURL($j,$method='GET',$timeout=5){
