@@ -1521,7 +1521,6 @@ class PeerTreeNet extends  EventEmitter {
    }
    startServer(){
       this.server = https.createServer(this.options, (req, res) => {
-        //this.remIp = req.headers['x-forwarded-for'] ||
         this.remIp = req.connection.remoteAddress ||
         req.socket.remoteAddress ||
         req.connection.socket.remoteAddress;
@@ -1532,9 +1531,9 @@ class PeerTreeNet extends  EventEmitter {
         this.svtime = setTimeout( ()=>{
           if (!this.resHandled){
             console.log('server response timeout:'+this.remIp+req.url,jSaver);
+            res.setHeader('Content-Type', 'application/json');
             res.statusCode = 500;
-            res.end('{"server":"timeout"}');
-            //req.connection.destroy();            
+            res.end('{"netPOST":"FAIL","type":"NotSet","Error":"server timeout"}');
             this.resHandled = true;
           }
         },2500); 
@@ -1548,36 +1547,40 @@ class PeerTreeNet extends  EventEmitter {
               //console.log('body.length',body.length);
               if (body.length > 300000000){
                 console.log('netREQ:: max datazize exceeded');
-                res.writeHead(413, {'Content-Type': 'text/plain'}).end();
+                res.setHeader('Content-Type', 'application/json');
+                res.statusCode = 413;
+                res.end('{"netPOST":"FAIL","type":"netREQ","Error":"data maximum exceeded"}');
                 req.connection.destroy();
               }
             });
             req.on('end', ()=>{
               res.setHeader('Content-Type', 'application/json');
-              res.writeHead(200);
-              res.end('{"netReq":"OK"}');
 
               var j = null;
               try {
-                console.time('Time Taken');
+                //console.time('Time Taken');
                 j = JSON.parse(body);
                 jSaver = j;
                 if (j.hasOwnProperty('msg') === false) throw 'invalid netREQ no msg body found';
 		if (!j.msg.remIp) j.msg.remIp = this.remIp;
                 this.resHandled = true;
                 clearTimeout(this.svtime);
-                if (j.msg.ping){console.log('PING:::',j.msg.remIp);}
+                //if (j.msg.ping){console.log('PING:::',j.msg.remIp);}
                 if (j.msg.hasOwnProperty('PNETCOREX') === false){
                   this.emit('mkyReq',this.remIp,j.msg);
 		} 
 		else {
                   this.emit('peerTReq',this.remIp,j.msg);
 		}
-                console.timeEnd('Time Taken');
+                res.statusCode = 200;
+                res.end('{"netPOST":"OK"}');
+                //console.timeEnd('Time Taken');
               }
               catch (err) {
 		console.log('POST netREQ Error: ',err);
                 console.log('POST msg was ->',body);
+                res.statusCode = 500;
+                res.end('{"netPOST":"FAIL","type":"netREQ","Error":"'+err+'","data":"'+body+'"}');
                 this.resHandled = true;
                 clearTimeout(this.svtime);
 	      }
@@ -1594,14 +1597,14 @@ class PeerTreeNet extends  EventEmitter {
               //console.log('body.length',body.length);
               if (body.length > 300000000){
                 console.log('max datazize exceeded');
-                res.writeHead(413, {'Content-Type': 'text/plain'}).end();
+                res.setHeader('Content-Type', 'application/json');
+                res.statusCode = 413;
+                res.end('{"netPOST":"FAIL","type":"netREPLY","Error":"data maximum exceeded"}');
                 req.connection.destroy();
               }
             });
             req.on('end', ()=>{
               res.setHeader('Content-Type', 'application/json');
-              res.writeHead(200);
-              res.end('{"netREPLY":"OK"}');
               var j = null;
               try {
                 j = JSON.parse(body);
@@ -1614,8 +1617,13 @@ class PeerTreeNet extends  EventEmitter {
 		else {
 		  this.emit('peerTReply',j.msg);
 		}
+                res.statusCode = 200;
+                res.end('{"netPOST":"OK"}');
+
               }
               catch(err) {
+                res.statusCode = 500;
+                res.end('{"netPOST":"FAIL","type":"netREPLY","Error":"'+err+'","data":"'+body+'"}');
                 console.log('POST netREPLY Error: ',err);
                 console.log('POST msg was ->',j);
                 clearTimeout(this.svtime);
@@ -1624,7 +1632,7 @@ class PeerTreeNet extends  EventEmitter {
           }
         }
         else {
-          res.writeHead(200);
+          res.statusCode = 200;
           res.end('{"result":"Welcome To PeerTree Network Sevices\nWaiting...\n' + decodeURI(req.url) + ' You Are: ' + this.remIp+'"}\n');
           this.endResCX(res,'Welcome To PeerTree Network Sevices\nWaiting...\n' + decodeURI(req.url) + ' You Are: ' + this.remIp+'\n');
           clearTimeout(this.svtime);
@@ -2020,7 +2028,7 @@ class PeerTreeNet extends  EventEmitter {
 
      const pmsg = {msg : msg}
      const data = JSON.stringify(pmsg);
-
+     
      //if (!msg.PNETCOREX )console.log('POSTDATA::',data);
      const options = {
        hostname : toHost,
@@ -2030,13 +2038,15 @@ class PeerTreeNet extends  EventEmitter {
        headers: {
          'Content-Type': 'application/json',
          'Content-Length': Buffer.byteLength(data, 'utf8')
-       }
+       },
+       timeout: 3000
      }
      //if (!msg.PNETCOREX ) console.log('POSTREQ::headers:',options);
      const req = https.request(options, res => {
-       console.time('mkyPOST::');
+       let sending = true;
+       //console.time('mkyPOST::');
        msg.toHost = toHost;
-       console.log('responseCODE::'+res.statusCode,msg.toHost);
+       //console.log('responseCODE::'+res.statusCode,msg.toHost);
        if (res.statusCode !== 200) {
          msg.toHost = toHost;
          console.log('xhrAppError:: failed with status code: '+ res.statusCode,msg);
@@ -2046,25 +2056,27 @@ class PeerTreeNet extends  EventEmitter {
        }
        else {
          //res.on('end',()=>{
-         console.timeEnd('mkyPOST::');
+         //console.timeEnd('mkyPOST::');
          this.sendingReply = false;
          //});
        }
+       sending = false;
      });
 
+     req.on("timeout", () => {
+        msg.toHost = toHost;
+        msg.endpoint = options.path;
+        if (!(msg.ping || msg.pingResult)){
+          console.log('SendByPOST:: Timed Out',msg);
+        }
+        req.abort();
+     });
      req.on('error', error => {
         msg.toHost = toHost;
         console.log('xhrFAIL:: '+error,msg);
         this.emit('xhrFail',msg);
         this.sendingReply = false;
      })
-     req.setTimeout(5000, () => {
-       msg.toHost = toHost;
-       msg.endpoint = options.path; 
-       //console.log('SendByPOST:: Timed Out',msg); 
-       //req.abort();
-     });
-
 
      req.write(data);
      req.end();
@@ -2172,7 +2184,7 @@ class PeerTreeNet extends  EventEmitter {
        this.pushToContacts(j);
 
        if (j.ping == 'hello'){
-         console.log('Got PING hello::',j.remIp);
+         //console.log('Got PING hello::',j.remIp);
        }
        if (this.rnet.handleReq(remIp,j)){
          console.log('Request Handled By Handler');

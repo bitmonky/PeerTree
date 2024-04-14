@@ -277,12 +277,11 @@ class peerMemCellReceptor{
       var trys = 0;
       var result = [];
       var cindex = null;
+      cindex = this.smgr.getIndexOf(skey);
       while (trys < 10){
-        await sleep(1500);
+        await sleep(500);
         console.log('SearchMGR::Try:'+trys,this.smgr);
-        cindex = this.smgr.getIndexOf(skey);      
         result = [...this.smgr.searches[cindex].data];
-        this.smgr.searches.splice(cindex,1);
         if (result.length > 0){
           result.sort((a, b) =>{
             const scoreA = Number(a.score);
@@ -302,8 +301,10 @@ class peerMemCellReceptor{
           resolve('{"result": 1,"data":'+JSON.stringify(result)+'}');
           return;
         }
+        result = [];
 	trys = trys +1; 
       }
+      this.smgr.searches.splice(cindex,1);
       resolve('{"result": 1,"data":'+JSON.stringify(result)+'}');
       return;
     });
@@ -884,7 +885,7 @@ class peerMemoryObj {
             }
             n = n + 1;
           });	    
-          console.log(SQL);
+          //console.log(SQL);
 	  con.query(SQL , (err, result,fields)=>{
             if (err){
               console.log(err);
