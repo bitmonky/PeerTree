@@ -205,6 +205,10 @@ class peerMemCellReceptor{
 	    this.prepMemoryReq(j,res);
             return;
           }   
+          if (j.req == 'removeMemory'){
+            this.makeRemoveMemoryReq(j,res);
+            return;
+          }
           if (j.req == 'searchMemory'){
             this.doSearch(j,res);
 	    return;
@@ -250,8 +254,27 @@ class peerMemCellReceptor{
     };
     return mToken;
   }
+  async makeRemoveMemoryReq(j,res){
+    console.log('makeRemoveMemoryReq:: ',j);
+    j.memory.token = this.openMemKeyFile(j);
+    j.memory.signature = this.signRequest(j);
+    var breq = {
+      to : 'peerMemCells',
+      removeMem : j.memoryID,
+      authorize : j.memory.signature
+    }
+    console.log('bcast remove memory request to memoryCell group: ',breq.removeMem);
+    this.peer.net.broadcast(breq);
+    const qres = await this.getRemoveResult(j);
+    res.end(JSON.stringify(qres));
+  }
   async doSearch(j,res){
-    console.log('doSearch qkey is: ',j.qry.key);
+    console.log('doSearch qryStr is: ',j.qry.qryStr);
+    j.qry.qryStr = j.qry.qryStr.trim();
+    if(j.qry.qryStr === null || j.qry.qryStr == ' ' || j.qryStr == ''){
+      res.end('{"result": null,"data":"Empty Or Null Qry"}');
+      return;
+    }
     var qry = {
       key  : j.qry.key,
       timestamp : Date.now(),
@@ -654,7 +677,7 @@ class peerMemoryObj {
      var orderBy  = "order by score desc ";
      var limit    = null;
 
-     var qtype = '';
+     var qtype = " and NOT pmcMemObjType = 'acHashTag' ";
      if (j.qry.qryType){
        qtype = " and pmcMemObjType = '"+j.qry.qryType+"'";
      }
@@ -667,7 +690,7 @@ class peerMemoryObj {
      }
      var SQLr = "SET SESSION sql_mode = 'STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION';";
      SQLr += "select pmcMownerID,pmcMemObjID,pmcMemObjNWords,count(*) nMatches,";
-     SQLr += "sum(pmcWordWeight)*(count(*) + 1.0/(1.0 + TIMESTAMPDIFF(hour,pmcMemTime,now()))) score ";
+     SQLr += "sum(pmcWordWeight) + 1.0/(1.0 + TIMESTAMPDIFF(hour,pmcMemTime,now())) score ";
      SQLr += "from peerBrain.peerMemoryCell ";
      if (scope.join){
        SQLr += scope.join;
@@ -856,7 +879,7 @@ class peerMemoryObj {
       else {
         if (result[0].nMem == 0){
           if (m.weights){
-            memories = m.weights;
+            memories =  this.removeDups(m.weights);
             wlist = {words:[],weight:1};
           }
           else {
@@ -906,7 +929,26 @@ class peerMemoryObj {
       }
     });
   }
+  removeDups(words){
+    console.log('removeDups::words');
+    let wordMap = new Map();
+    for(let i = 0; i < words.length; i++) {
+      let wordObj = words[i];
+
+      // If the word is already in the map and its weight is less than the current word's weight, update it
+
+      if(wordMap.has(wordObj.word) && wordMap.get(wordObj.word).weight < wordObj.weight) {
+        wordMap.set(wordObj.word, wordObj);
+      }
+      // If the word is not in the map, add it
+      else if(!wordMap.has(wordObj.word)) {
+        wordMap.set(wordObj.word, wordObj);
+      }
+    }
+    return Array.from(wordMap.values());
+  }
 };
+
 function sleep(ms){
     return new Promise(resolve=>{
         setTimeout(resolve,ms)
