@@ -15,6 +15,11 @@ const {pcrypt}        = require('./peerCrypt');
 
 addslashes  = require ('./addslashes');
 
+function calculateHash(txt) {
+  const crypto = require('crypto');
+  return crypto.createHash('sha256').update(txt).digest('hex');
+}
+
 /*********************************************
 PeerTree Receptor Node: listens on port 1335
 ==============================================
@@ -258,6 +263,7 @@ class peerMemCellReceptor{
     console.log('makeRemoveMemoryReq:: ',j);
     j.memory.token = this.openMemKeyFile(j);
     j.memory.signature = this.signRequest(j);
+    j.memory.signature.ownMUID = j.memory.token.ownMUID;
     var breq = {
       to : 'peerMemCells',
       removeMem : j.memoryID,
@@ -344,6 +350,7 @@ class peerMemCellReceptor{
   prepMemoryReq(j,res){
     j.memory.token = this.openMemKeyFile(j);
     j.memory.signature = this.signRequest(j);
+    j.memory.signature.ownMUID = j.memory.token.ownMUID;
     var SQL = "SELECT pcelAddress FROM peerBrain.peerMemCells ";
     SQL += "where pcelLastStatus = 'online' and  timestampdiff(second,pcelLastMsg,now()) < 50 ";
     SQL += "and NOT pcelAddress = '"+this.peer.net.rnet.myIp+"' order by rand() limit "+j.memory.nCopys;
@@ -713,7 +720,7 @@ class peerMemoryObj {
      con.query(SQL, (err, result, fields)=> {
        if (err) console.log(err);
        else {
-         console.log('RESULT::',result);
+         //console.log('RESULT::',result);
          if (result[1].length > 0){
            var qres = {
              req : 'pMemQryResult',
@@ -746,7 +753,7 @@ class peerMemoryObj {
      con.query(SQL, (err, result, fields)=> {
        if (err) console.log(err);
        else {
-         console.log('RESULT::',result);
+         //console.log('RESULT::',result);
          if (result[0].length > 0){
            result[0].forEach((rec)=>{
              console.log(rec);
@@ -852,9 +859,52 @@ class peerMemoryObj {
     });	    
     return locOK;
   }	    
-  storeMemory(j,res){
-    console.log('got request store memory',j);
+  isValidSig(sig) {
+    if (!sig){console.log('remMessage signature is null',sig);return false;}
+    if (sig.hasOwnProperty('pubKey') === false) {console.log('remSig.pubKey is undefined',sig);return false;}
+    if (!sig.pubKey) {console.log('remSig.pubKey is empty',sig);return false;}
+
+    if (!sig.signature || sig.signature.length === 0) {
+       return false;
+    }
+
+    // check public key matches the remotes address
+    var mkybc = bitcoin.payments.p2pkh({ pubkey: new Buffer.from(''+sig.pubKey, 'hex') });
+    if (sig.ownMUID !== mkybc.address){
+      console.log('remote wallet address does not match publickey',sig);
+      return false;
+    }
+    //verify the signature token with the public key
+    const publicKey = ec.keyFromPublic(sig.pubKey,'hex');
+    return publicKey.verify(calculateHash(sig.token), sig.signature);
+  }
+
+  removeMemory(j,res){
+    console.log('got request remove memory from:'+res,j);
     var m = j.memory;
+    if (!this.isValidSig(m.signature)){
+      console.log('removeMemory::Authorization Signature Is Not Valid or Denied');
+      return;
+    }
+    var SQL = "delete from peerBrain.peerMemoryCell where pmcMownerID= '',pmcMemObjID=''";
+    con.query(SQL , (err, result,fields)=>{
+      if (err){
+        console.log(err);
+        this.net.endRes(res,'{"memRemoveRes":false,"error":'+JSON.stringify(err)+'}');
+      }
+      else {
+        console.log('removeMemory::Memory Removed:');
+        this.net.endRes(res,'{"memRemoveRes":true,"msg":"OK"}');
+      }
+    });
+  }
+  storeMemory(j,res){
+    console.log('got request store memory'+res,j);
+    var m = j.memory;
+    if (!this.isValidSig(m.signature)){
+      console.log('storeMemory::Authorization Signature Is Not Valid or Denied');
+      //return;
+    }
     if (!m.memStr){
       console.log('Memory String Is Null');
       this.net.endRes(res,'{"memStoreRes":false,"error":"Null Memory String"}');
