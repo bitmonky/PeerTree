@@ -267,7 +267,8 @@ class peerMemCellReceptor{
     var breq = {
       to : 'peerMemCells',
       removeMem : j.memoryID,
-      authorize : j.memory.signature
+      authorize : j.memory.signature,
+      ownerMUID : j.ownMUID
     }
     console.log('bcast remove memory request to memoryCell group: ',breq.removeMem);
     this.peer.net.broadcast(breq);
@@ -410,7 +411,32 @@ var con = mysql.createConnection({
 con.connect(function(err) {
   if (err) throw err;
 });
+var mysqlp = require('mysql2');
+var pool  = mysqlp.createPool({
+  connectionLimit : 100,
+  host            : 'localhost',
+  user: "username",
+  password: dba.pass,
+  database: "peerBrain",
+  dateStrings     : "date",
+  multipleStatements: true,
+  supportBigNumbers : true
+});
 
+function dbConFail(resolve,msg){
+  console.log(msg);
+  return resolve({result:false,msg:'dbERROR : '+msg});
+}
+function dbResult(con,resolve,value){
+  con.release();
+  return resolve({result:true,value:value});
+}
+function dbFail(con,resolve,msg){
+  con.rollback();
+  con.release();
+  console.log('dbFAIL::',msg);
+  return resolve({result:false,msg:'dbERROR : '+msg});
+}
 function getRandomInt(max) {
   return Math.floor(Math.random() * Math.floor(max));
 }
@@ -618,6 +644,9 @@ class peerMemoryObj {
           this.doBestMatchQry(j.msg,j.remIp);
         else if (j.msg.qry.qryStyle == 'seqMatch')
 	  this.doSeqMatchQry(j.msg,j.remIp);
+      }
+      if (j.msg.removeMem){
+        this.removeMem(j.msg,j.remIp);
       }
     } 
     return;
@@ -878,10 +907,24 @@ class peerMemoryObj {
     const publicKey = ec.keyFromPublic(sig.pubKey,'hex');
     return publicKey.verify(calculateHash(sig.token), sig.signature);
   }
-
-  removeMemory(j,res){
+  getMemAuthorizedBy(j){
+    return new Promise((resolve,reject)=>{
+      var SQL = "select permAuthorizedBy from peerMemOwners where permMUID='"+j.ownerMUID+"' and permMemID = '"+j.removeMem+"'";
+      con.query(SQL , (err, result,fields)=>{
+        if (err){
+          console.log(err);
+          resolve (null);
+        }
+        else {
+          resolve(result[0].permAuthorizedBy);
+        }
+      });
+    });
+  }
+  async removeMemory(j,res){
     console.log('got request remove memory from:'+res,j);
     var m = j.memory;
+    m.signature = await this.getMemAuthorizedBy(j);
     if (!this.isValidSig(m.signature)){
       console.log('removeMemory::Authorization Signature Is Not Valid or Denied');
       return;
@@ -977,6 +1020,39 @@ class peerMemoryObj {
           //this.net.endRes(res,'{"memStoreRes":false,"msg":"Memory Already Stored"}');
 	}
       }
+    });
+  }
+  doStoreMemory(memSQL,ownID,memID,authID){
+    return new Promise((resolve,reject)=>{
+
+      return pool.getConnection((err, con)=>{
+        if (err){ return dbConFail(resolve,'doStoreMemory::Pool Connection Failed');}
+
+        return con.beginTransaction((err)=>{
+          if (err) {
+            return dbFail(con,resolve,'doStoreMemory begTransaction Failed');
+          }
+          else {
+            var SQL = "insert into peerMemOwners (permMUID,permMemID,permAuthorizedBy) values ('"+ownID+"',"+memID+",'"+authID+"');";
+            return con.query(memSQL , async (err, result,fields)=>{
+              if (err){return dbFail(con,resolve,'Store Memories Owner Rec Failed');}
+              else {
+                return con.query(memSQL , async (err, result,fields)=>{
+                  if (err){return dbFail(con,resolve,'Store Memory Words Failed');}
+                  else {
+                    con.commit((err)=> {
+                      if (err) {return dbFail(con,resolve,'dostoreMemory::Local Commit Failed');}
+                      else {
+                        return dbResult(con,resolve,true);
+                      }
+                    });
+                  }
+                });
+              }
+            });
+          }
+        });
+      });
     });
   }
   removeDups(words){
