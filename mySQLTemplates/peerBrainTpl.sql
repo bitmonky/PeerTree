@@ -86,8 +86,10 @@ DROP TABLE IF EXISTS `peerMemOwners`;
 CREATE TABLE `peerMemOwners` (
   `permID` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `permMUID` varchar(84) DEFAULT NULL,
+  `permMemID` varchar(84) DEFAULT NULL,
+  `permAuthorizedBy` varchar(84) DEFAULT NULL,
   PRIMARY KEY (`permID`),
-  UNIQUE KEY `ndxPermMUID` (`permMUID`)
+  UNIQUE KEY `ndxPermMemID` (`permMUID`,`permMemID`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -183,4 +185,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2024-04-10 14:11:36
+-- Dump completed on 2024-05-08 11:51:12
