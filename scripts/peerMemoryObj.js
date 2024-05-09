@@ -964,7 +964,7 @@ class peerMemoryObj {
     const mUID = m.from;
     var SQL = "select count(*)nMem from peerBrain.peerMemoryCell ";
     SQL += "where pmcMownerID = '"+mUID+"' and pmcMemObjID = '"+m.memID+"' and pmcMemObjType='"+m.memType+"' ";
-    con.query(SQL , (err, result,fields)=>{
+    con.query(SQL , async(err, result,fields)=>{
       if (err){
         console.log(err);
         this.net.endRes(res,'{"memStoreRes":false,"error":'+JSON.stringify(err)+'}');
@@ -1001,17 +1001,13 @@ class peerMemoryObj {
             }
             n = n + 1;
           });	    
-          //console.log(SQL);
-	  con.query(SQL , (err, result,fields)=>{
-            if (err){
-              console.log(err);
-              this.net.endRes(res,'{"memStoreRes":false,"error":'+JSON.stringify(err)+'}');
-            }
-            else {
-              const hash = crypto.createHash('sha256').update(SQL).digest('hex');
-	      this.net.endRes(res,'{"memStoreRes":true,"memStorHash":"' + hash + '"}');
-            }
-          });
+          if (await this.doTransStoreMemory(SQL,m.from,m.memID,m.signature.ownMUID)){
+            const hash = crypto.createHash('sha256').update(SQL).digest('hex');
+            this.net.endRes(res,'{"memStoreRes":true,"memStorHash":"' + hash + '"}');
+          }
+          else {
+            this.net.endRes(res,'{"memStoreRes":false,"error":'+JSON.stringify(err)+'}');
+          }
         }
 	else {
           console.log('Memory Already Stored::MSQL',m.memID);
@@ -1022,7 +1018,7 @@ class peerMemoryObj {
       }
     });
   }
-  doStoreMemory(memSQL,ownID,memID,authID){
+  doTransStoreMemory(memSQL,ownID,memID,authID){
     return new Promise((resolve,reject)=>{
 
       return pool.getConnection((err, con)=>{
@@ -1033,11 +1029,11 @@ class peerMemoryObj {
             return dbFail(con,resolve,'doStoreMemory begTransaction Failed');
           }
           else {
-            var SQL = "insert into peerMemOwners (permMUID,permMemID,permAuthorizedBy) values ('"+ownID+"',"+memID+",'"+authID+"');";
-            return con.query(memSQL , async (err, result,fields)=>{
+            var SQL = "insert into peerMemOwners (permMUID,permMemID,permAuthorizedBy) values ('"+ownID+"','"+memID+"','"+authID+"');";
+            return con.query(SQL , (err, result,fields)=>{
               if (err){return dbFail(con,resolve,'Store Memories Owner Rec Failed');}
               else {
-                return con.query(memSQL , async (err, result,fields)=>{
+                return con.query(memSQL ,(err, result,fields)=>{
                   if (err){return dbFail(con,resolve,'Store Memory Words Failed');}
                   else {
                     con.commit((err)=> {
