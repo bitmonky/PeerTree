@@ -45,6 +45,10 @@ class MkyWebConsole {
                 var report = this.sendReport();
                 res.end(report);
               }
+              else if (j.what == 'getNodeList'){
+                let list = this.sendNodeList(j);
+                res.end(list);
+              }
               else if (j.what == 'getErLog'){
                 var report = await this.sendErLog(j);
                 res.end(report);
@@ -89,6 +93,17 @@ class MkyWebConsole {
     }); 
     console.log(this.appName+ ': Log files flushed');
     return this.appName + ': Log files flushed';
+  }
+  sendNodeList(j){
+    const nfile = '/peerTree/keys/myNodeList-'+j.port+'-'+j.nodeType+'.net';
+    try {
+      const data = fs.readFileSync(nfile, 'utf8');
+      return data;
+    } 
+    catch (err) {
+      console.error(err);
+      return '[]';
+    }
   }
   async sendErLog(j){
     const log = await readTextFileToArrayAsync('/root/.pm2/logs/'+this.appName+'-out.log');
