@@ -68,7 +68,6 @@ class MkyRouting {
        rightNode  : null,
        myParent   : null,
        nextParent : null,
-       rootPList  : [],
        mylayer    : 1,
        nodeNbr    : 0,    // node sequence number 1,2,3 ... n
        nlayer     : 1,    // nlayers in the network 1,2,3 ... n
@@ -196,7 +195,9 @@ class MkyRouting {
        }
 
        const oldLastNodeIp = this.r.lastNode;
- 
+       this.r.nextPNbr = this.getMyParentNbr(this.r.lnode+1);
+       console.log('NextPNbr::',this.r.nextPNbr);
+
        if ( this.r.myNodes.length < this.net.maxPeers){
          var node = {ip : ip,nbr : this.r.lnode+1, pgroup : [],rtab : 'na'}
          this.r.myNodes.push(node);
@@ -205,8 +206,8 @@ class MkyRouting {
          this.r.lastNode = ip;
          this.newNode = clone(this.r);
          this.newNode.leftNode = oldLastNodeIp;
+         this.newNode.rightNode = null;
          this.newNode.myParent = this.myIp;
-         this.newNode.rootPList = [];
          this.newNode.mylayer = this.getNthLayer(this.net.maxPeers,this.r.lnode);
          resolve(true);
          return;
@@ -217,25 +218,20 @@ class MkyRouting {
        if (this.r.nextParent == this.r.rootNodeIp){
          console.log('Updating NextParent To: ',this.r.rightNode);
          this.r.nextParent = this.r.rightNode;
-         if (!this.r.rootPList.includes(this.r.nextParent)){
-           this.r.rootPList.push(this.r.rightNode);
-         }
        }
 
-       this.r.lnode++;
+       this.incCounters();
        var prevNextParent = this.r.nextParent;
-       const nextParent = await this.nextParentAddChild(ip,this.r.lnode);
-       if (prevNextParent != nextParent && !this.r.rootPList.includes(nextParent)){
-         this.r.rootPList.push(nextParent);
-       }
-       this.r.lastNode = ip;
+       var nextParent = await this.getNodeIpByNbr(this.r.nextPNbr);
        this.r.nextParent = nextParent;
+       await this.nextParentAddChild(ip,this.r.lnode);
+
+       this.r.lastNode = ip;
        if (this.r.lnode == 2){
          this.r.rightNode = ip;
        }
        this.newNode = clone(this.r);
        this.newNode.myParent = prevNextParent;
-       this.newNode.rootPList = [];
        this.newNode.leftNode = oldLastNodeIp;
        this.newNode.rightNode = null;
        this.newNode.mylayer = this.getNthLayer(this.net.maxPeers,this.r.lnode);
@@ -243,6 +239,16 @@ class MkyRouting {
        return;
      });
    }
+   getMyParentNbr(n){
+     let p=0;
+     for ( let i=1; i < n;i++){
+       if ((i-1) % this.net.maxPeers === 0)
+          p++;
+     }
+     if (p==0){return 1;}
+     return p;
+   }
+
    nextParentAddChild(ip,nbr){
      return new Promise((resolve,reject)=>{
        //create error and reply listeners
@@ -333,6 +339,12 @@ class MkyRouting {
    // ====================================================== 
    addNewNodeBCast(ip,rUpdate){
      console.log('Add by BROADCAST '+ip,rUpdate);
+     this.r.mylayer = this.getMyLayer(this.net.maxPeers,this.r.nodeNbr);
+     this.r.nlayer  = this.getMyLayer(this.net.maxPeers,this.r.lnode+1);
+
+     if (this.myIp != this.r.lastNode){
+       this.r.rootRTab = 'na';
+     }
      if (this.startJoin){
        this.startJoin = false;
        clearTimeout(this.joinTime);
@@ -359,6 +371,17 @@ class MkyRouting {
        this.dropIps.splice(newNodex, 1);
      }  
      return false;
+   }
+   getMyLayer(maxPeers,nodeNbr){
+     let start = 1;
+     let end   = 1;
+     let layer = 1;
+     while (nodeNbr >= start){
+       end = Math.pow(maxPeers,layer -1);
+       start = start + end;
+       layer ++;
+     }
+     return layer-1;
    }
    // ***********************************************
    // Send Message to parent to update their routing
@@ -422,7 +445,9 @@ class MkyRouting {
    // **********************************************************
    // Calculate what layer a node is in
    // ==========================================================
+   
    getNthLayer(maxPeers,n){
+     return this.getMyLayer(maxPeers,n);
      if (n <= 1){
        return 1;
      }
@@ -493,7 +518,6 @@ class MkyRouting {
        else{ 
          this.r.rootNodeIp = this.myIp;
          this.r.nextParent = this.myIp;
-         this.r.rootPList  = [this.myIp];
          this.status = 'root';
          this.r.nodeNbr = 1;
          console.log("I am alone :(");
@@ -694,8 +718,7 @@ class MkyRouting {
        myNodes    : [],
        lastNode   : this.myIp,
        myParent   : null,
-       nextParent : null,
-       rootPList  : [this.myIp],
+       nextParent : this.myIp,
        rightNode  : null,
        leftNode   : null,
        mylayer    : 1,
@@ -737,17 +760,11 @@ class MkyRouting {
            this.r.rootRTab.pop();
          }
        }
-       
+
        console.log('Cloning RootRTab',this.r.rootRTab);
        this.r = clone(this.r.rootRTab);
-     
-       this.dropLastNode(this.r.myNodes,this.r.lnode);
 
-       
-       if ((this.r.lnode) % this.net.maxPeers === 0){
-         this.r.rootPList.pop();
-       }
-       this.r.nextParent = this.r.rootPList[this.r.rootPList.length -1];
+       this.dropLastNode(this.r.myNodes,this.r.lnode);
 
        this.r.lnode--;
        this.r.lastNode = newLastNodeIp;
@@ -777,6 +794,8 @@ class MkyRouting {
        var holdLastNodeIp  = this.r.lastNode;
        var holdLastNodeNbr = this.r.lnode;
 
+       //Case 1. Only two nodes in the network.
+
        if (this.r.nodeNbr == 1 && this.r.lnode == 2 && nbr == 2){
          this.becomeRoot();
          resolve(null);
@@ -789,7 +808,7 @@ class MkyRouting {
          return;
        }
 
-       // Root is dropping last node will become root.
+       // Case 2. I am last node and Root is dropping last node will become root.
        if (this.myIp == this.r.lastNode && nbr == 1){
          console.log('dropping Root moving last node to replace root');
          await this.lnodeReplaceRoot(ip,nbr);
@@ -802,22 +821,11 @@ class MkyRouting {
        let dropRTab = this.getMyChildRTab(ip); 
        console.log('Droping Node RTab looks like :'+ip,dropRTab);
 
-       // Last Node is dropping.
+       //Case 3. Last Node is dropping.
        if (ip == holdLastNodeIp){
          // Change my child node list to point to the last nodes Ip
          lnodeIp = dropRTab.leftNode;
          this.updateMyChildNodes(ip,nbr,lnodeIp);
-
-         // If this is root node check if the root Parent List needs to be updated.
-         if (this.r.nodeNbr == 1){
-           let nodes = this.r.lnode -1;
-           if (nodes < this.r.lnode){
-             if ((this.r.lnode) % this.net.maxPeers === 0){
-               this.r.rootPList.pop();
-               this.r.nextParent = this.r.rootPList[this.r.rootPList.length -1];
-             }
-           }
-         }
 
          this.r.lnode--;
          this.r.lastNode = lnodeIp;
@@ -829,7 +837,26 @@ class MkyRouting {
          resolve(null);
          return;
        }
-       //this.bcast({simReplaceNode : {ip : ip,nbr : this.rlnode -1,lnode : lnodeIp}});
+       //case 4. I am Root Droping A child node.
+       if (this.r.nodeNbr == 1){
+         console.log('Executing Case 4.',ip,nbr);
+         this.r.lnode --;
+         this.r.lastNode = await this.lastNodeBecome(this.r.lastNode,dropRTab);
+         if (this.r.lastNode == ip){
+           this.r.lastNode = holdLastNodeIp;
+         }   
+         if (this.r.myNodes[this.r.myNodes.length -1].ip == holdLastNodeIp){
+           console.log('Case 4. Pop',holdLastNodeIp,this.r.myNodes[this.r.myNodes.length -1].ip);
+           this.r.myNodes.pop();
+         }
+         this.myChildSetNewIp(lnodeIp,ip);
+         this.bcastRootTableUpdate();
+         resolve(null);
+         return;
+       }
+
+       //case 5 parent node is not root or last node 
+       console.log('Case: 5',ip,nbr);
 
        var lnStatus = null;
        var trys     = 0;
@@ -851,15 +878,7 @@ class MkyRouting {
          // Build and send move request to the last node.
          const req = {
            req       : 'lastNodeMoveTo',
-           myNodes   : this.getDropNodePeerGroup(ip),
-           myParent  : this.myIp,
-           mylayer   : this.getNthLayer(this.net.maxPeers,nbr),
-           nodeNbr   : nbr,
-           dropIp    : ip,
-           newLnode  : lnodeIp,
-           newLnbr   : holdLastNodeNbr -lnPoint,
-           newLeftIp : newLeftIp,
-           newRTab   : this.getMyChildRTab(ip)
+           newRTab   : dropRTab
          }
          console.log('lastNodeMoveTo::request looks like this',req);
 
@@ -867,17 +886,31 @@ class MkyRouting {
          this.updateMyChildNodes(ip,nbr,lnodeIp);
 
          // Start Check Status of Lastnode
-         var lnStatus = await this.getLastNodeStatus(holdLastNodeIp,req);
-         console.log("lastNodeStatus is::",lnStatus);
+         var mres = await this.getLastNodeStatus(lnodeIp,req);
+         console.log('lastNodeBecome::',mres);
+         lnStatus = mres.status;
          trys++;
 
          if (!lnStatus){
            await sleep(1000);
            holdLastNodeNbr = this.r.lnode;
+           lnodeIp = mres.newLastIp;
+         }
+       }
+       let child = this.r.myNodes[this.net.maxPeers -1];
+       if (child){
+         if (child.nbr == holdLastNodeNbr) {
+           this.r.myNodes.pop();
          }
        }
        this.bcastRootTableUpdate();
        resolve(holdLastNodeIp);
+     });
+   }
+   myChildSetNewIp(newIp,replaceIp){
+     this.r.myNodes.forEach((child)=>{
+       if (child.ip == replaceIp)
+         child.ip = newIp;
      });
    }
    getMyChildRTab(ip){
@@ -888,6 +921,32 @@ class MkyRouting {
        }
      });
      return childRTab;
+   }
+   lastNodeBecome(lastNodeIp,dropRTab){
+     return new Promise(async(resolve,reject)=>{
+       var lnStatus = null;
+       var trys     = 0;
+       let maxTrys  = 5;
+
+       while (lnStatus != 'moveOK' && trys < maxTrys){
+         // Build and send move request to the last node.
+         const req = {
+           req       : 'lastNodeMoveTo',
+           newRTab   : dropRTab
+         }
+         // Start Check Status of Lastnode
+         var mres = await this.getLastNodeStatus(lastNodeIp,req);
+         console.log('lastNodeBecome::',mres);
+         lnStatus = mres.status;
+         trys++;
+         if (!lnStatus){
+           await sleep(1000);
+           resolve(null);
+           return;
+         }
+       }
+       resolve(mres.newLastIp);
+     });
    }
    getLastNodeStatus(ip,req){
      return new Promise((resolve,reject)=>{
@@ -903,7 +962,7 @@ class MkyRouting {
        });
        this.net.on('peerTReply',repListener  = (j)=>{
          if (j.moveResult && j.remIp == ip){
-           resolve (j.moveResult.status);
+           resolve (j.moveResult);
            this.net.removeListener('xhrFail', errListener);
            this.net.removeListener('peerTReply', repListener);
            resolve(null);
@@ -976,10 +1035,7 @@ class MkyRouting {
      }
      this.r.lnStatus = 'moving'
 
-     // If move node is not my parent node then notify my
-     // parent node that being moved. (need to add check that the parent is not the node to be dropped!
-     // if it is then the RTab will need adjusting.
- 
+     // Notify Parent This Node Is Moving and needs to be dropped.
      if (j.remIp != this.r.myParent){
        if (this.r.myParent != j.dropIp){
          const req = {
@@ -988,25 +1044,14 @@ class MkyRouting {
          }
          console.log('lastNodeMoveTo::sending:'+this.r.myParent,req);
          this.net.sendMsgCX(this.r.myParent,req);
-       } 
-       else {
-         console.log('Popping newRTab',j.newRTab.myNodes);
-         j.newRTab.myNodes.pop();
        }
-    }
- 
-     this.r = clone(this.net.dropChildRTabs(j.newRTab));
-     console.log('I am Now:',this.r);
-
-     const rip = this.myIp;
-     console.log('RIP:',rip);
-     const dropNbr = j.nodeNbr;
-     console.log('dropNbr:',dropNbr);
-
-     if (j.nodeNbr == 1){
-       console.log('Becoming New Root');
-       this.status == 'root'
      }
+
+     const newLastNodeIp = this.r.leftNode;
+
+     this.r = clone(this.net.dropChildRTabs(j.newRTab));
+     this.net.sendMsgCX(this.r.leftNode,{req : "addMeToYourRight", ip : this.myIp});
+     console.log('I am Now:',this.r);
 
      this.r.lnStatus = 'OK';
 
@@ -1014,7 +1059,8 @@ class MkyRouting {
        moveResult : {
          targetIP : j.dropIp,
          time     : Date.now(),
-         status   : 'moveOK'
+         status   : 'moveOK',
+         newLastIp: newLastNodeIp 
        }
      };
      this.net.sendReplyCX(j.remIp,reply);
@@ -1118,7 +1164,6 @@ class MkyRouting {
        lastNode   : this.myIp,
        myParent   : null,
        nextParent : this.myIp,
-       rootPList  : [],
        mylayer    : 1,
        nodeNbr    : 1,
        nlayer     : 1,
@@ -1209,12 +1254,11 @@ class MkyRouting {
        return;
      }
      if (j.req == 'dropMeAsChildLastNode'){
-       console.log('GOT REQUEST::',this.r);
+       console.log('GOT REQUEST::',this.r,j);
        this.r.myNodes.pop();
      }
      if (j.req == 'lastNodeMoveTo'){
        this.lastNodeMoveTo(j);
-       this.net.endResCX(remIp,'{"lasNodeMoveToResult":"OK"}');
        return true;
      }
      if (j.req == 'lnParentAddNode'){
@@ -1352,16 +1396,6 @@ class MkyRouting {
      // sent the message.  
      if (j.msg.rootTabUpdate){
 
-       // If this is root node check if the root Parent List needs to be updated.
-       if (this.r.nodeNbr == 1){
-         let nodes = j.msg.rootTabUpdate.lastNodeNbr;
-         if (nodes < this.r.lnode){
-           if ((this.r.lnode) % this.net.maxPeers === 0){
-             this.r.rootPList.pop();
-             this.r.nextParent = this.r.rootPList[this.r.rootPList.length -1];
-           }
-         }
-       } 
        console.log('Updating Root Tables',j.msg.rootTabUpdate,j.msg);
        this.r.rootNodeIp = j.msg.rootTabUpdate.rootIp;       
        this.r.lastNode   = j.msg.rootTabUpdate.lastNodeIp;
@@ -1402,14 +1436,6 @@ class MkyRouting {
        console.log('handleError::got bcast, re-routing:',j.req);
        this.routePastNode(j);
        return true;
-     }
-     // Que errors to nodes that are not in my control.
-     if (!this.dropIps.includes(j.toHost)){ 
-       if (this.isMyChild(j.toHost) === null){
-         console.log('handleError::myChild, queing mgs',j);
-         this.net.queMsg(j);
-         return;
-       }
      }
      if (!this.err){ //this.node.isError(j.toHost)){
        this.net.incErrorsCnt(j.toHost);
@@ -2303,9 +2329,6 @@ class PeerTreeNet extends  EventEmitter {
       node.rtab = 'na';
     })
     r.rootRTab = 'na';
-    if(r.nodeNbr != 1){
-      r.rootPList = [];
-    }
     return r;
   }
   /************************************************
@@ -2355,7 +2378,6 @@ class PeerTreeNet extends  EventEmitter {
       leftNode   : null,
       rightNode  : null,
       nextParent : null,
-      rootPList  : [],
       myParent   : null,
       mylayer    : 1,
       nodeNbr    : 0,    // node sequence number 1,2,3 ... n
