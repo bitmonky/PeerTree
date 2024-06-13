@@ -1924,7 +1924,7 @@ class PeerTreeNet extends  EventEmitter {
         jmsg = JSON.parse(msg);
       }
       catch {
-        console.log('Response Error JSON.parse',msg);
+        console.log('Response Error JSON.parse',resIp,msg,corx);
         return;
       }
       if(corx){
@@ -2248,6 +2248,12 @@ class PeerTreeNet extends  EventEmitter {
           }        
         });
         this.rnet.net.on('peerTReply',rListener  = (j)=>{
+          if (j.remIp == this.rnet.r.myParent){
+            //console.log('heartBeat::PINGRESULT:',j);
+            if (j.result == 'doRejoinNet'){
+              setNodeBackToStartup();
+            }
+          }
           if (j.pingResult && (j.nodeStatus == 'online' || j.nodeStatus == 'root')){
             this.updateChildRTab(j.remIp,j.rtab);
             const pTime = Date.now() - hrtbeat.tstamp; 
@@ -2262,14 +2268,14 @@ class PeerTreeNet extends  EventEmitter {
         const hTimer = setTimeout( ()=>{
           this.rnet.net.removeListener('peerTReply', rListener);
           this.rnet.net.removeListener('xhrFail', hListener);
-          hrtbeat.myStatus = this.reviewMyStatus(hrtbeat);
+          //hrtbeat.myStatus = this.reviewMyStatus(hrtbeat);
 	  //console.log('hearBeat Done:',hrtbeat);
         },1500);
 
 	// Ping Parent Node
         if (this.rnet.r.myParent){
           hrtbeat.pings.push({pIP:this.rnet.r.myParent,pType:'myParent',pRes : null});
-	  this.sendMsgCX(this.rnet.r.myParent,{ping : "hello"});
+	  this.sendMsgCX(this.rnet.r.myParent,{ping : "hello",action : "checkMyStatus"});
         }
         // Ping My Child Nodes
         if(this.rnet.r.myNodes)
@@ -2353,7 +2359,7 @@ class PeerTreeNet extends  EventEmitter {
     if (hbeat.myStatus != 'OK' && (this.rnet.r.nodeNbr == 1 || this.rnet.r.nodeNbr == 2)){
       let finalCheck = await this.checkInternet();
       if (!finalCheck){
-        setNodeBackToStartup();
+        this.setNodeBackToStartup();
       }
       else {hbeat.myStatus = 'OK';}
     }
@@ -2766,8 +2772,9 @@ class PeerTreeNet extends  EventEmitter {
          return;	 
        }
        if (j.ping == 'hello'){
-         var result = this.rnet.checkPeerStatus(j.remIp);
-         this.endResCX(remIp,'{"pingResult":"hello back","status":'+result+',"nodeStatus":"'+this.rnet.status+'","rtab" :'+JSON.stringify(this.rnet.r)+'}');
+         var result = this.rnet.isMyChild(j.remIp);
+         if (result === null){result = 'doRejoinNet';}
+         this.endResCX(remIp,'{"pingResult":"hello back","status":"'+result+'","nodeStatus":"'+this.rnet.status+'","rtab":'+JSON.stringify(this.rnet.r)+'}');
          return;
        }      
        if (j.req == 'bcast'){
