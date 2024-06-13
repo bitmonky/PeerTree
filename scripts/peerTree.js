@@ -2249,12 +2249,18 @@ class PeerTreeNet extends  EventEmitter {
         });
         this.rnet.net.on('peerTReply',rListener  = (j)=>{
           if (j.remIp == this.rnet.r.myParent){
-            //console.log('heartBeat::PINGRESULT:',j);
+            console.log('heartBeat::PINGRESULT:',j);
             if (j.result == 'doRejoinNet'){
-              setNodeBackToStartup();
+              this.setNodeBackToStartup();
             }
           }
           if (j.pingResult && (j.nodeStatus == 'online' || j.nodeStatus == 'root')){
+            if (j.remIp == this.rnet.r.myParent){
+              console.log('heartBeat::PINGRESULT:',j);
+              if (j.result == 'doRejoinNet'){
+                this.setNodeBackToStartup();
+              }
+            }
             this.updateChildRTab(j.remIp,j.rtab);
             const pTime = Date.now() - hrtbeat.tstamp; 
 	    const peer = this.heartbIndexOf(hrtbeat.pings,j.remIp);
@@ -2759,9 +2765,6 @@ class PeerTreeNet extends  EventEmitter {
        // Add node the contacts List 
        this.pushToContacts(j);
 
-       if (j.ping == 'hello'){
-         //console.log('Got PING hello::',j.remIp);
-       }
        if (this.rnet.handleReq(remIp,j)){
          //console.log('Request Handled By Handler');
          return;
@@ -2773,7 +2776,10 @@ class PeerTreeNet extends  EventEmitter {
        }
        if (j.ping == 'hello'){
          var result = this.rnet.isMyChild(j.remIp);
-         if (result === null){result = 'doRejoinNet';}
+         if (result === null){
+           console.log('pingResult::doRejoinNet',j.remIp,result,j);
+           result = 'doRejoinNet';
+         }
          this.endResCX(remIp,'{"pingResult":"hello back","status":"'+result+'","nodeStatus":"'+this.rnet.status+'","rtab":'+JSON.stringify(this.rnet.r)+'}');
          return;
        }      
