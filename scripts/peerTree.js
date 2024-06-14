@@ -1317,6 +1317,12 @@ class MkyRouting {
          this.r.myNodes.push(node);
          this.r.lnode = j.nbr;
          this.r.lastNode = j.ip;
+
+         // Remove New Node Ip from dropped nodes list;
+         let newNodex = this.dropIps.indexOf(j.ip);
+         if (newNodex !== -1) {
+           this.dropIps.splice(newNodex, 1);
+         }
        }
        if (this.r.myNodes.length == this.net.maxPeers){
          console.log(remIp,'{"resultNextParentAddChildIp":"'+this.r.rightNode+'"}');
@@ -2249,7 +2255,7 @@ class PeerTreeNet extends  EventEmitter {
         });
         this.rnet.net.on('peerTReply',rListener  = (j)=>{
           if (j.remIp == this.rnet.r.myParent){
-            console.log('heartBeat::PINGRESULT:',j);
+            //console.log('heartBeat::PINGRESULT:',j);
             if (j.result == 'doRejoinNet'){
               this.setNodeBackToStartup();
             }
@@ -2777,7 +2783,7 @@ class PeerTreeNet extends  EventEmitter {
        if (j.ping == 'hello'){
          var result = this.rnet.isMyChild(j.remIp);
          if (result === null){
-           console.log('pingResult::doRejoinNet',j.remIp,result,j);
+           //console.log('pingResult::doRejoinNet',j.remIp,result,j);
            result = 'doRejoinNet';
          }
          this.endResCX(remIp,'{"pingResult":"hello back","status":"'+result+'","nodeStatus":"'+this.rnet.status+'","rtab":'+JSON.stringify(this.rnet.r)+'}');
