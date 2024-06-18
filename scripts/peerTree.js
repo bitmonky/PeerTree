@@ -841,6 +841,13 @@ class MkyRouting {
        if (this.r.nodeNbr == 1){
          console.log('Executing Case 4.',ip,nbr);
          this.r.lnode --;
+         dropRTab.myNodes.forEach((child)=>{
+           if (child.ip == this.r.lastNode){
+             console.log('Case 4. droping last node from RTAB',dropRTab.myNodes);
+             dropRTab.myNodes.pop();
+             return;
+           }
+         });
          this.r.lastNode = await this.lastNodeBecome(this.r.lastNode,dropRTab);
          if (this.r.lastNode == ip){
            this.r.lastNode = holdLastNodeIp;
@@ -868,6 +875,12 @@ class MkyRouting {
          lnodeIp = this.r.lastNode;
          console.log('Last Node Ip Remains: ',lnodeIp);
 
+         dropRTab.myNodes.forEach((child)=>{
+           if (child.ip == lnodeIp){
+             dropRTab.myNodes.pop();
+             return;
+           }
+         });
          dropRTab.lnode = holdLastNodeNbr -1;
          if (nbr == holdLastNodeNbr -1){
            dropRTab.rightNode=null;
@@ -1255,7 +1268,11 @@ class MkyRouting {
      }
      if (j.req == 'dropMeAsChildLastNode'){
        console.log('GOT REQUEST::',this.r,j);
-       this.r.myNodes.pop();
+       this.r.myNodes.forEach((child,index, object)=>{
+         if (j.ip == child.ip){
+           object.splice(index,1);
+         }
+       });
      }
      if (j.req == 'lastNodeMoveTo'){
        this.lastNodeMoveTo(j);
@@ -1372,7 +1389,7 @@ class MkyRouting {
    // Handle Broadcasts From the network
    // ==================================================
    handleBcast(j){
-     console.log('Broadcast Recieved: ',j);
+     //console.log('Broadcast Recieved: ',j);
      if (j.remIp == this.myIp){
        console.log('Ingore Broad Cast To Self',j);
        return true;
@@ -1409,6 +1426,12 @@ class MkyRouting {
        if (this.r.nodeNbr == this.r.lnode){
          this.r.rightNode = null;
        }
+       this.r.myNodes.forEach((child,index,object)=>{
+         if (child.nbr >= this.r.lnode){
+           console.log('droping dangling node from child nodes',j);
+           this.r.rightNode = null;
+         }
+       });
        return true;
      }
      if (j.msg.newLastHost){
@@ -1447,6 +1470,13 @@ class MkyRouting {
        this.net.incErrorsCnt(j.toHost);
        if (this.net.getNodesErrorCnt(j.toHost) > 0){
          console.log('handleError::Err Count Exceeded',j.toHost);
+      
+         const myStat = await this.net.checkInternet();
+         if (!myStat){
+           console.log('Its Me... Going to restart mode');
+           this.setNodeBackToStartup();
+           return;
+         }
          // Only Parent Nodes Can Drop A Node.
          if (this.notMyNode(j.toHost)){
            console.log('Not My Node To Drop::',j.toHost);
@@ -2262,7 +2292,7 @@ class PeerTreeNet extends  EventEmitter {
           }
           if (j.pingResult && (j.nodeStatus == 'online' || j.nodeStatus == 'root')){
             if (j.remIp == this.rnet.r.myParent){
-              console.log('heartBeat::PINGRESULT:',j);
+              //console.log('heartBeat::PINGRESULT:',j);
               if (j.result == 'doRejoinNet'){
                 this.setNodeBackToStartup();
               }
