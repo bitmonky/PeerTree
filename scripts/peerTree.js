@@ -1381,18 +1381,6 @@ class MkyRouting {
        this.status = 'online';
        return true;
      }
-     if (j.pingResult){
-       //console.log('Ping Result '+j.status,j);
-     
-       if (!j.status && this.r.myParent == j.remIp && this.r.nodeNbr > 1){
-         if(this.status != 'detached'){
-           //console.log("REJOIN::camefrom Ping Result!",j);
-           //this.rejoinNetwork();
-         }
-       }
-       return true;
-
-     }    
      return false;
    }
    // ***************************************************
@@ -1482,9 +1470,10 @@ class MkyRouting {
          console.log('handleError::Err Count Exceeded',j.toHost);
       
          const myStat = await this.net.checkInternet();
+         console.log('MyStat',myStat);
          if (!myStat){
            console.log('Its Me... Going to restart mode');
-           this.setNodeBackToStartup();
+           this.net.setNodeBackToStartup();
            return;
          }
          // Only Parent Nodes Can Drop A Node.
@@ -1506,7 +1495,7 @@ class MkyRouting {
            console.log('Drop Time Out',j);
            this.notifyRootDropComplete();
            this.err = false; //this.node.clearError(j.toHost);
-         },8000);
+         },2500);
 
          // Get nodeNbr of the node to drop.
          const nbr = this.inMyNodesList(j.toHost); 
@@ -2123,6 +2112,7 @@ class PeerTreeNet extends  EventEmitter {
       this.server.on('timeout', (socket) => {
         console.log('Warning Server Socket timed out');
         this.emit('mkyServerTO');
+        this.setNodeBackToStartup();
       });
       console.log('Server PeerTree7.2 running at ' + this.nIp + ':' + this.port);
    }
@@ -2276,7 +2266,7 @@ class PeerTreeNet extends  EventEmitter {
    your nodes health on the network
    */
    async heartBeat(){
-      //console.log('starting heartBeat:',this.rnet.status);
+      //console.log('starting heartBeat:',this.rnet.status,this.rnet.err);
       if(this.rnet && this.rnet.status != 'startup' && !this.rnet.err){
         var hrtbeat = {
           pings    : [],
@@ -2295,15 +2285,15 @@ class PeerTreeNet extends  EventEmitter {
         });
         this.rnet.net.on('peerTReply',rListener  = (j)=>{
           if (j.remIp == this.rnet.r.myParent){
-            //console.log('heartBeat::PINGRESULT:',j);
-            if (j.result == 'doRejoinNet'){
+            console.log('heartBeat::PINGRESULT:',j.pingResult,j.statAction);
+            if (j.statAction == 'doRejoinNet'){
               this.setNodeBackToStartup();
             }
           }
           if (j.pingResult && (j.nodeStatus == 'online' || j.nodeStatus == 'root')){
             if (j.remIp == this.rnet.r.myParent){
               //console.log('heartBeat::PINGRESULT:',j);
-              if (j.result == 'doRejoinNet'){
+              if (j.statAction == 'doRejoinNet'){
                 this.setNodeBackToStartup();
               }
             }
@@ -2356,6 +2346,9 @@ class PeerTreeNet extends  EventEmitter {
             this.pulseRate = 15000;
           }
         }
+      }
+      else {
+        console.log('heartBeat::Error',this.rnet.err,this.rnet.status);
       }
       var timeout = setTimeout( ()=>{this.heartBeat();},this.pulseRate);
   }
@@ -2445,9 +2438,9 @@ class PeerTreeNet extends  EventEmitter {
     setTimeout(()=>{this.waitForInternet();},20*1000);
   }
   async waitForInternet(){
-    var isAvail = await checkInternet();
+    var isAvail = await this.checkInternet();
     if (isAvail){
-      await this.init();
+      await this.rnet.init();
     }
     else { 
       setTimeout(()=>{this.waitForInternet();},20*1000);
@@ -2821,12 +2814,13 @@ class PeerTreeNet extends  EventEmitter {
          return;	 
        }
        if (j.ping == 'hello'){
-         var result = this.rnet.isMyChild(j.remIp);
-         if (result === null){
-           //console.log('pingResult::doRejoinNet',j.remIp,result,j);
+         var result = 'OK';
+         var tres = this.rnet.isMyChild(j.remIp);
+         if (tres === null){
+           console.log('pingResult::doRejoinNet',j.remIp,result,j);
            result = 'doRejoinNet';
          }
-         this.endResCX(remIp,'{"pingResult":"hello back","status":"'+result+'","nodeStatus":"'+this.rnet.status+'","rtab":'+JSON.stringify(this.rnet.r)+'}');
+         this.endResCX(remIp,'{"pingResult":"hello back","statAction":"'+result+'","nodeStatus":"'+this.rnet.status+'","rtab":'+JSON.stringify(this.rnet.r)+'}');
          return;
        }      
        if (j.req == 'bcast'){
