@@ -2285,7 +2285,7 @@ class PeerTreeNet extends  EventEmitter {
         });
         this.rnet.net.on('peerTReply',rListener  = (j)=>{
           if (j.remIp == this.rnet.r.myParent){
-            console.log('heartBeat::PINGRESULT:',j.pingResult,j.statAction);
+            //console.log('heartBeat::PINGRESULT:',j.pingResult,j.statAction);
             if (j.statAction == 'doRejoinNet'){
               this.setNodeBackToStartup();
             }
@@ -2307,10 +2307,10 @@ class PeerTreeNet extends  EventEmitter {
           }
         });
          
-        const hTimer = setTimeout( ()=>{
+        const hTimer = setTimeout(async ()=>{
           this.rnet.net.removeListener('peerTReply', rListener);
           this.rnet.net.removeListener('xhrFail', hListener);
-          //hrtbeat.myStatus = this.reviewMyStatus(hrtbeat);
+          hrtbeat.myStatus = await this.reviewMyStatus(hrtbeat);
 	  //console.log('hearBeat Done:',hrtbeat);
         },1500);
 
@@ -2327,7 +2327,7 @@ class PeerTreeNet extends  EventEmitter {
           }
             
         // Last Node Ping Root Node.
-        if (this.rnet.r.nodeNbr == this.rnet.r.lnode){
+        if (this.rnet.r.nodeNbr == this.rnet.r.lnode && this.rnet.r.nodeNbr != 1){
           hrtbeat.pings.push({pIP:this.rnet.r.rootNodeIp,pType: 'lastToRoot',pRes : null});
           this.sendMsgCX(this.rnet.r.rootNodeIp,{ping : "hello"});
         }
@@ -2385,30 +2385,33 @@ class PeerTreeNet extends  EventEmitter {
   /************************************************
   Called by heartBeat To evaluate your current status
   */
-  async reviewMyStatus(hbeat){
-    //console.log('My Health Check::',hbeat);
-    var nFails = 0;
-    hbeat.pings.forEach((ping)=>{
-      if (ping.pRes != 'hello back'){
-        if (ping.pType != 'lastToRoot'){
-          console.log('hbeat:::fail::', ping);
-          nFails++;
+  reviewMyStatus(hbeat){
+    return new Promise(async(resolve,reject)=>{
+      //console.log('My Health Check::',hbeat);
+      var nFails = 0;
+      hbeat.pings.forEach((ping)=>{
+        if (ping.pRes != 'hello back'){
+          if (ping.pType != 'lastToRoot'){
+            console.log('hbeat:::fail::', ping);
+            nFails++;
+          }
         }
+      });
+      //console.log('PingFails::',nFails);
+      if (nFails == hbeat.pings.length){
+        //console.log('heartBeat::reviewMyStatus: '+nFails,hbeat.pings.length);
+        hbeat.myStatus = 'imOffline';
       }
+      if (hbeat.myStatus != 'OK' && (this.rnet.r.nodeNbr == 1 || this.rnet.r.nodeNbr == 2)){
+        let finalCheck = await this.checkInternet();
+        if (!finalCheck){
+          this.setNodeBackToStartup();
+        }
+        else {hbeat.myStatus = 'OK';}
+      }
+      resolve(hbeat.myStatus);
+      return;
     });
-    //console.log('PingFails::',nFails);
-    if (nFails == hbeat.pings.length){
-      console.log('heartBeat::reviewMyStatus: '+nFails,hbeat.pings.length);
-      hbeat.myStatus = 'imOffline';
-    }
-    if (hbeat.myStatus != 'OK' && (this.rnet.r.nodeNbr == 1 || this.rnet.r.nodeNbr == 2)){
-      let finalCheck = await this.checkInternet();
-      if (!finalCheck){
-        this.setNodeBackToStartup();
-      }
-      else {hbeat.myStatus = 'OK';}
-    }
-    return hbeat.myStatus;
   }
   setNodeBackToStartup(){
     console.log('Node Appears offline returning to startup mode');
@@ -2817,7 +2820,7 @@ class PeerTreeNet extends  EventEmitter {
          var result = 'OK';
          var tres = this.rnet.isMyChild(j.remIp);
          if (tres === null){
-           console.log('pingResult::doRejoinNet',j.remIp,result,j);
+           //console.log('pingResult::doRejoinNet',j.remIp,result,j);
            result = 'doRejoinNet';
          }
          this.endResCX(remIp,'{"pingResult":"hello back","statAction":"'+result+'","nodeStatus":"'+this.rnet.status+'","rtab":'+JSON.stringify(this.rnet.r)+'}');
