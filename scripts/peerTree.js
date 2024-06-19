@@ -823,6 +823,7 @@ class MkyRouting {
 
        //Case 3. Last Node is dropping.
        if (ip == holdLastNodeIp){
+         console.log('Case 3.');
          // Change my child node list to point to the last nodes Ip
          lnodeIp = dropRTab.leftNode;
          this.updateMyChildNodes(ip,nbr,lnodeIp);
@@ -1063,7 +1064,12 @@ class MkyRouting {
      const newLastNodeIp = this.r.leftNode;
 
      this.r = clone(this.net.dropChildRTabs(j.newRTab));
+     console.log('Sending To:',this.r.leftNode,{req : "addMeToYourRight", ip : this.myIp});
      this.net.sendMsgCX(this.r.leftNode,{req : "addMeToYourRight", ip : this.myIp});
+     if (this.r.rightNode){
+       console.log('Sending To:',this.r.rightNode,{req : "addMeToYourLeft", ip : this.myIp});
+       this.net.sendMsgCX(this.r.rightNode,{req : "addMeToYourLeft", ip : this.myIp});
+     } 
      console.log('I am Now:',this.r);
 
      this.r.lnStatus = 'OK';
@@ -1325,6 +1331,10 @@ class MkyRouting {
      }
      if (j.req == 'addMeToYourRight'){
        this.r.rightNode = j.remIp;
+       return true;
+     }
+     if (j.req == 'addMeToYourLeft'){
+       this.r.leftNode = j.remIp;
        return true;
      }
      if (j.req == 'nextParentAddChildIp'){
@@ -1818,7 +1828,7 @@ class MkyMsgQMgr {
 // JSON messages using https.
 // *********************************************************
 class PeerTreeNet extends  EventEmitter {
-   constructor (options,network=null,port=1336,wmon=1339,maxPeers=2){
+   constructor (options,network=null,port=1336,wmon=1339,maxPeers=25){
       super(); 
       this.nodeType  = 'router';
       this.pulseRate = defPulse;	   
