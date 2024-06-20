@@ -2475,7 +2475,7 @@ class PeerTreeNet extends  EventEmitter {
       while(this.rnet.status == 'tryJoining'){
         console.log('trying to join');
         await this.rnet.init();
-        if (this.rnet.status == 'tryJoing'){
+        if (this.rnet.status == 'tryJoining'){
           await sleep(10*1000);
         }
         else {return;}
