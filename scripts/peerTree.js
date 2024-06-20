@@ -842,13 +842,16 @@ class MkyRouting {
        if (this.r.nodeNbr == 1){
          console.log('Executing Case 4.',ip,nbr);
          this.r.lnode --;
-         dropRTab.myNodes.forEach((child)=>{
-           if (child.ip == this.r.lastNode){
-             console.log('Case 4. droping last node from RTAB',dropRTab.myNodes);
-             dropRTab.myNodes.pop();
-             return;
-           }
-         });
+         
+         if (Array.isArray(dropRTab.myNodes)) {
+           dropRTab.myNodes.forEach((child)=>{
+             if (child.ip == this.r.lastNode){
+               console.log('Case 4. droping last node from RTAB',dropRTab.myNodes);
+               dropRTab.myNodes.pop();
+               return;
+             }
+           });
+         }
          this.r.lastNode = await this.lastNodeBecome(this.r.lastNode,dropRTab);
          if (this.r.lastNode == ip){
            this.r.lastNode = holdLastNodeIp;
@@ -2021,7 +2024,7 @@ class PeerTreeNet extends  EventEmitter {
                 jSaver = j;
                 if (j.hasOwnProperty('msg') === false) throw 'invalid netREQ no msg body found';
                 if(this.rnet.status != 'online' && this.rnet.status != 'root'){
-                  console.log('NETREQ::Status:'+this.rnet.status,j);
+                  //console.log('NETREQ::Status:'+this.rnet.status,j);
                 }
 		if (!j.msg.remIp) j.msg.remIp = this.remIp;
                 this.resHandled = true;
@@ -2075,7 +2078,7 @@ class PeerTreeNet extends  EventEmitter {
                 j = JSON.parse(body);
                 if (j.hasOwnProperty('msg') === false) throw 'invalid netREPLY no msg body found';
                 if(this.rnet.status != 'online' && this.rnet.status != 'root'){
-                  console.log('NETReply::Status:'+this.rnet.status,j);
+                  //console.log('NETReply::Status:'+this.rnet.status,j);
                 }
                 if (!j.msg.remIp) j.msg.remIp = this.remIp;
                 if (j.msg.hasOwnProperty('PNETCOREX') === false){
@@ -2464,8 +2467,19 @@ class PeerTreeNet extends  EventEmitter {
   }
   async waitForInternet(){
     var isAvail = await this.checkInternet();
+    console.log('waitForInternet::isAvail:',isAvail);
     if (isAvail){
-      await this.rnet.init();
+      this.rnet.status = 'tryJoining';
+      console.log('trying to join',this.rnet.status);
+
+      while(this.rnet.status == 'tryJoining'){
+        console.log('trying to join');
+        await this.rnet.init();
+        if (this.rnet.status == 'tryJoing'){
+          await sleep(10*1000);
+        }
+        else {return;}
+      }
     }
     else { 
       setTimeout(()=>{this.waitForInternet();},20*1000);
@@ -2765,7 +2779,7 @@ class PeerTreeNet extends  EventEmitter {
   Maintains contact list used for finding the network when
   attempting to rejoin.
   */
-  pushToContacts(j){
+  async pushToContacts(j){
      for (var node of this.nodes){
        if (node.ip == j.remIp){
          return;
