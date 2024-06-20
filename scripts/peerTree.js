@@ -2277,6 +2277,7 @@ class PeerTreeNet extends  EventEmitter {
         var rListener = null;
         this.rnet.net.on('xhrFail',hListener = (j)=>{
           if (j.ping){
+            console.log('heartBeat::pingFail',j);
             const peer = this.heartbIndexOf(hrtbeat.pings,j.remIp);
             if (peer !== null){
               hrtbeat.pings[peer].pRes = 'dead';
@@ -2327,11 +2328,22 @@ class PeerTreeNet extends  EventEmitter {
           }
             
         // Last Node Ping Root Node.
-        if (this.rnet.r.nodeNbr == this.rnet.r.lnode && this.rnet.r.nodeNbr != 1){
+        if (this.rnet.r.nodeNbr == this.rnet.r.lnode && this.rnet.r.nodeNbr != 1 && !this.hbeatIncludes(hrtbeat.pings,this.rnet.r.rootNodeIp)){
           hrtbeat.pings.push({pIP:this.rnet.r.rootNodeIp,pType: 'lastToRoot',pRes : null});
           this.sendMsgCX(this.rnet.r.rootNodeIp,{ping : "hello"});
         }
       
+        // Ping Left Node.
+        if (this.rnet.r.leftNode && !this.hbeatIncludes(hrtbeat.pings,this.rnet.r.leftNode)){
+          hrtbeat.pings.push({pIP:this.rnet.r.leftNode,pType: 'pingLeft',pRes : null});
+          this.sendMsgCX(this.rnet.r.leftNode,{ping : "hello"});
+        }
+        // Ping Right Node.
+        if (this.rnet.r.rightNode && !this.hbeatIncludes(hrtbeat.pings,this.rnet.r.rightNode)){
+          hrtbeat.pings.push({pIP:this.rnet.r.rightNode,pType: 'pingRight',pRes : null});
+          this.sendMsgCX(this.rnet.r.rightNode,{ping : "hello"});
+        }
+
         if (this.rnet.r.nodeNbr == 1 && hrtbeat.pings.length == 0){
           let nstat = await this.checkInternet();
           //console.log("Bitcoin Network Found:",nstat);
@@ -2351,6 +2363,15 @@ class PeerTreeNet extends  EventEmitter {
         console.log('heartBeat::Error',this.rnet.err,this.rnet.status);
       }
       var timeout = setTimeout( ()=>{this.heartBeat();},this.pulseRate);
+  }
+  hbeatIncludes(hbeat,ip){
+    var result = false;
+    hbeat.forEach((node)=>{
+      if (node.pIP == ip){
+        result = true;
+      }
+    });
+    return result;
   }
   updateChildRTab(childIp,childRTab){
 
@@ -2394,6 +2415,7 @@ class PeerTreeNet extends  EventEmitter {
           if (ping.pType != 'lastToRoot'){
             console.log('hbeat:::fail::', ping);
             nFails++;
+            console.log('PingFails::counter:',nFails,hbeat.pings.length,hbeat);
           }
         }
       });
