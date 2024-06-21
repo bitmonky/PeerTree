@@ -190,6 +190,12 @@ class MkyRouting {
      return new Promise(async(resolve,reject)=>{
        console.log('Add by REQUESST');
        if (this.inMyNodesList(ip)){
+         console.log('addNewNodeReq::inMyNodesListError:',ip);
+         const j = {
+           toHost : ip,
+           req : 'addMe'
+         }
+         this.handleError(j);
          resolve(false);
          return;
        }
@@ -231,7 +237,7 @@ class MkyRouting {
          this.r.rightNode = ip;
        }
        this.newNode = clone(this.r);
-       this.newNode.myParent = prevNextParent;
+       this.newNode.myParent = nextParent;
        this.newNode.leftNode = oldLastNodeIp;
        this.newNode.rightNode = null;
        this.newNode.mylayer = this.getNthLayer(this.net.maxPeers,this.r.lnode);
@@ -1067,12 +1073,20 @@ class MkyRouting {
      const newLastNodeIp = this.r.leftNode;
 
      this.r = clone(this.net.dropChildRTabs(j.newRTab));
+
      console.log('Sending To:',this.r.leftNode,{req : "addMeToYourRight", ip : this.myIp});
      this.net.sendMsgCX(this.r.leftNode,{req : "addMeToYourRight", ip : this.myIp});
+
      if (this.r.rightNode){
        console.log('Sending To:',this.r.rightNode,{req : "addMeToYourLeft", ip : this.myIp});
        this.net.sendMsgCX(this.r.rightNode,{req : "addMeToYourLeft", ip : this.myIp});
      } 
+
+     this.r.myNodes.forEach((child)=>{
+       console.log('Sending To:',child.ip,{req : "addMeAsYourParent", ip : this.myIp});
+       this.net.sendMsgCX(child.ip,{req : "addMeAsYourParent", ip : this.myIp});
+     });
+ 
      console.log('I am Now:',this.r);
 
      this.r.lnStatus = 'OK';
@@ -1338,6 +1352,10 @@ class MkyRouting {
      }
      if (j.req == 'addMeToYourLeft'){
        this.r.leftNode = j.remIp;
+       return true;
+     }
+     if (j.req == 'addMeAsYourParent'){
+       this.r.myParent = j.remIp;
        return true;
      }
      if (j.req == 'nextParentAddChildIp'){
@@ -1820,7 +1838,7 @@ class MkyMsgQMgr {
 // JSON messages using https.
 // *********************************************************
 class PeerTreeNet extends  EventEmitter {
-   constructor (options,network=null,port=1336,wmon=1339,maxPeers=25){
+   constructor (options,network=null,port=1336,wmon=1339,maxPeers=2){
       super(); 
       this.nodeType  = 'router';
       this.pulseRate = defPulse;	   
@@ -2289,15 +2307,15 @@ class PeerTreeNet extends  EventEmitter {
         });
         this.rnet.net.on('peerTReply',rListener  = (j)=>{
           if (j.remIp == this.rnet.r.myParent){
-            //console.log('heartBeat::PINGRESULT:',j.pingResult,j.statAction);
             if (j.statAction == 'doRejoinNet'){
+              console.log('heartBeat::PINGRESULT:',j);
               this.setNodeBackToStartup();
             }
           }
           if (j.pingResult && (j.nodeStatus == 'online' || j.nodeStatus == 'root')){
             if (j.remIp == this.rnet.r.myParent){
-              //console.log('heartBeat::PINGRESULT:',j);
               if (j.statAction == 'doRejoinNet'){
+                console.log('heartBeat::PINGRESULT:MyParent:',j.pingResult,j.statAction);
                 this.setNodeBackToStartup();
               }
             }
@@ -2307,6 +2325,8 @@ class PeerTreeNet extends  EventEmitter {
 	    if (peer !== null){
               hrtbeat.pings[peer].pRes = j.pingResult;
 	      hrtbeat.pings[peer].pTime = pTime;
+              hrtbeat.pings[peer].pStatus = j.nodeStatus;
+              hrtbeat.pings[peer].pIp = j.remIp;
 	    }	  
           }
         });
@@ -2321,7 +2341,7 @@ class PeerTreeNet extends  EventEmitter {
 	// Ping Parent Node
         if (this.rnet.r.myParent){
           hrtbeat.pings.push({pIP:this.rnet.r.myParent,pType:'myParent',pRes : null});
-	  this.sendMsgCX(this.rnet.r.myParent,{ping : "hello",action : "checkMyStatus"});
+	  this.sendMsgCX(this.rnet.r.myParent,{ping : "hello",action : "checkMyStatus",myStatus: this.status});
         }
         // Ping My Child Nodes
         if(this.rnet.r.myNodes)
@@ -2421,6 +2441,15 @@ class PeerTreeNet extends  EventEmitter {
             console.log('PingFails::counter:',nFails,hbeat.pings.length,hbeat);
           }
         }
+        if (ping.pType == 'myNodes' && ping.pStatus == 'tryJoining'){
+          const j = {
+            toHost : ping.pIp,
+            req    : 'tryJoin'
+          }
+          console.log('reviewMyStatus::hbeat:error',j,ping);
+          this.rnet.handleError(j);
+        }
+          
       });
       //console.log('PingFails::',nFails);
       if (nFails == hbeat.pings.length){
@@ -2430,6 +2459,7 @@ class PeerTreeNet extends  EventEmitter {
       if (hbeat.myStatus != 'OK' && (this.rnet.r.nodeNbr == 1 || this.rnet.r.nodeNbr == 2)){
         let finalCheck = await this.checkInternet();
         if (!finalCheck){
+          console.log('finalCheck::setNodeBackToStartup');
           this.setNodeBackToStartup();
         }
         else {hbeat.myStatus = 'OK';}
@@ -2439,7 +2469,7 @@ class PeerTreeNet extends  EventEmitter {
     });
   }
   setNodeBackToStartup(){
-    console.log('Node Appears offline returning to startup mode');
+    console.log('Node Appears offline returning to startup mode',this.rnet.r);
     this.rnet.status = 'startup';
     this.rnet.newNode    = null;
     this.rnet.ipListener = null;
@@ -2856,10 +2886,11 @@ class PeerTreeNet extends  EventEmitter {
          var result = 'OK';
          var tres = this.rnet.isMyChild(j.remIp);
          if (tres === null){
-           //console.log('pingResult::doRejoinNet',j.remIp,result,j);
+           console.log('pingResult::doRejoinNet',j.remIp,result,j);
            result = 'doRejoinNet';
          }
-         this.endResCX(remIp,'{"pingResult":"hello back","statAction":"'+result+'","nodeStatus":"'+this.rnet.status+'","rtab":'+JSON.stringify(this.rnet.r)+'}');
+         const pr = '{"pingResult":"hello back","statAction":"'+result+'","nodeStatus":"'+this.rnet.status+'","rtab":'+JSON.stringify(this.rnet.r)+'}'
+         this.endResCX(remIp,pr);
          return;
        }      
        if (j.req == 'bcast'){
