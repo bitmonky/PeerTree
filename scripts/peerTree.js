@@ -875,7 +875,7 @@ class MkyRouting {
          console.log('Case 3.');
          // Change my child node list to point to the last nodes Ip
          lnodeIp = dropRTab.leftNode;
-         this.updateMyChildNodes(ip,nbr,lnodeIp);
+         this.updateMyChildNodes(ip,nbr,lnodeIp,3);
 
          this.r.lnode--;
          this.r.lastNode = lnodeIp;
@@ -949,7 +949,7 @@ class MkyRouting {
          console.log('lastNodeMoveTo::request looks like this',req);
 
          // update my child nodes before sending move request
-         this.updateMyChildNodes(ip,nbr,lnodeIp);
+         this.updateMyChildNodes(ip,nbr,lnodeIp,5);
 
          // Start Check Status of Lastnode
          var mres = await this.getLastNodeStatus(lnodeIp,req);
@@ -1038,11 +1038,14 @@ class MkyRouting {
        console.log('Request Sent To:',ip);
      });
    }
-   updateMyChildNodes(dropIp,dropNbr,newIp){
+   updateMyChildNodes(dropIp,dropNbr,newIp,isCase){
      console.log('updateMyChildNodes(dropIp:'+dropIp+',dropNbr:'+dropNbr+',newIp:',newIp);
      //if last node is dropping remove the last child in the list.
      if (dropNbr == this.r.lnode){
-       this.r.myNodes.pop();
+       console.log('DONTDROP::lnode',isCase);
+       if (isCase == 3){
+         this.r.myNodes.pop();
+       }
      }
      //Update the current child to the new last Node ip.
      this.r.myNodes.forEach((node)=>{
@@ -1099,7 +1102,7 @@ class MkyRouting {
        this.net.sendReplyCX(j.remIp,reply);
        return;
      }
-     this.r.lnStatus = 'moving'
+     this.r.lnStatus = 'moving';
 
      // Notify Parent This Node Is Moving and needs to be dropped.
      if (j.remIp != this.r.myParent){
@@ -1581,12 +1584,13 @@ class MkyRouting {
            console.log('Drop Time Out',j);
            this.notifyRootDropComplete();
            this.err = false; //this.node.clearError(j.toHost);
-         },2500);
+         },6500);
 
          // Get nodeNbr of the node to drop.
          const nbr = this.inMyNodesList(j.toHost); 
          console.log('inMyNodesList::retured',nbr);
          if(nbr){
+           console.log('await this.sendMoveRequestToLastNode(',j.toHost,nbr,')');
            var nIp = await this.sendMoveRequestToLastNode(j.toHost,nbr);
            console.log('nIp is now',nIp);
 
@@ -2352,7 +2356,12 @@ class PeerTreeNet extends  EventEmitter {
    your nodes health on the network
    */
    async heartBeat(){
-      //console.log('starting heartBeat:',this.rnet.status,this.rnet.err);
+      //console.log('starting heartBeat:',this.rnet.status,this.rnet.err,this.rnet.r.lnStatus);
+      if(this.rnet.r.lnStatus == 'moving'){
+        console.log('lnStatusMoving::ping blocked');
+        let to = setTimeout( ()=>{this.heartBeat();},this.pulseRate);
+        return;
+      }
       if(this.rnet && (this.rnet.status == 'online' || this.rnet.status == 'root') && !this.rnet.err){
         var hrtbeat = {
           pings    : [],
@@ -2372,16 +2381,10 @@ class PeerTreeNet extends  EventEmitter {
         });
         this.rnet.net.on('peerTReply',rListener  = (j)=>{
           if (j.pingResult){
-            if (j.remIp == this.rnet.r.myParent){
-              if (j.statAction == 'doRejoinNet'){
-                console.log('heartBeat::PINGRESULT:',j);
-                this.setNodeBackToStartup();
-              }
-            }
             if (j.nodeStatus == 'online' || j.nodeStatus == 'root'){
               if (j.remIp == this.rnet.r.myParent){
                 if (j.statAction == 'doRejoinNet'){
-                  console.log('heartBeat::PINGRESULT:MyParent:',j.pingResult,j.statAction);
+                  console.log('heartBeat::PINGRESULT:MyParent:',j.pingResult,j.statAction,j);
                   this.setNodeBackToStartup();
                 }
               }
@@ -2506,7 +2509,7 @@ class PeerTreeNet extends  EventEmitter {
           if (ping.pType != 'lastToRoot'){
             console.log('hbeat:::fail::', ping);
             nFails++;
-            console.log('PingFails::counter:',nFails,hbeat.pings.length,hbeat);
+            //console.log('PingFails::counter:',nFails,hbeat.pings.length,hbeat);
           }
         }
         if (ping.pType == 'myNodes' && ping.pStatus == 'tryJoining' || ping.pStatus == 'startup'){
