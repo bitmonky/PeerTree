@@ -935,6 +935,7 @@ class MkyRouting {
            }
          });
          dropRTab.lnode = holdLastNodeNbr -1;
+         console.log('check nbr:holdLastNbr -1',nbr,holdLastNodeNbr);
          if (nbr == holdLastNodeNbr -1){
            dropRTab.rightNode=null;
          }
@@ -955,6 +956,7 @@ class MkyRouting {
          var mres = await this.getLastNodeStatus(lnodeIp,req);
          console.log('lastNodeBecome::',mres);
          lnStatus = mres.status;
+         this.r.lastNode = mres.newLastIp;
          trys++;
 
          if (!lnStatus){
@@ -1502,7 +1504,7 @@ class MkyRouting {
          this.r.rightNode = null;
        }
        this.r.myNodes.forEach((child,index,object)=>{
-         if (child.nbr >= this.r.lnode){
+         if (child.nbr > this.r.lnode){
            console.log('droping dangling node from child nodes',j);
            this.r.rightNode = null;
          }
@@ -1576,6 +1578,7 @@ class MkyRouting {
          }
 
          this.err = true; 
+         console.log('handleError::this.err:true');
          this.dropIps.push(j.toHost);
          this.notifyRootDropingNode(j.toHost);
 
