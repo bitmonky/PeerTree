@@ -87,6 +87,7 @@ class MkyRouting {
    // =====================================================================
    findWhoIsRoot(i=0){
      this.rootFound = null;
+     this.rootMap.clear(); 
      return new Promise( async (resolve,reject)=>{
        var jroot = null;
        while ( i < this.net.nodes.length){
@@ -244,10 +245,21 @@ class MkyRouting {
            return;
          }
        }
+       if (ip == this.r.lastNode){
+         console.log('addNewNode::newNode is same as LastNode For:',ip);
+         resolve(false);
+         return;
+       }
 
-       this.incCounters();
        var prevNextParent = this.r.nextParent;
        var nextParent = await this.getNodeIpByNbr(this.r.nextPNbr);
+       if (!nextParent){
+         console.log('addNewNode::getNodeIpByNbr:Failed For:',this.r.nextPNbr);
+         resolve(false);
+         return;
+       }
+ 
+       this.incCounters();
        this.r.nextParent = nextParent;
        await this.nextParentAddChild(ip,this.r.lnode);
 
@@ -343,14 +355,17 @@ class MkyRouting {
    //   - only the node with and open slot will return true.
    // ======================================================
    async lnParentAddNode(res,ip){
-     console.log('Add by Parent ',ip);
-     if (this.inMyNodesList(ip)){
-       console.log('inMyNodesList true');
+     console.log('Add by Parent ',res,ip);
+     const inMyNL = this.inMyNodesList(ip);
+     
+     if (inMyNL){
+       console.log('inMyNodesList true For:',ip,inMyNL);
        const result = {
          lnParentNodeAdded : true,
          result            : 'already add',
          parent            : this.myIp,
        }       
+       console.log('sending to:',res,JSON.stringify(result));
        this.net.endResCX(res,JSON.stringify(result));
        return true;
      }
@@ -795,7 +810,8 @@ class MkyRouting {
        mylayer    : 1,
        nodeNbr    : 1,
        nlayer     : 1,
-       lnode      : 1
+       lnode      : 1,
+       lnStatus   : 'OK'
      }
      this.net.msgQue = [];
      this.net.msgMgr.remove(this.net.rootIp);
@@ -803,6 +819,7 @@ class MkyRouting {
      this.status = 'root';
      this.startJoin = null;
      this.err = null;
+     this.procJoinQue();
    }
    // ***********************************************
    // last node replaces root node if root node is inactive
@@ -860,6 +877,9 @@ class MkyRouting {
 
        this.startJoin = null;
        this.err = null;
+       console.log('lnodeReplaceRoot::looksLike:',this.r,' For:',ip,nbr);
+       console.log('I am now root... starting joinQue!');
+       this.procJoinQue();
        resolve(true);
      });
    }
@@ -1308,6 +1328,7 @@ class MkyRouting {
    // Handles all network join requests
    // =================================================================
    procJoinQue(){
+     //console.log('procJoinQue::');
      if (this.joinQue.length){
        var req = this.joinQue[0];
        if (req.status == 'waiting'){
@@ -1320,10 +1341,11 @@ class MkyRouting {
      },1000);
    }
    async handleJoins(remIp,j){
+     console.log('handleJoins::start:',remIp,j);
      if (this.startJoin || this.err){  //this.node.isError(res)){
        if (this.startJoin != remIp){
          this.joinQue.push({jIp:remIp,j:j,status:"waiting"});
-         this.net.endResCX(remIp,'{"result":"reJoinQued"}');
+         this.net.endResCX(remIp,'{"addResult":"reJoinQued"}');
          return;
        }
      }
@@ -1364,6 +1386,7 @@ class MkyRouting {
    handleReq(remIp,j){
      this.net.resetErrorsCnt(j.remIp);
      if (j.req == 'joinReq'){
+       console.log ('handleReq::Starting:qued',remIp,j);
        this.joinQue.push({jIp:remIp,j:j,status:'waiting'});
        return true;
      }
@@ -1486,9 +1509,12 @@ class MkyRouting {
 
      if (j.addResult){
 
-       if (j.addResult == 'Forwarded Request To Join')
+       if (j.addResult == 'Forwarded Request To Join'){
          return true;
-      
+       }
+       if (j.addResult == 'Node Not Added'){
+         return true;      
+       }
        this.r = j.addResult;
        this.r.myNodes = [];
        this.r.nodeNbr = this.r.lnode;
@@ -1579,8 +1605,13 @@ class MkyRouting {
    // ====================================================================
    async handleError(j){
      //console.log('handle error'+this.status,j);
-     if (this.status == 'startup'){
+     if (this.status == 'startup' || this.status == 'offline'){
        console.log('handleError::is in Startup mode:',j.req);
+       return true;
+     }
+     if (j.resultJoinReq){
+       console.log('Lost Contact With Joining Node:',j.toHost,' - removing from join que');
+       this.joinQue = this.joinQue.filter(item => item.jIp !== j.toHost);
        return true;
      }
      if(j.req == 'bcast'){
@@ -2113,7 +2144,15 @@ class PeerTreeNet extends  EventEmitter {
             this.resHandled = true;
           }
         },2500); 
-        
+        if ((this.rnet.status == 'offline' || this.rnet.status == 'tryJoing') && req.url.indexOf('/netREQ') == 0){
+          console.log('netREQ:: Node Set To Offline');
+          clearTimeout(this.svtime);
+          res.setHeader('Content-Type', 'application/json');
+          res.statusCode = 503;
+          res.end('{"netPOST":"FAIL","type":"netREQ","Error":"node is in offline mode"}');
+          req.connection.destroy();
+        }
+        else {
         if (req.url.indexOf('/netREQ') == 0){
 	  if (req.method == 'POST') {
             var body = '';
@@ -2200,8 +2239,13 @@ class PeerTreeNet extends  EventEmitter {
               try {
                 j = JSON.parse(body);
                 if (j.hasOwnProperty('msg') === false) throw 'invalid netREPLY no msg body found';
+
+                // if offline mode check for addResults only.
                 if(this.rnet.status != 'online' && this.rnet.status != 'root'){
-                  //console.log('NETReply::Status:'+this.rnet.status,j);
+                  if (!(j.msg.hasOwnProperty('addResult') || j.msg.hasOwnProperty('whoIsRootReply'))){
+                    console.log('NETReply::Offline Reject:',this.rnet.status,j);
+                    throw 'mode is offline only addResult or whoIsRoot can be accepted';
+                  }
                 }
                 if (!j.msg.remIp) j.msg.remIp = this.remIp;
                 if (j.msg.hasOwnProperty('PNETCOREX') === false){
@@ -2216,7 +2260,7 @@ class PeerTreeNet extends  EventEmitter {
               }
               catch(err) {
                 clearTimeout(this.svtime);
-                res.statusCode = 503;
+                res.statusCode = 505;
                 res.end('{"netPOST":"FAIL","type":"netREPLY","Error":"'+err+'","data":"'+body+'"}');
                 console.log('POST netREPLY Error: ',err);
                 console.log('POST msg was ->',j);
@@ -2231,7 +2275,7 @@ class PeerTreeNet extends  EventEmitter {
           res.end('{"result":"Welcome To PeerTree Network Sevices\nWaiting...\n' + decodeURI(req.url) + ' You Are: ' + this.remIp+'"}\n');
           //this.endResCX(res,'Welcome To PeerTree Network Sevices\nWaiting...\n' + decodeURI(req.url) + ' You Are: ' + this.remIp+'\n');
           this.resHandled = true;
-        }}
+        }}}
       });
       this.server.listen(this.port);
       this.server.timeout = 1000;
@@ -2490,7 +2534,7 @@ class PeerTreeNet extends  EventEmitter {
         }
       }
       else {
-        console.log('heartBeat::Error',this.rnet.err,this.rnet.status);
+        //console.log('heartBeat::Skipping',this.rnet.err,this.rnet.status);
       }
       var timeout = setTimeout( ()=>{this.heartBeat();},this.pulseRate);
   }
@@ -2575,8 +2619,12 @@ class PeerTreeNet extends  EventEmitter {
       return;
     });
   }
-  setNodeBackToStartup(){
+  async setNodeBackToStartup(){
     console.log('Node Appears offline returning to startup mode',this.rnet.r);
+    this.rnet.status = 'offline';
+    console.log('Setting Status', this.rnet.status);
+    await sleep(15*1000);
+    console.log('Setting Status To:', this.rnet.status);
     this.rnet.status = 'startup';
     this.rnet.newNode    = null;
     this.rnet.ipListener = null;
@@ -2613,7 +2661,11 @@ class PeerTreeNet extends  EventEmitter {
         console.log('trying to join');
         await this.rnet.init();
         if (this.rnet.status == 'tryJoining'){
+          this.rnet.status = 'offline';
           await sleep(10*1000);
+          if (this.rnet.status == 'offline'){
+            this.rnet.status = 'tryJoining';
+          }
           isAvail = await this.checkInternet();
         }
         else {return;}
@@ -2848,7 +2900,7 @@ class PeerTreeNet extends  EventEmitter {
          msg.toHost = toHost;
          console.log('xhrAppError:: failed with status code: '+ res.statusCode,msg);
          msg.xhrError = res.statusCode;
-         this.emit('xhrAppFail',msg);
+         this.emit('xhrFail',msg);
          this.sendingReply = false;
        }
        else {
@@ -2991,7 +3043,7 @@ class PeerTreeNet extends  EventEmitter {
          return;	 
        }
        if (j.ping == 'hello'){
-         console.log('PINGTEST::',this.rnet.status);
+         //console.log('PINGTEST::',this.rnet.status);
          if (!(this.rnet.status == 'online' || this.rnet.status == 'root')){
            console.log('rnet.status::',this.rnet.status,'rejecting ping from: ',j.remIp);
            return;
