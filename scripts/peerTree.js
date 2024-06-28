@@ -2634,9 +2634,12 @@ class PeerTreeNet extends  EventEmitter {
     this.rnet.startJoin  = null;
     this.rnet.joinTime   = null;
     this.rnet.joinQue    = [];
+    this.dropIps         = [];
+    this.rootMap         = new Map();
 
     this.rnet.r = {
       rootNodeIp : this.rnet.myIp,   // Top of the network.
+      rootRTab   : 'na',
       myNodes    : [],   // forwarding ips for each nodes peers group.
       lastNode   : this.rnet.myIp,
       leftNode   : null,
@@ -2646,7 +2649,8 @@ class PeerTreeNet extends  EventEmitter {
       mylayer    : 1,
       nodeNbr    : 0,    // node sequence number 1,2,3 ... n
       nlayer     : 1,    // nlayers in the network 1,2,3 ... n
-      lnode      : 1     // number of the last node in.
+      lnode      : 1,    // number of the last node in.
+      lnStatus   : 'OK' 
     }
     setTimeout(()=>{this.waitForInternet();},20*1000);
   }
