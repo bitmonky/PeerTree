@@ -97,8 +97,10 @@ class MkyRouting {
            var map = this.rootMap.get(jroot.rip);
            if (map)
              map.count++;
-           else
-             this.rootMap.set(jroot.rip,{count:1,jroot:jroot});
+           else {
+             if (jroot.rip)
+               this.rootMap.set(jroot.rip,{count:1,jroot:jroot});
+           }
          }
        }
        console.log('RootMap::',this.rootMap);
@@ -211,8 +213,9 @@ class MkyRouting {
        }
 
        const oldLastNodeIp = this.r.lastNode;
-       this.r.nextPNbr = this.getMyParentNbr(this.r.lnode+1);
-       console.log('NextPNbr::',this.r.nextPNbr);
+       const oldNextPNbr = this.r.nextPNbr;
+       const newNextPNbr = this.getMyParentNbr(this.r.lnode+1);
+       console.log('NextPNbr::',newNextPNbr);
 
        if ( this.r.myNodes.length < this.net.maxPeers){
          var node = {ip : ip,nbr : this.r.lnode+1, pgroup : [],rtab : 'na'}
@@ -252,16 +255,23 @@ class MkyRouting {
        }
 
        var prevNextParent = this.r.nextParent;
-       var nextParent = await this.getNodeIpByNbr(this.r.nextPNbr);
+       var nextParent = await this.getNodeIpByNbr(newNextPNbr);
        if (!nextParent){
-         console.log('addNewNode::getNodeIpByNbr:Failed For:',this.r.nextPNbr);
+         console.log('addNewNode::getNodeIpByNbr:Failed For:',newNextPNbr);
          resolve(false);
          return;
        }
  
+       const nextpIp = await this.nextParentAddChild(ip,this.r.lnode+1,nextParent);
+      
+       if (!nextpIp){
+         console.log('addNewNode::nextParentAddChild:Failed For:',ip,newNextPNbr);
+         resolve(false);
+         return;
+       }
+       this.r.nextPNbr = newNextPNbr;
        this.incCounters();
        this.r.nextParent = nextParent;
-       await this.nextParentAddChild(ip,this.r.lnode);
 
        this.r.lastNode = ip;
        if (this.r.lnode == 2){
@@ -272,6 +282,7 @@ class MkyRouting {
        this.newNode.leftNode = oldLastNodeIp;
        this.newNode.rightNode = null;
        this.newNode.mylayer = this.getNthLayer(this.net.maxPeers,this.r.lnode);
+       console.log('NewNODE::lookslike:',this.newNode);
        resolve(true);
        return;
      });
@@ -319,7 +330,7 @@ class MkyRouting {
        this.bcast({findWhoHasChild : {ip:ip}});
      });
    }
-   nextParentAddChild(ip,nbr){
+   nextParentAddChild(ip,nbr,nextParent){
      return new Promise((resolve,reject)=>{
        //create error and reply listeners
        var errListener = null;
@@ -340,7 +351,7 @@ class MkyRouting {
          }
        });
        var req = {req : 'nextParentAddChildIp',ip:ip,nbr:nbr};
-       this.net.sendMsgCX(this.r.nextParent,req);
+       this.net.sendMsgCX(nextParent,req);
      });
    }
    // ***********************************************
@@ -574,8 +585,10 @@ class MkyRouting {
          }
        }
        console.log('Done Trying',rInfo);
-       if (!rInfo) 
-         jroot = rootIp;
+       if (!rInfo){ 
+         if (rootIp) jroot = rootIp;
+         else {console.log('Init::No Root Ip Provided:');return;}
+       }
        else {
          jroot = rInfo.jroot.rip;
          this.net.rootIp = jroot;
@@ -1515,6 +1528,9 @@ class MkyRouting {
        if (j.addResult == 'Node Not Added'){
          return true;      
        }
+       if (j.addResult == 'reJoinQued'){
+         return true;
+       }
        this.r = j.addResult;
        this.r.myNodes = [];
        this.r.nodeNbr = this.r.lnode;
@@ -2125,166 +2141,168 @@ class PeerTreeNet extends  EventEmitter {
       this.sendReply(resIp,jmsg);
    }
    startServer(){
-      this.server = https.createServer(this.options, (req, res) => {
-        this.remIp = req.connection.remoteAddress ||
-        req.socket.remoteAddress ||
-        req.connection.socket.remoteAddress;
-        this.remIp = this.remIp.replace('::ffff:','');
-        //console.log('REQ::',req.url);
-        this.resHandled = false;
-        var jSaver = null;
-        res.setHeader('Connection', 'close');
-        this.svtime = setTimeout( ()=>{
-          if (1==2 && !this.resHandled){
-            console.log('server response timeout:'+this.remIp+req.url,jSaver);
-            res.setHeader('Content-Type', 'application/json');
-            res.statusCode = 501;
-            res.end('{"netPOST":"FAIL","type":"NotSet","Error":"server timeout"}');
-            //process.exit();
-            this.resHandled = true;
-          }
-        },2500); 
-        if ((this.rnet.status == 'offline' || this.rnet.status == 'tryJoing') && req.url.indexOf('/netREQ') == 0){
-          console.log('netREQ:: Node Set To Offline');
-          clearTimeout(this.svtime);
-          res.setHeader('Content-Type', 'application/json');
-          res.statusCode = 503;
-          res.end('{"netPOST":"FAIL","type":"netREQ","Error":"node is in offline mode"}');
-          req.connection.destroy();
-        }
-        else {
-        if (req.url.indexOf('/netREQ') == 0){
-	  if (req.method == 'POST') {
-            var body = '';
-            req.on('data', (data)=>{
-              body += data;
-              // Too much POST data, kill the connection!
-              //console.log('body.length',body.length);
-              if (body.length > 300000000){
-                console.log('netREQ:: max datazize exceeded');
-                clearTimeout(this.svtime);
-                //console.log('SETHEADER::netREQbody:','Content-Type', 'application/json');
-                res.setHeader('Content-Type', 'application/json');
-                res.statusCode = 413;
-                res.end('{"netPOST":"FAIL","type":"netREQ","Error":"data maximum exceeded"}');
-                req.connection.destroy();
-              }
-            });
-            req.on('end', ()=>{
-	      res.setHeader('Content-Type', 'application/json');
-              const time = new Date();
+     this.server = https.createServer(this.options, (req, res) => {
+       this.remIp = req.connection.remoteAddress ||
+       req.socket.remoteAddress ||
+       req.connection.socket.remoteAddress;
+       this.remIp = this.remIp.replace('::ffff:','');
+       //console.log('REQ::',req.url);
+       this.resHandled = false;
+       var jSaver = null;
+       res.setHeader('Connection', 'close');
+       this.svtime = setTimeout( ()=>{
+         if (1==2 && !this.resHandled){
+           console.log('server response timeout:'+this.remIp+req.url,jSaver);
+           res.setHeader('Content-Type', 'application/json');
+           res.statusCode = 501;
+           res.end('{"netPOST":"FAIL","type":"NotSet","Error":"server timeout"}');
+           //process.exit();
+           this.resHandled = true;
+         }
+       },2500); 
+       if ((this.rnet.status == 'offline' || this.rnet.status == 'startup' || this.rnet.status == 'tryJoing') && req.url.indexOf('/netREQ') == 0){
+         console.log('netREQ:: Node Set To Offline');
+         clearTimeout(this.svtime);
+         res.setHeader('Content-Type', 'application/json');
+         res.statusCode = 503;
+         res.end('{"netPOST":"FAIL","type":"netREQ","Error":"node is in offline mode"}');
+         req.connection.destroy();
+       }
+       else {
+         if (req.url.indexOf('/netREQ') == 0){
+           if (req.method == 'POST') {
+             var body = '';
+             req.on('data', (data)=>{
+               body += data;
+               // Too much POST data, kill the connection!
+               //console.log('body.length',body.length);
+               if (body.length > 300000000){
+                 console.log('netREQ:: max datazize exceeded');
+                 clearTimeout(this.svtime);
+                 //console.log('SETHEADER::netREQbody:','Content-Type', 'application/json');
+                 res.setHeader('Content-Type', 'application/json');
+                 res.statusCode = 413;
+                 res.end('{"netPOST":"FAIL","type":"netREQ","Error":"data maximum exceeded"}');
+                 req.connection.destroy();
+               }
+             });
+             req.on('end', ()=>{
+               res.setHeader('Content-Type', 'application/json');
+               const time = new Date();
 
-              fs.utimes(this.nodesFile, time, time, (err) => {
-                if (err) {console.log(err);}
-                else {}
-              });
+               fs.utimes(this.nodesFile, time, time, (err) => {
+                 if (err) {console.log(err);}
+                 else {}
+               });
 
-              var j = null;
-              try {
-                //console.time('Time Taken');
-                j = JSON.parse(body);
-                jSaver = j;
-                if (j.hasOwnProperty('msg') === false) throw 'invalid netREQ no msg body found';
-                if(this.rnet.status != 'online' && this.rnet.status != 'root'){
-                  //console.log('NETREQ::Status:'+this.rnet.status,j);
-                }
-		if (!j.msg.remIp) j.msg.remIp = this.remIp;
-                this.resHandled = true;
-                clearTimeout(this.svtime);
-                //if (j.msg.ping){console.log('PING:::',j.msg.remIp);}
-                if (j.msg.hasOwnProperty('PNETCOREX') === false){
-                  this.emit('mkyReq',this.remIp,j.msg);
-		} 
-		else {
-                  this.emit('peerTReq',this.remIp,j.msg);
-		}
-                res.statusCode = 200;
-                res.end('{"netPOST":"OK"}');
-                //console.timeEnd('Time Taken');
-              }
-              catch (err) {
-		console.log('POST netREQ Error: ',err);
-                console.log('POST msg was ->',body);
-                clearTimeout(this.svtime);
-                res.statusCode = 502;
-                res.end('{"netPOST":"FAIL","type":"netREQ","Error":"'+err+'","data":"'+body+'"}');
-                this.resHandled = true;
-	      }
-            });
-          }
-        }
-        else {
-        if (req.url.indexOf('/netREPLY') == 0){
-          if (req.method == 'POST') {
-            var body = '';
-            req.on('data', (data)=>{
-              body += data;
-              // Too much POST data, kill the connection!
-              //console.log('body.length',body.length);
-              if (body.length > 300000000){
-                console.log('max datazize exceeded');
-                clearTimeout(this.svtime);
-                //console.log('SETHEADER::netREPLYbody:','Content-Type', 'application/json');
-                res.setHeader('Content-Type', 'application/json');
-                res.statusCode = 413;
-                res.end('{"netPOST":"FAIL","type":"netREPLY","Error":"data maximum exceeded"}');
-                req.connection.destroy();
-              }
-            });
-            req.on('end', ()=>{
-	      clearTimeout(this.svtime);
-              //console.log('SETHEADER::netREPLYonEND:','Content-Type', 'application/json');
-              res.setHeader('Content-Type', 'application/json');
-              var j = null;
-              try {
-                j = JSON.parse(body);
-                if (j.hasOwnProperty('msg') === false) throw 'invalid netREPLY no msg body found';
+               var j = null;
+               try {
+                 //console.time('Time Taken');
+                 j = JSON.parse(body);
+                 jSaver = j;
+                 if (j.hasOwnProperty('msg') === false) throw 'invalid netREQ no msg body found';
+                 if(this.rnet.status != 'online' && this.rnet.status != 'root'){
+                   //console.log('NETREQ::Status:'+this.rnet.status,j);
+                 }
+  	         if (!j.msg.remIp) j.msg.remIp = this.remIp;
+                 this.resHandled = true;
+                 clearTimeout(this.svtime);
+                 //if (j.msg.ping){console.log('PING:::',j.msg.remIp);}
+                 if (j.msg.hasOwnProperty('PNETCOREX') === false){
+                   this.emit('mkyReq',this.remIp,j.msg);
+		 } 
+	  	 else {
+                   this.emit('peerTReq',this.remIp,j.msg);
+	  	 }
+                 res.statusCode = 200;
+                 res.end('{"netPOST":"OK"}');
+                 //console.timeEnd('Time Taken');
+               }
+               catch (err) {
+	         console.log('POST netREQ Error: ',err);
+                 console.log('POST msg was ->',body);
+                 clearTimeout(this.svtime);
+                 res.statusCode = 502;
+                 res.end('{"netPOST":"FAIL","type":"netREQ","Error":"'+err+'","data":"'+body+'"}');
+                 this.resHandled = true;
+	       }
+             });
+           }
+         }
+         else {
+           if (req.url.indexOf('/netREPLY') == 0){
+             if (req.method == 'POST') {
+               var body = '';
+               req.on('data', (data)=>{
+                 body += data;
+                 // Too much POST data, kill the connection!
+                 //console.log('body.length',body.length);
+                 if (body.length > 300000000){
+                   console.log('max datazize exceeded');
+                   clearTimeout(this.svtime);
+                   //console.log('SETHEADER::netREPLYbody:','Content-Type', 'application/json');
+                   res.setHeader('Content-Type', 'application/json');
+                   res.statusCode = 413;
+                   res.end('{"netPOST":"FAIL","type":"netREPLY","Error":"data maximum exceeded"}');
+                   req.connection.destroy();
+                 }
+               });
+               req.on('end', ()=>{
+	         clearTimeout(this.svtime);
+                 //console.log('SETHEADER::netREPLYonEND:','Content-Type', 'application/json');
+                 res.setHeader('Content-Type', 'application/json');
+                 var j = null;
+                 try {
+                   j = JSON.parse(body);
+                   if (j.hasOwnProperty('msg') === false) throw 'invalid netREPLY no msg body found';
 
-                // if offline mode check for addResults only.
-                if(this.rnet.status != 'online' && this.rnet.status != 'root'){
-                  if (!(j.msg.hasOwnProperty('addResult') || j.msg.hasOwnProperty('whoIsRootReply'))){
-                    console.log('NETReply::Offline Reject:',this.rnet.status,j);
-                    throw 'mode is offline only addResult or whoIsRoot can be accepted';
-                  }
-                }
-                if (!j.msg.remIp) j.msg.remIp = this.remIp;
-                if (j.msg.hasOwnProperty('PNETCOREX') === false){
-		  this.emit('mkyReply',j.msg);
-		}
-		else {
-		  this.emit('peerTReply',j.msg);
-		}
-                res.statusCode = 200;
-                res.end('{"netPOST":"OK"}');
+                   // if offline mode check for addResults only.
+                   if(this.rnet.status != 'online' && this.rnet.status != 'root'){
+                     if (!(j.msg.hasOwnProperty('addResult') || j.msg.hasOwnProperty('whoIsRootReply'))){
+                       console.log('NETReply::Offline Reject:',this.rnet.status,j);
+                       throw 'mode is offline only addResult or whoIsRoot can be accepted';
+                     }
+                   }
+                   if (!j.msg.remIp) j.msg.remIp = this.remIp;
+                   if (j.msg.hasOwnProperty('PNETCOREX') === false){
+		     this.emit('mkyReply',j.msg);
+	 	   }
+		   else {
+		     this.emit('peerTReply',j.msg);
+		   }
+                   res.statusCode = 200;
+                   res.end('{"netPOST":"OK"}');
 
-              }
-              catch(err) {
-                clearTimeout(this.svtime);
-                res.statusCode = 505;
-                res.end('{"netPOST":"FAIL","type":"netREPLY","Error":"'+err+'","data":"'+body+'"}');
-                console.log('POST netREPLY Error: ',err);
-                console.log('POST msg was ->',j);
-              } 
-            });
-          }
-        }
-        else {
-          clearTimeout(this.svtime);
-          //console.log('SETHEADER::netWELOCOME:','Content-Type', 'application/json');
-          res.statusCode = 200;
-          res.end('{"result":"Welcome To PeerTree Network Sevices\nWaiting...\n' + decodeURI(req.url) + ' You Are: ' + this.remIp+'"}\n');
-          //this.endResCX(res,'Welcome To PeerTree Network Sevices\nWaiting...\n' + decodeURI(req.url) + ' You Are: ' + this.remIp+'\n');
-          this.resHandled = true;
-        }}}
-      });
-      this.server.listen(this.port);
-      this.server.timeout = 1000;
-      this.server.on('timeout', (socket) => {
-        console.log('Warning Server Socket timed out');
-        this.emit('mkyServerTO');
-        this.setNodeBackToStartup();
-      });
-      console.log('Server PeerTree7.2 running at ' + this.nIp + ':' + this.port);
+                 }
+                 catch(err) {
+                   clearTimeout(this.svtime);
+                   res.statusCode = 505;
+                   res.end('{"netPOST":"FAIL","type":"netREPLY","Error":"'+err+'","data":"'+body+'"}');
+                   console.log('POST netREPLY Error: ',err);
+                   console.log('POST msg was ->',j);
+                 } 
+               });
+             }
+           }
+           else {
+             clearTimeout(this.svtime);
+             //console.log('SETHEADER::netWELOCOME:','Content-Type', 'application/json');
+             res.statusCode = 200;
+             res.end('{"result":"Welcome To PeerTree Network Sevices\nWaiting...\n' + decodeURI(req.url) + ' You Are: ' + this.remIp+'"}\n');
+             //this.endResCX(res,'Welcome To PeerTree Network Sevices\nWaiting...\n' + decodeURI(req.url) + ' You Are: ' + this.remIp+'\n');
+             this.resHandled = true;
+           }
+         }
+       }
+     });
+     this.server.listen(this.port);
+     this.server.timeout = 1000;
+     this.server.on('timeout', (socket) => {
+       console.log('Warning Server Socket timed out');
+       this.emit('mkyServerTO');
+       this.setNodeBackToStartup();
+     });
+     console.log('Server PeerTree7.2 running at ' + this.nIp + ':' + this.port);
    }
    netStarted(){
      console.log('Starting Net Work');
@@ -2327,13 +2345,13 @@ class PeerTreeNet extends  EventEmitter {
         //create error and reply listeners
 	var errListener = null;
         var repListener = null;
-        this.rnet.net.on('xhrFail',errListener = (j)=>{
+        this.on('xhrFail',errListener = (j)=>{
 	  const peer = this.gPingIndexOf(grpPing.pings,j.toHost);
 	  if(peer !== null){
 	    grpPing.pings[peer].pRes = 'nodeDead';
           }		
         });
-        this.rnet.net.on('peerTReply',repListener  = (j)=>{ 
+        this.on('peerTReply',repListener  = (j)=>{ 
           if (j.pingResult && j.remIp == targetIp){
             const pTime = Date.now() - grpPing.tstamp;
             const peer = this.gPingIndexOf(grpPing.pings,targetIp);
@@ -2355,8 +2373,8 @@ class PeerTreeNet extends  EventEmitter {
 	
 	// Set A Time limit for ping to wait for reply.      
         const hTimer = setTimeout( ()=>{
-          this.rnet.net.removeListener('peerTReply', repListener);
-          this.rnet.net.removeListener('xhrFail', errListener);
+          this.removeListener('peerTReply', repListener);
+          this.removeListener('xhrFail', errListener);
           grpPing.targetStatus = this.reviewTargetStatus(grpPing);
           //console.log('grpPing Done:',grpPing);
         },1000);
@@ -2401,15 +2419,15 @@ class PeerTreeNet extends  EventEmitter {
      };	     
      var hListener = null;
      var rListener = null;
-     this.rnet.net.on('xhrFail',hListener = (J)=>{
-       this.rnet.net.removeListener('xhrFail', hListener);
+     this.on('xhrFail',hListener = (J)=>{
+       this.removeListener('xhrFail', hListener);
        reply.gpingResult.targetIP = j.target;
        reply.gpingResult.pStatus  = 'targDead';
        reply.gpingResult.ptime    = null;
        this.sendReplyCX(j.remIp,reply);
      });
-     this.rnet.net.on('peerTReply',rListener  = (J)=>{
-       this.rnet.net.removeListener('peerTReply', rListener);
+     this.on('peerTReply',rListener  = (J)=>{
+       this.removeListener('peerTReply', rListener);
        var pres = {
          pingTargResult : {
   	   ptime   : Date.now() - reply.gpingResult.ptime,
@@ -2420,8 +2438,8 @@ class PeerTreeNet extends  EventEmitter {
        this.sendReplyCX(j.remIp,pres);
      });
      const hTimer = setTimeout( ()=>{
-       this.rnet.net.removeListener('peerTReply', rListener);
-       this.rnet.net.removeListener('xhrFail', hListener);
+       this.removeListener('peerTReply', rListener);
+       this.removeListener('xhrFail', hListener);
        reply.gpingResult.ptime   = null;
        reply.gpingResult.pStatus = 'Timeout';
        reply.gpingResult.target  = j.target;
@@ -2450,7 +2468,7 @@ class PeerTreeNet extends  EventEmitter {
         };
 	var hListener = null;
         var rListener = null;
-        this.rnet.net.on('xhrFail',hListener = (j)=>{
+        this.on('xhrFail',hListener = (j)=>{
           if (j.ping){
             console.log('heartBeat::pingFail',j);
             const peer = this.heartbIndexOf(hrtbeat.pings,j.remIp);
@@ -2459,12 +2477,12 @@ class PeerTreeNet extends  EventEmitter {
             }  
           }        
         });
-        this.rnet.net.on('peerTReply',rListener  = (j)=>{
+        this.on('peerTReply',rListener  = (j)=>{
           if (j.pingResult){
             if (j.nodeStatus == 'online' || j.nodeStatus == 'root'){
               if (j.remIp == this.rnet.r.myParent){
                 if (j.statAction == 'doRejoinNet'){
-                  console.log('heartBeat::PINGRESULT:MyParent:',j.pingResult,j.statAction,j);
+                  console.log('heartBeat::PINGRESULT:MyParent:',this.rnet.status,j.pingResult,j.statAction,j);
                   this.setNodeBackToStartup();
                 }
               }
@@ -2483,8 +2501,8 @@ class PeerTreeNet extends  EventEmitter {
         });
          
         const hTimer = setTimeout(async ()=>{
-          this.rnet.net.removeListener('peerTReply', rListener);
-          this.rnet.net.removeListener('xhrFail', hListener);
+          this.removeListener('peerTReply', rListener);
+          this.removeListener('xhrFail', hListener);
           hrtbeat.myStatus = await this.reviewMyStatus(hrtbeat);
 	  //console.log('hearBeat Done:',hrtbeat);
         },this.pulseRate - 900);
@@ -2492,30 +2510,30 @@ class PeerTreeNet extends  EventEmitter {
 	// Ping Parent Node
         if (this.rnet.r.myParent){
           hrtbeat.pings.push({pIP:this.rnet.r.myParent,pType:'myParent',pRes : null});
-	  this.sendMsgCX(this.rnet.r.myParent,{ping : "hello",action : "checkMyStatus",myStatus: this.status});
+	  this.sendMsgCX(this.rnet.r.myParent,{ping : "hello",action : "checkMyStatus",myStatus: this.rnet.status});
         }
         // Ping My Child Nodes
         if(this.rnet.r.myNodes)
           for (var node of this.rnet.r.myNodes){
             hrtbeat.pings.push({pIP:node.ip,pType:'myNodes',pRes : null});
-            this.sendMsgCX(node.ip,{ping : "hello",myStatus: this.status});
+            this.sendMsgCX(node.ip,{ping : "hello",myStatus: this.rnet.status});
           }
             
         // Last Node Ping Root Node.
         if (this.rnet.r.nodeNbr == this.rnet.r.lnode && this.rnet.r.nodeNbr != 1 && !this.hbeatIncludes(hrtbeat.pings,this.rnet.r.rootNodeIp)){
           hrtbeat.pings.push({pIP:this.rnet.r.rootNodeIp,pType: 'lastToRoot',pRes : null});
-          this.sendMsgCX(this.rnet.r.rootNodeIp,{ping : "hello",myStatus: this.status});
+          this.sendMsgCX(this.rnet.r.rootNodeIp,{ping : "hello",myStatus: this.rnet.status});
         }
       
         // Ping Left Node.
         if (this.rnet.r.leftNode && !this.hbeatIncludes(hrtbeat.pings,this.rnet.r.leftNode)){
           hrtbeat.pings.push({pIP:this.rnet.r.leftNode,pType: 'pingLeft',pRes : null});
-          this.sendMsgCX(this.rnet.r.leftNode,{ping : "hello",myStatus: this.status});
+          this.sendMsgCX(this.rnet.r.leftNode,{ping : "hello",myStatus: this.rnet.status});
         }
         // Ping Right Node.
         if (this.rnet.r.rightNode && !this.hbeatIncludes(hrtbeat.pings,this.rnet.r.rightNode)){
           hrtbeat.pings.push({pIP:this.rnet.r.rightNode,pType: 'pingRight',pRes : null});
-          this.sendMsgCX(this.rnet.r.rightNode,{ping : "hello",myStatus: this.status});
+          this.sendMsgCX(this.rnet.r.rightNode,{ping : "hello",myStatus: this.rnet.status});
         }
 
         if (this.rnet.r.nodeNbr == 1 && hrtbeat.pings.length == 0){
@@ -2625,7 +2643,7 @@ class PeerTreeNet extends  EventEmitter {
     console.log('Setting Status', this.rnet.status);
     await sleep(15*1000);
     console.log('Setting Status To:', this.rnet.status);
-    this.rnet.status = 'startup';
+    this.rnet.status = 'tryJoining';
     this.rnet.newNode    = null;
     this.rnet.ipListener = null;
     this.rnet.lnListener = null;
