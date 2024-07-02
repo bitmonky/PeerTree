@@ -158,21 +158,57 @@ class MkyRouting {
    // Notify Root That A Node Is Dropping
    // ===============================================
    notifyRootDropingNode(node){
-     if (node == this.r.rootNodeIp){
-       return;
-     }
-     //*check to see if myIp is the root node.
-     if (this.myIp != this.r.rootNodeIp && node != this.net.getNetRootIp()){
-       const req = {
-         req  : 'rootStatusDropNode',
-         node : node
+     return new Promise((resolve,reject)=>{
+       console.log('notifyRootDropingNode::Start',node);
+       if (node == this.r.rootNodeIp){
+         resolve('IsRoot');
+         return;
        }
-       this.net.sendMsgCX(this.net.getNetRootIp(),req);
-     }
-     else {
-       console.log('notifyRootDropingNode::Root is Is Root set join que block');
-       this.startJoin = 'waitForDrop';
-     }
+       //*check to see if myIp is the root node.
+       if (this.myIp != this.r.rootNodeIp && node != this.net.getNetRootIp()){
+         const req = {
+           req  : 'rootStatusDropNode',
+           node : node
+         }
+         var rtListen = null;
+         var rtLFail  = null;
+         const gtime = setTimeout( ()=>{
+           console.log('notify timeout', node);
+           this.net.removeListener('peerTReply', rtListen);
+           this.net.removeListener('xhrFail', rtLFail);
+           resolve(null);
+         },2500);
+
+         this.net.on('peerTReply', rtListen = (j)=>{
+           if (j.resultRootStatusDropNode){
+             console.log('notifyRootDropingNode::',j);
+             clearTimeout(gtime);
+             if (j.resultRootStatusDropNode == 'busy')
+               resolve(null);
+             else {
+               resolve(j.resultRootStatusDropNode);
+             }
+             this.net.removeListener('peerTReply', rtListen);
+             this.net.removeListener('xhrFail', rtLFail);
+           }
+         });
+         this.net.on('xhrFail', rtLFail = (j)=>{
+           if (j.req == 'rootStatusDropNode'){
+             clearTimeout(gtime);
+             resolve (null);
+             this.net.removeListener('peerTReply', rtListen);
+             this.net.removeListener('xhrFail', rtLFail);
+           }
+         });
+
+         this.net.sendMsgCX(this.net.getNetRootIp(),req);
+       }
+       else {
+         console.log('notifyRootDropingNode::Root is Is Root set join que block');
+         this.startJoin = 'waitForDrop';
+         resolve('IAmRoot');
+       }
+     });
    }
    // ***********************************************
    // Notify Root That The Node Request Is Complete
@@ -1404,7 +1440,13 @@ class MkyRouting {
        return true;
      }
      if (j.req == 'rootStatusDropNode'){
-       this.startJoin = 'waitForDrop';
+       if (!this.startJoin){
+         this.startJoin = 'waitForDrop';
+         this.net.endResCX(remIp,JSON.stringify({resultRootStatusDropNode : 'OK'}));
+       }
+       else {
+         this.net.endResCX(remIp,JSON.stringify({resultRootStatusDropNode : 'busy'}));
+       }
        return;
      }
      if (j.req == 'rootStatusDropComplete'){
@@ -1660,8 +1702,21 @@ class MkyRouting {
          this.err = true; 
          console.log('handleError::this.err:true');
          this.dropIps.push(j.toHost);
-         this.notifyRootDropingNode(j.toHost);
-
+         var notifyRRes = null;
+         var trys = 0;
+         while(notifyRRes != 'OK' && trys < 10){
+           notifyRRes = await this.notifyRootDropingNode(j.toHost);
+           if (notifyRRes != 'OK'){
+             trys++;
+             console.log('Root Response was:',notifyRRes,' Trys:',trys);
+             await sleep(1500);
+           } 
+         }
+         if (notifyRRes != 'OK'){
+           setNodeBackToStartup();
+           return;
+         }
+         console.log('Root Response was:',notifyRRes);
          // Set Timeout for drop operation.
          this.eTime = setTimeout( ()=>{
            console.log('Drop Time Out',j);
