@@ -8,7 +8,7 @@ const EC           = require('elliptic').ec;
 const ec           = new EC('secp256k1');
 const bitcoin      = require('bitcoinjs-lib');
 const crypto       = require('crypto');
-const mysql        = require('mysql2');
+const mysql        = require('mysql');
 const schedule     = require('node-schedule');
 const {MkyWebConsole} = require('./networkWebConsole.js');
 const {pcrypt}        = require('./peerCrypt');
@@ -164,12 +164,11 @@ class peerMemToken{
     } 
 }; 
 
-const recPort = 1335;
-
 class peerMemCellReceptor{
-  constructor(peerTree){
+  constructor(peerTree,inRecPort){
+    this.recPort = inRecPort;
     this.peer = peerTree;
-    console.log('ATTACHING - cellReceptor on port'+recPort);
+    console.log('ATTACHING - cellReceptor on port'+this.recPort);
     this.results = ['empty'];
     this.searches = [];
     const options = {
@@ -190,6 +189,26 @@ class peerMemCellReceptor{
         console.log('priv key length' + privateKey.length,publicKey);
          res.end('{"publicKey":"' + publicKey + '","privateKey":"' + privateKey + '"}');
       }
+      else if (req.url === '/netREQ' && req.method === 'POST') {
+        // Handle the POST request for /netREQ
+        let body = '';
+        req.on('data', chunk => {
+          body += chunk; // Collect the incoming data
+        });
+
+        req.on('end', () => {
+          try {
+            const parsedBody = JSON.parse(decodeURIComponent(body)); // Parse the JSON body
+            console.log('Received POST data:', parsedBody);
+            const j = parsedBody;
+            this.processRequest(j.msg,res);
+          } 
+          catch (err) {
+            console.log('Error parsing JSON:',err,decodeURIComponent(body));
+            res.end('{"result":false,"error":"json parse error"}');
+          }
+        });
+      }   
       else {
         if (req.url.indexOf('/netREQ/msg=') == 0){
           var msg = req.url.replace('/netREQ/msg=','');
@@ -205,20 +224,7 @@ class peerMemCellReceptor{
              process.exit();
           }
           //console.log('mkyReq',j);
-
-          if (j.req == 'storeMemory'){
-	    this.prepMemoryReq(j,res);
-            return;
-          }   
-          if (j.req == 'removeMemory'){
-            this.makeRemoveMemoryReq(j,res);
-            return;
-          }
-          if (j.req == 'searchMemory'){
-            this.doSearch(j,res);
-	    return;
-          }
-          res.end('OK');
+          this.processRequest(j,res);
         }
         else {
           res.end('Wellcome To The PeerTree KeyGEN Server\nUse end point /keyGEN to request key pair');
@@ -226,8 +232,24 @@ class peerMemCellReceptor{
       }
     });
   
-    bserver.listen(recPort);
-    console.log('peerTree Memory Receptor running on port:'+recPort);
+    bserver.listen(this.recPort);
+    console.log('peerTree Memory Receptor running on port:'+this.recPort);
+  }
+  processRequest(j,res){
+    console.log(j);
+    if (j.req == 'storeMemory'){
+      this.prepMemoryReq(j,res);
+      return;
+    }
+    if (j.req == 'removeMemory'){
+      this.makeRemoveMemoryReq(j,res);
+      return;
+    }
+    if (j.req == 'searchMemory'){
+      this.doSearch(j,res);
+      return;
+    }
+    res.end('OK');
   }
   isThere(inId){
     var i = null;
@@ -272,7 +294,7 @@ class peerMemCellReceptor{
     }
     console.log('bcast remove memory request to memoryCell group: ',breq.removeMem);
     this.peer.net.broadcast(breq);
-    const qres = await this.getRemoveResult(j);
+    const qres = await this.peer.getRemoveResult(j);
     res.end(JSON.stringify(qres));
   }
   async doSearch(j,res){
@@ -304,13 +326,14 @@ class peerMemCellReceptor{
   getSearchResults(j){
     return new Promise( async(resolve,reject)=>{
       var skey = j.qry.key;
+      console.log('getSearchResults:: ',j.qry.key,j);
       var trys = 0;
       var result = [];
       var cindex = null;
       cindex = this.smgr.getIndexOf(skey);
       while (trys < 10){
         await sleep(500);
-        console.log('SearchMGR::Try:'+trys,this.smgr);
+        console.log('SearchMGR::Try:'+trys,cindex,this.smgr.searches[cindex].data);
         result = [...this.smgr.searches[cindex].data];
         if (result.length > 0){
           result.sort((a, b) =>{
@@ -399,28 +422,71 @@ catch {console.log('database config file `dbconf` NOT Found.');}
 try {dba = JSON.parse(dba);}
 catch {console.log('Error parsing `dbconf` file');}
 
-var con = mysql.createConnection({
-  host: "localhost",
-  user: "username",
-  password: dba.pass,
-  database: "peerBrain",
-  dateStrings: "date",
-  multipleStatements: true,
-  supportBigNumbers : true
-});
-con.connect(function(err) {
-  if (err) throw err;
-});
+let con = createConnection();
+
+function createConnection() {
+  const connection = mysql.createConnection({
+    host:"127.0.0.1",
+    user: dba.user,
+    password: dba.pass,
+    database: "peerBrain",
+    dateStrings: "date",
+    multipleStatements: true,
+    supportBigNumbers : true
+  });
+  connection.connect((err) => {
+    if (err) {
+      console.error('Error connecting to database:', err);
+      setTimeout(createConnection, 2000); // Retry connection
+    } else {
+      console.log('Connected to database');
+    }
+  });
+
+  connection.on('error', (err) => {
+    console.error('BORG:MySQL Error:', err);
+    if (err.code === 'PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR' || err.code === 'ECONNRESET') {
+      console.log('Reconnecting after fatal error...');
+      connection.destroy();
+      con = createConnection(); // Reconnect after fatal error
+    }
+  });
+
+  return connection;
+}
+
+function heartbeat() {
+  con.ping((err) => {
+    if (err) {
+      console.error('BORG::mySQL::Heartbeat failed, attempting to reconnect...', err);
+      con.destroy();
+      con = createConnection();
+    }
+  });
+}
+setInterval(heartbeat, 15000);
+console.log('Heartbeat system initialized.');
+
 var mysqlp = require('mysql2');
 var pool  = mysqlp.createPool({
   connectionLimit : 100,
-  host            : 'localhost',
-  user: "username",
+  host            : '127.0.0.1',
+  user: dba.user,
   password: dba.pass,
   database: "peerBrain",
   dateStrings     : "date",
   multipleStatements: true,
   supportBigNumbers : true
+});
+
+pool.on('connection', (connection) => {
+  connection.on('error', (err) => {
+    console.error('BORG:POOL:Connection error:', err);
+    if (err.code === 'PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR') {
+      console.log('Removing faulty connection...');
+      connection.destroy(); // Remove bad connection
+    }
+  });
 });
 
 function dbConFail(resolve,msg){
@@ -629,6 +695,7 @@ class peerMemoryObj {
   }
   handleReply(j){
     //console.log('\n====================\memCell reply handler',j);
+    if (j.remIp == this.net.nIp) {console.log('ignoring bcast to self',this.net.nIp);return;} // ignore bcasts to self.
     if (j.statusUpdate){
       this.group.updateGroup(j.statusUpdate);
       return;
@@ -724,6 +791,15 @@ class peerMemoryObj {
        limit = j.qry.qryLimit;
        orderBy += ' '+limit;
      }
+
+     if (!j.qry.isPrivate){
+       j.qry.isPrivate = ' is null ';
+     } 
+     else if (j.qry.isPrivate){
+       j.qry.isPrivate = ' = 1 ';
+     }
+     else {j.qry.isPrivate = ' is null ';}
+
      var SQLr = "SET SESSION sql_mode = 'STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION';";
      SQLr += "select pmcMownerID,pmcMemObjID,pmcMemObjNWords,count(*) nMatches,";
      SQLr += "sum(pmcWordWeight) + 1.0/(1.0 + TIMESTAMPDIFF(hour,pmcMemTime,now())) score ";
@@ -731,7 +807,12 @@ class peerMemoryObj {
      if (scope.join){
        SQLr += scope.join;
      }	     
-     SQLr += "where pmcMownerID = '"+j.qry.ownerID+"' "+scope.search + qtype+" and (";
+     if (j.qry.ownerID === 'publicAll') {
+       SQLr += `where pmcIsPrivate is null ${scope.search + qtype} and (`;
+     }
+     else {
+       SQLr += `where pmcMownerID = '${j.qry.ownerID}' and pmcIsPrivate ${j.qry.isPrivate} ${scope.search + qtype} and (`;
+     }
      var SQL = SQLr;
      var n = 1;
      var or = 'or ';
@@ -796,6 +877,33 @@ class peerMemoryObj {
     this.receptor.procQryResult(j);
     //this.receptor.results = j.result;
   }	  
+  getRemoveResult(j){
+    /* NEEDS - a counter to count errors and success results.
+    */
+    console.log('waiting for removeMemRes',j);
+    return new Promise( (resolve,reject)=>{
+      var mkyReply = null;
+      const gtime = setTimeout( ()=>{
+        console.log('Remove Memory Request Timeout:');
+        this.net.removeListener('mkyReply', mkyReply);
+        resolve(null);
+      },5*1000);
+
+      this.net.on('mkyReply',mkyReply = (r) =>{
+        if (r.memRemoveRes){
+          clearTimeout(gtime);
+          this.net.removeListener('mkyReply', mkyReply);
+          if (r.memRemoveRes === false){
+            resolve(null);
+          }
+          else {
+            console.log('memRemoveRes OK!!',r);
+            resolve(r);
+          }
+        }
+      });
+    });
+  }
   receptorReqStoreMem(j,toIp){
     //console.log('receptorReqStoreMem',j);
     return new Promise( (resolve,reject)=>{	  
@@ -964,6 +1072,7 @@ class peerMemoryObj {
     const mUID = m.from;
     var SQL = "select count(*)nMem from peerBrain.peerMemoryCell ";
     SQL += "where pmcMownerID = '"+mUID+"' and pmcMemObjID = '"+m.memID+"' and pmcMemObjType='"+m.memType+"' ";
+    console.log(SQL);
     con.query(SQL , async(err, result,fields)=>{
       if (err){
         console.log(err);
@@ -1011,7 +1120,10 @@ class peerMemoryObj {
         }
 	else {
           console.log('Memory Already Stored::MSQL',m.memID);
-          const ahash = crypto.createHash('sha256').update(m.memID).digest('hex');
+          var ahash = 'error memID is null';
+          if (m && m.memID){
+            ahash = crypto.createHash('sha256').update(m.memID).digest('hex');
+          }  
           this.net.endRes(res,'{"memStoreRes":true,"memStorHash":"' + ahash + '"}');
           //this.net.endRes(res,'{"memStoreRes":false,"msg":"Memory Already Stored"}');
 	}

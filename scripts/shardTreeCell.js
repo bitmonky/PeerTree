@@ -13,6 +13,19 @@ const options = {
 const {PeerTreeNet}     = require('./peerTree');
 const {shardTreeObj,shardTreeCellReceptor} = require('./shardTreeObj.js');
 
+process.on('uncaughtException', (err) => {
+    console.error('Unhandled Exception:', err);
+    if (err.code === 'EADDRINUSE') {
+      console.error(`Port is already in use. Exiting...`);
+      process.exit(1);
+    }
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Promise Rejection:', reason);
+});
+
+
 /*******************
 Create PeerTree Network Peer
 *******************
@@ -29,8 +42,17 @@ Create PeerTree Network Peer
     isRoot == 'root';
     reset = 'rebuild';
   }
-  const peerNet = new PeerTreeNet(options,'shardNet',13350,13340,25);
-  peerNet.nodeType = 'shardCell';
+
+  const borg = {
+    netPort  : 13350,
+    recpPort : 13355,
+    monPort  : 13340,
+    maxChildren : 25,
+    netName  : 'shardTreeCell'
+  }
+
+  const peerNet = new PeerTreeNet(options,borg.netName,borg.netPort,borg.monPort,borg.maxChildren);
+  peerNet.nodeType = borg.netName;
 
   if (isRoot == 'reset'){
     isRoot = null;
@@ -40,6 +62,7 @@ Create PeerTree Network Peer
 main();
 async function main(){
   await peerNet.netStarted();
+  peerNet.updatePortalsFile(borg);
   var rootBranch = false;
   if (!isRoot){
     startShardCell(rootBranch);
@@ -52,7 +75,7 @@ async function main(){
 var rBranch = null;
 function startShardCell(){
     var scell = new shardTreeObj(peerNet,reset);
-    const scellReceptor = new shardTreeCellReceptor(scell,13355);
+    const scellReceptor = new shardTreeCellReceptor(scell,borg.recpPort);
     scell.attachReceptor(scellReceptor);
     if (rBranch){
       console.log('\nNEW>>>SETTING shardCell TO ROOT');

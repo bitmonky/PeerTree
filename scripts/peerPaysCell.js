@@ -11,14 +11,14 @@ const options = {
 };
 //const {MkyNetNode,MkyNetObj,MkyNetTab}   = require('./peerTree');
 const {PeerTreeNet}     = require('./peerTree');
-const {ftreeFileMgrObj,ftreeFileMgrCellReceptor} = require('./ftreeFileMgrObj.js');
+const {peerPaysObj,peerPaysCellReceptor} = require('./peerPaysObj.js');
 
 process.on('uncaughtException', (err) => {
     console.error('Unhandled Exception:', err);
     if (err.code === 'EADDRINUSE') {
       console.error(`Port is already in use. Exiting...`);
       process.exit(1);
-    } 
+    }
 });
 
 process.on('unhandledRejection', (reason, promise) => {
@@ -44,11 +44,11 @@ Create PeerTree Network Peer
   }
 
   const borg = {
-    netPort  : 13351,
-    recpPort : 13381,
-    monPort  : 13341,
-    maxChildren : 3,
-    netName  : 'ftreeFileMgrCell'
+    netPort  : 13390,
+    recpPort : 13392,
+    monPort  : 13391,
+    maxChildren : 25,
+    netName  : 'peerPaysCell'
   }
 
   const peerNet = new PeerTreeNet(options,borg.netName,borg.netPort,borg.monPort,borg.maxChildren);
@@ -67,8 +67,8 @@ async function main(){
 }
 var rBranch = null;
 function startFtreeCell(){
-    var scell = new ftreeFileMgrObj(peerNet,reset);
-    const scellReceptor = new ftreeFileMgrCellReceptor(scell,borg.recpPort);
+    var scell = new peerPaysObj(peerNet,reset);
+    const scellReceptor = new peerPaysCellReceptor(scell,borg.recpPort);
     scell.attachReceptor(scellReceptor);
     if (rBranch){
       console.log('\nNEW>>>SETTING ftreeCell TO ROOT');

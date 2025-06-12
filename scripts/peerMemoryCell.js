@@ -8,50 +8,53 @@ const options = {
 const {PeerTreeNet}     = require('./peerTree');
 const {peerMemoryObj,peerMemCellReceptor} = require('./peerMemoryObj.js');
 
+process.on('uncaughtException', (err) => {
+    console.error('Unhandled Exception:', err);
+    if (err.code === 'EADDRINUSE') {
+      console.error(`Port is already in use. Exiting...`);
+      process.exit(1);
+    }
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Promise Rejection:', reason);
+});
+
 /*******************
 Create PeerTree Network Peer
 *******************
 */
 
-  var isRoot = process.argv[3];
+  var parm = process.argv[3];
 
   var reset = null
-  if (isRoot == 'rootReset'){
-    isRoot == 'root';
+  if (parm == 'rootReset'){
     reset = true;
   }
-  if (isRoot == 'rootRebuild'){
-    isRoot == 'root';
-    reset = 'rebuild';
+  
+  const borg = {
+    netPort  : 1336,
+    recpPort : 1335,
+    monPort  : 1339,
+    maxChildren : 25,
+    netName  : 'peerMemoryCell'
   }
-  const mkyNet = new PeerTreeNet(options);
-  mkyNet.nodeType = 'memoryCell';
 
-  if (isRoot == 'reset'){
-    isRoot = null;
-    reset = true;
-  }
-    
-main();
+  const mkyNet = new PeerTreeNet(options,borg.netName,borg.netPort,borg.monPort,borg.maxChildren);
+  mkyNet.nodeType = borg.netName;
+
+  main();
+
 async function main(){
-  await mkyNet.netStarted();
-  var rootBranch = false;
-  if (!isRoot){
-    startMemoryCell(rootBranch);
-  }
-  else {
-    rootBranch = true;
-    startMemoryCell(rootBranch);
-  }
+    await mkyNet.netStarted();
+    mkyNet.updatePortalsFile(borg);
+    startMemoryCell();
 }
 function startMemoryCell(rBranch){
     var mcell = new peerMemoryObj(mkyNet,reset);
-    const mcellReceptor = new peerMemCellReceptor(mcell);
+    const mcellReceptor = new peerMemCellReceptor(mcell,borg.recpPort);
     mcell.attachReceptor(mcellReceptor);
-    if (rBranch){
-      console.log('\nNEW>>>SETTING memCell TO ROOT');
-      mcell.isRoot = true;
-    }
+
     mcell.net.on('mkyReq',(res,j)=>{
       mcell.handleReq(res,j);
     });

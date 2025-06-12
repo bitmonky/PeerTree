@@ -2,23 +2,23 @@
 /******************************************************************
 PeerTree - Object mailTreeObj  
 
-2023-0109 - Taken from shardTreeObj.js to be modified into the mailTreeObj 
+2023-0109 - Taken from mailTreeObj.js to be modified into the mailTreeObj 
 */
 
-//const config       = require('./config.js');
-var dateFormat     = require('./mkyDatef');
-const EventEmitter = require('events');
-const https        = require('https');
-const fs           = require('fs');
-const mkyPubKey    = '04a5dc8478989c0122c3eb6750c08039a91abf175c458ff5d64dbf448df8f1ba6ac4a6839e5cb0c9c711b15e85dae98f04697e4126186c4eab425064a97910dedc';
-const EC           = require('elliptic').ec;
-const ec           = new EC('secp256k1');
-const bitcoin      = require('bitcoinjs-lib');
-const crypto       = require('crypto');
-const mysql        = require('mysql');
-const schedule     = require('node-schedule');
+//const config        = require('./config.js');
+var dateFormat        = require('./mkyDatef');
+const EventEmitter    = require('events');
+const https           = require('https');
+const fs              = require('fs');
+const EC              = require('elliptic').ec;
+const ec              = new EC('secp256k1');
+const bitcoin         = require('bitcoinjs-lib');
+const crypto          = require('crypto');
+const mysql           = require('mysql');
+const schedule        = require('node-schedule');
 const {MkyWebConsole} = require('./networkWebConsole.js');
 const {pcrypt}        = require('./peerCrypt');
+const {BorgECMail}    = require('./BorgECMail.js');
 
 addslashes  = require ('./addslashes');
 
@@ -41,16 +41,31 @@ function calculateHash(txt) {
   const crypto = require('crypto');
   return crypto.createHash('sha256').update(txt).digest('hex');
 }
+function deriveKey(password) {
+    const salt = crypto.randomBytes(16); // Generate a random salt for additional security
+    const iterations = 100000; // More iterations = stronger security
+    const keyLength = 32; // AES-256 requires a 256-bit key (32 bytes)
+    const digest = 'sha256'; // Hashing algorithm used in PBKDF2
 
+    const derivedKey = crypto.pbkdf2Sync(password, salt, iterations, keyLength, digest);
+    return { key: derivedKey.toString('hex'), salt: salt.toString('hex') };
+}
+
+// Example usage
+const bitcoinAddress = "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"; // Example Bitcoin address
+const derived = deriveKey(bitcoinAddress);
+
+console.log("Derived Key:", derived.key);
+console.log("Salt:", derived.salt);
 /*********************************************
-PeerTree Receptor Node: listens on port 1335
+PeerMail Receptor Node: listens on port 1335
 ==============================================
 This port is used for your regular apps to interact
-with a shardTreeCell on the PeerTree File Store network;
+with a mailTreeCell on the mailTree message network;
 */
 const ftreeRoot = 'ftree/';
 
-class peerShardToken{
+class peerMailToken{
    constructor(){
       this.publicKey   = null;
       this.privateKey  = null;
@@ -68,7 +83,7 @@ class peerShardToken{
    }   
    openWallet(){
       var keypair = null;
-      try {keypair =  fs.readFileSync('keys/peerShardToken.key');}
+      try {keypair =  fs.readFileSync('keys/peerMailToken.key');}
       catch {console.log('no wallet file found');}
       this.publicKey = null;
       if (keypair){
@@ -77,9 +92,9 @@ class peerShardToken{
 	  const j = JSON.parse(pair);
           this.publicKey     = j.publicKey;
           this.privateKey    = j.privateKey;
-          this.shardOwnMUID  = j.shardOwnMUID;
-	  this.shardCipher   = j.shardCipher;
-          this.crypt         = new pcrypt(this.shardCipher);
+          this.mailOwnMUID  = j.mailOwnMUID;
+	  this.mailCipher   = j.mailCipher;
+          this.crypt         = new pcrypt(this.mailCipher);
           this.signingKey    = ec.keyFromPrivate(this.privateKey);
         }
         catch(err) {console.log('wallet file not valid', err);process.exit();
@@ -99,12 +114,12 @@ class peerShardToken{
 
         console.log('Generate a new wallet cipher key');
         mkybc = bitcoin.payments.p2pkh({ pubkey: new Buffer.from(''+this.pmCipherKey, 'hex') });
-        this.shardCipher = mkybc.address;
+        this.mailCipher = mkybc.address;
 
-        var wallet = '{"shardOwnMUID":"'+ this.branchMUID+'","publicKey":"' + this.publicKey + '","privateKey":"' + this.privateKey + '",';
-        wallet += '"shardCipher":"'+this.shardCipher+'"}';
+        var wallet = '{"mailOwnMUID":"'+ this.branchMUID+'","publicKey":"' + this.publicKey + '","privateKey":"' + this.privateKey + '",';
+        wallet += '"mailCipher":"'+this.mailCipher+'"}';
         console.log(wallet);
-	fs.writeFile('keys/peerShardToken.key', wallet, function (err) {
+	fs.writeFile('keys/peerMailToken.key', wallet, function (err) {
           if (err) throw err;
          //console.log('Wallet Created And Saved!');
         });
@@ -112,12 +127,14 @@ class peerShardToken{
     } 
 }; 
 
-class shardTreeCellReceptor{
-  constructor(peerTree,recPort=1335){
+class mailTreeCellReceptor{
+  constructor(peerTree,recPort){
     this.peer = peerTree;
     this.port = recPort;
     this.allow = ["127.0.0.1"];
+    
     this.readConfigFile();
+    this.activeNodes = [];
     console.log('ATTACHING - cellReceptor on port'+recPort);
     console.log('GRANTING cellRecptor access to :',this.allow);
     this.results = ['empty'];
@@ -125,8 +142,8 @@ class shardTreeCellReceptor{
       key: fs.readFileSync('keys/privkey.pem'),
       cert: fs.readFileSync('keys/fullchain.pem')
     };
-    this.shardToken = new peerShardToken();
-    console.log(this.shardToken);
+    this.mailToken = new peerMailToken();
+    console.log(this.mailToken);
     var bserver = https.createServer(options, (req, res) => {
       if (req.url == '/keyGEN'){
         // Generate a new key pair and convert them to hex-strings
@@ -145,7 +162,6 @@ class shardTreeCellReceptor{
             req.on('data', (data)=>{
               body += data;
               // Too much POST data, kill the connection!
-              //console.log('body.length',body.length);
               if (body.length > 300000000){
                 console.log('max datazize exceeded');
                 req.connection.destroy();
@@ -165,16 +181,24 @@ class shardTreeCellReceptor{
 	      }	 
 	      res.setHeader('Content-Type', 'application/json');
               res.writeHead(200);
-              if (j.msg.req == 'storeShard'){
-                this.reqStoreShard(j.msg,res);
-                return;
-	      }	      
-              if (j.msg.req == 'requestShard'){
-                this.reqRetrieveShard(j.msg,res);
+              if (j.msg.req == 'getInBoxKey'){
+                 this.reqInBoxKey(j.msn,res);
+                 return;
+              }
+              if (j.msg.req == 'registerInBox'){
+                this.reqRegisterInBox(j.msg,res);
                 return;
               }
-              if (j.msg.req == 'deleteShard'){
-                this.reqStoreShard(j.msg,res);
+              if (j.msg.req == 'sendMail'){
+                this.reqStoreMail(j.msg,res);
+                return;
+	      }	      
+              if (j.msg.req == 'getMyMail'){
+                this.reqRetrieveMail(j.msg,res);
+                return;
+              }
+              if (j.msg.req == 'deleteMail'){
+                this.reqStoreMail(j.msg,res);
                 return;
               }
 
@@ -194,11 +218,11 @@ class shardTreeCellReceptor{
       } 
     });
     bserver.listen(this.port);
-    console.log('peerTree Shard Receptor running on port:'+this.port);
+    console.log('peerTree Mail Receptor running on port:'+this.port);
   }
   readConfigFile(){
      var conf = null;
-     try {conf =  fs.readFileSync('keys/shardTree.conf');}
+     try {conf =  fs.readFileSync('keys/mailTree.conf');}
      catch {console.log('no config file found');}
      if (conf){
        try {
@@ -212,19 +236,19 @@ class shardTreeCellReceptor{
        }
      }
   }
-  openShardKeyFile(j){
-    const bitToken = bitcoin.payments.p2pkh({ pubkey: new Buffer.from(''+this.shardToken.publicKey, 'hex') }); 
+  openMailKeyFile(j){
+    const bitToken = bitcoin.payments.p2pkh({ pubkey: new Buffer.from(''+this.mailToken.publicKey, 'hex') }); 
     var mToken = {
-      publicKey   : this.shardToken.publicKey,
+      publicKey   : this.mailToken.publicKey,
       ownMUID     : bitToken.address,
       privateKey  : '************' // create from public key using bitcoin wallet algorythm.
     };
     return mToken;
   }
-  async reqDeleteShard(j,res){
-    var dres = {result : 0, msg : 'no shards deleted'};
-    j.shard.signature = this.signRequest(j);
-    dres = await this.peer.receptorReqDeleteMyShard(j);
+  async reqDeleteMail(j,res){
+    var dres = {result : 0, msg : 'no mails deleted'};
+    j.mail.signature = this.signRequest(j);
+    dres = await this.peer.receptorReqDeleteMyMail(j);
     if (dres){
       res.end('{"result" : 1}');
     }
@@ -239,18 +263,90 @@ class shardTreeCellReceptor{
     }
     return decodeURIComponent(str);
   }
-  async reqRetrieveShard(j,res){
+  async reqInBoxKey(j,res){
+    const pubKey = await this.peer.receptorReqInBoxKey(j);
+    if (pubKey){
+      res.end(JSON.stringify({result:true,pubKey:pubKey}));
+      return;
+    }
+    res.end(JSON.stringify({result:false}));
+  }
+  async reqRegisterInBox(j,res){
+    const isRegistered = await this.peer.receptorReqInBoxKey({ownMUID:j.ownMUID});
+    if (isRegistered){
+      res.end(JSON.stringify({result:true}));
+    }
+    var IPs = await this.peer.receptorReqNodeList(j);
+    if (IPs.length == 0){
+      res.end('{"result":false,"nRecs":0,"repo":"No Nodes Available"}');
+      return;
+    }
+    var n = 0;
+    var hosts = [];
+    var nStored = 0;
+    for (var IP of IPs){
+      try {
+        var qres = await this.peer.receptorReqRegisterInBox(j,IP);
+        if (qres){
+          nStored = nStored +1;
+          hosts.push({host:qres.remMUID,ip:qres.remIp});
+        }
+      }
+      catch(err) {
+        console.log('repo storage failed on:',IP);
+      }
+      if (n==IPs.length -1){
+        console.log('{"result":"repoOK","nStored":'+nStored+',"request":'+JSON.stringify(j)+',"hosts":'+JSON.stringify(hosts)+'}');
+        res.end('{"result":true,"nStored":'+nStored+'}');
+        return;
+      }
+      n = n + 1;
+    }   
+    return;
+  } 
+  async reqRegisterInbox(j, res) {
+    try {
+        const IPs = await this.peer.receptorReqNodeList(j);
+        if (IPs.length === 0) {
+            res.end('{"result":false,"nRecs":0,"repo":"No Nodes Available"}');
+            return;
+        }
+
+        let nStored = 0;
+        const hosts = [];
+        
+        // Use Promise.all for parallel execution of requests
+        await Promise.all(IPs.map(async (IP) => {
+            try {
+                const qres = await this.peer.receptorReqRegisterInBox(j, IP);
+                if (qres) {
+                    nStored += 1;
+                    hosts.push({ host: qres.remMUID, ip: qres.remIp });
+                }
+            } catch (err) {
+                console.log('repo storage failed on:', IP);
+            }
+        }));
+
+        // Send response after all requests are completed
+        res.end(`{"result":true,"nStored":${nStored},"repo":${JSON.stringify(j)},"hosts":${JSON.stringify(hosts)}}`);
+    } catch (err) {
+        console.error('Error processing request:', err);
+        res.end('{"result":false,"error":"An error occurred"}');
+    }
+  }
+  async reqRetrieveMail(j,res){
     var data = {result : 0, msg : 'no results found'};
     var stime = Date.now();
-    data = await this.peer.receptorReqSendMyShard(j);
-    if (j.shard.encrypted) {
+    data = await this.peer.receptorReqSendMyMail(j);
+    if (j.mail.encrypted) {
       var scrm  = Buffer.from(data.data.data).toString();
-      scrm  = decrypt(Buffer.from(scrm,'base64'),this.shardToken.shardCipher);
+      scrm  = decrypt(Buffer.from(scrm,'base64'),this.mailToken.mailCipher);
       data.data = scrm.toJSON();
 
     }
     data.data = this.bufferToBase64(data.data.data);
-    console.log('Shard Request Time: ',Date.now() - stime);
+    console.log('Mail Request Time: ',Date.now() - stime);
     if (data){
       res.end('{"result": 1,"data" : '+JSON.stringify(data)+'}');
     }
@@ -259,50 +355,50 @@ class shardTreeCellReceptor{
     }
   }
   signRequest(j){
-    const stoken = j.shard.token.ownMUID + new Date(); 
+    const stoken = j.mail.token.ownMUID + new Date(); 
     const sig = {
-      ownMUID : j.shard.token.ownMUID,
+      ownMUID : j.mail.token.ownMUID,
       token : stoken,
-      pubKey : this.shardToken.publicKey,
-      signature : this.shardToken.signToken(stoken)
+      pubKey : this.mailToken.publicKey,
+      signature : this.mailToken.signToken(stoken)
     }
     return sig;
   }
-  reqStoreShard(j,res){
-    if(j.shard.encrypt){
-      j.shard.data = encrypt(j.shard.data,this.shardToken.shardCipher);
-      j.shard.data = j.shard.data.toString('base64');
+  reqStoreMail(j,res){
+    if(j.mail.encrypt){
+      j.mail.data = encrypt(j.mail.data,this.mailToken.mailCipher);
+      j.mail.data = j.mail.data.toString('base64');
     }
-    j.shard.token = this.openShardKeyFile(j);
-    j.shard.signature = this.signRequest(j);
-    var SQL = "SELECT scelAddress FROM shardTree.shardCells ";
-    SQL += "where scelLastStatus = 'online' and  timestampdiff(second,scelLastMsg,now()) < 50 order by rand() limit "+j.shard.nCopys;
+    j.mail.token = this.openMailKeyFile(j);
+    j.mail.signature = this.signRequest(j);
+    var SQL = "SELECT mcelAddress FROM mailTree.mailCells ";
+    SQL += "where mcelLastStatus = 'online' and  timestampdiff(second,mcelLastMsg,now()) < 50 order by rand() limit "+j.mail.nCopys;
     //console.log(SQL);
     var nStored = 0;
     con.query(SQL,async (err, result, fields)=> {
       if (err) {console.log(err);}
       else {
         if (result.length == 0){
-          res.end('{"result":"shardOK","nRecs":0,"shard":"No Nodes Available"}');
+          res.end('{"result":"mailOK","nRecs":0,"mail":"No Nodes Available"}');
           return;
 	}	
         var n = 0;
 	var hosts = [];
 	for (var rec of result){ 
           try {
-            var qres = await this.peer.receptorReqStoreShard(j,rec.scelAddress);
+            var qres = await this.peer.receptorReqStoreMail(j,rec.mcelAddress);
             if (qres){
 	      nStored = nStored +1;
 	      hosts.push({host:qres.remMUID,ip:qres.remIp});	    
 	    }    
           }
 	  catch(err) {
-            console.log('shard storage failed on:',rec.scelAddress);
+            console.log('mail storage failed on:',rec.mcelAddress);
           }
           if (n==result.length -1){
-            j.shard.token.privateKey = '**********';
-            j.shard.token.publicKey  = '**********';
-            res.end('{"result":"shardOK","nStored":'+nStored+',"shard":'+JSON.stringify(j)+',"hosts":'+JSON.stringify(hosts)+'}');
+            j.mail.token.privateKey = '**********';
+            j.mail.token.publicKey  = '**********';
+            res.end('{"result":"mailOK","nStored":'+nStored+',"mail":'+JSON.stringify(j)+',"hosts":'+JSON.stringify(hosts)+'}');
 	  }	
           n = n + 1;
 	}
@@ -314,30 +410,67 @@ class shardTreeCellReceptor{
 End Receptor Code
 ==============================
 */
-var con = mysql.createConnection({
-  host: "localhost",
-  user: "peerShardDBA",
-  password: "018296a02451566afcec290b0e578c86f835",
-  database: "shardTree",
-  dateStrings: "date",
-  multipleStatements: true,
-  supportBigNumbers : true
-});
-con.connect(function(err) {
-  if (err) throw err;
-});
+var dba = null
+try {dba =  fs.readFileSync('dbconf');}
+catch {console.log('database config file `dbconf` NOT Found.');}
+try {dba = JSON.parse(dba);}
+catch {console.log('Error parsing `dbconf` file');}
+let con = createConnection();
+
+function createConnection() {
+  const connection = mysql.createConnection({
+    host:"127.0.0.1",
+    user: dba.user,
+    password: dba.pass,
+    database: "mailTree",
+    dateStrings: "date",
+    multipleStatements: true,
+    supportBigNumbers : true
+  });
+  connection.connect((err) => {
+    if (err) {
+      console.error('Error connecting to database:', err);
+      setTimeout(createConnection, 2000); // Retry connection
+    } else {
+      console.log('Connected to database');
+    }
+  });
+
+  connection.on('error', (err) => {
+    console.error('BORG:MySQL Error:', err);
+    if (err.code === 'PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR' || err.code === 'ECONNRESET') {
+      console.log('Reconnecting after fatal error...');
+      connection.destroy();
+      con = createConnection(); // Reconnect after fatal error
+    }
+  });
+
+  return connection;
+}
+
+function heartbeat() {
+  con.ping((err) => {
+    if (err) {
+      console.error('BORG::mySQL::Heartbeat failed, attempting to reconnect...', err);
+      con.destroy();
+      con = createConnection();
+    }
+  });
+}
+setInterval(heartbeat, 15000);
+console.log('Heartbeat system initialized.');
 
 function getRandomInt(max) {
   return Math.floor(Math.random() * Math.floor(max));
 }
-class shardTreeObj {
+class mailTreeObj {
   constructor(peerTree,reset){
     this.reset      = reset;
     this.isRoot     = null;
     this.status     = 'starting';
     this.net        = peerTree;
     this.receptor   = null;
-    this.wcon       = new MkyWebConsole(this.net,con,this);
+    this.wcon       = new MkyWebConsole(this.net,con,this,'mailTreeCell');
     this.init();
     this.setNetErrHandle();
     this.sayHelloPeerGroup();
@@ -398,22 +531,68 @@ class shardTreeObj {
       req.end();
     });
   }
-  updatePShardcellDB(j){
+  receptorReqNodeList(j,excludeIps=[]){
+    return new Promise( (resolve,reject)=>{
+      console.log('receptorReqNodeList::',j);
+      var mkyReply = null;
+      const maxIP = j.nCopies;
+      var   IPs = [];
+      const gtime = setTimeout( ()=>{
+        console.log('Send Node List Request Timeout:');
+        this.net.removeListener('mkyReply', mkyReply);
+        resolve(IPs);
+      },1.5*1000);
+
+      var req = {
+        to     : 'mailCells',
+        req    : 'sendNodeList',
+        nodes  : maxIP,
+        xnodes : excludeIps,
+        work   : crypto.randomBytes(20).toString('hex')
+      }
+
+      this.net.broadcast(req);
+      this.net.on('mkyReply', mkyReply = (r)=>{
+        if (r.req == 'pNodeListGenIP'){
+          console.log('mkyReply NodeGen is:',r.remIp);
+          if (IPs.length <= maxIP){
+            IPs.push(r.remIp);
+          }
+          else {
+            this.receptorReqStopIPGen(req.work);
+            clearTimeout(gtime);
+            this.net.removeListener('mkyReply', mkyReply);
+            resolve(IPs);
+          }
+        }
+      });
+    });
+  }
+  doPowStop(remIp){
+    this.net.gpow.doStop(remIp);
+  }
+  doPow(j,remIp){
+    if (j.xnodes.includes(this.net.nIp)){
+      return;
+    }
+    this.net.gpow.doPow(2,j.work,remIp);
+  }
+  updatePMailcellDB(j){
     //console.log('Reviewing PeerTree Nodes DB',j);
-    var SQL = "SELECT count(*)nRec FROM shardTree.shardCells where scelAddress = '"+j.remIp+"'";
+    var SQL = "SELECT count(*)nRec FROM mailTree.mailCells where mcelAddress = '"+j.remIp+"'";
     con.query(SQL,(err, result, fields)=> {
       if (err) console.log(err);
       else {
         if (result[0].nRec == 0){
-          SQL = "insert into shardTree.shardCells (scelAddress,scelLastStatus,scelLastMsg)";
+          SQL = "insert into mailTree.mailCells (mcelAddress,mcelLastStatus,mcelLastMsg)";
           SQL += "values ('"+j.remIp+"','New',now())";
           con.query(SQL,(err, result, fields)=>{
             if (err) console.log(err);
           });
         }
 	else {
-          SQL = "update shardTree.shardCells set scelLastStatus = 'online',scelLastMsg = now() ";
-          SQL += "where scelAddress = '"+j.remIp+"'";
+          SQL = "update mailTree.mailCells set mcelLastStatus = 'online',mcelLastMsg = now() ";
+          SQL += "where mcelAddress = '"+j.remIp+"'";
           //console.log(SQL);
           con.query(SQL,(err, result, fields)=>{
             if (err) console.log(err);
@@ -425,12 +604,12 @@ class shardTreeObj {
   doNodesDBMaint(){
     console.log('Reviewing PeerTree Nodes DB',this.net.nodes);
     this.net.nodes.forEach((node) => {
-      var SQL = "SELECT count(*)nRec FROM shardTree.shardCells where scelAddress = '"+node.ip+"'";
+      var SQL = "SELECT count(*)nRec FROM mailTree.mailCells where mcelAddress = '"+node.ip+"'";
       con.query(SQL, function (err, result, fields) {
         if (err) console.log(err);
         else {
           if (result[0].nRec == 0){
-            SQL = "insert into shardTree.shardCells (scelAddress,scelLastStatus,scelLastMsg)";
+            SQL = "insert into mailTree.mailCells (mcelAddress,mcelLastStatus,mcelLastMsg)";
             SQL += "values ('"+node.ip+"','New',now())";
             con.query(SQL, function (err, result, fields) {
               if (err) console.log(err);
@@ -443,9 +622,9 @@ class shardTreeObj {
   resetDb(){
     return new Promise( (resolve,reject)=>{
       var SQL = "";
-      SQL =  "truncate table shardTree.shardCells; ";
-      SQL += "truncate table shardTree.shardOwners; ";
-      SQL += "truncate table shardTree.shards; ";
+      SQL =  "truncate table mailTree.mailCells; ";
+      SQL += "truncate table mailTree.mailOwners; ";
+      SQL += "truncate table mailTree.mails; ";
       con.query(SQL, async (err, result, fields)=>{
         if (err) {console.log(err);reject(err);}
         else {
@@ -468,14 +647,17 @@ class shardTreeObj {
       return;
     }   
   }
-  handleReq(res,j){
+  handleReq(remIp,j){
     //console.log('root recieved: ',j);
-    if (j.req == 'pShardQryResult'){
-      this.pushQryResult(j,res);
+    if (j.req == 'registerInBox'){
+      this.doRegisterInBox(j,remIp);
+    }
+    if (j.req == 'pMailQryResult'){
+      this.pushQryResult(j,remIp);
       return true;
     }
-    if (j.req == 'storeShard'){
-      this.storeShard(j,res);
+    if (j.req == 'storeMail'){
+      this.storeMail(j,remIp);
       return true;
     }
     if (j.req == 'gotUAddMe'){
@@ -485,46 +667,69 @@ class shardTreeObj {
     }
     if (j.req == 'sendStatus'){
       this.group.me.status = this.status;
-      this.net.endRes(res,'{"statusUpdate":'+JSON.stringify(this.group.me)+'}');
+      this.net.endRes(remIp,'{"statusUpdate":'+JSON.stringify(this.group.me)+'}');
       return true;
     }
     if (!this.isRoot && this.status != 'Online'){
-      this.net.endRes(res,'');
+      this.net.endRes(remIp,'');
       return true;
     }
     return false;
   }
-  handleReply(j){
-    //console.log('\n====================\shardCell reply handler',j);
-    if (j.statusUpdate){
-      this.group.updateGroup(j.statusUpdate);
+  handleReply(r){
+    if (r.req == 'helloBack'){
+      this.receptor.activeNodes.push({mNodeID:r.mNodeID,IP:r.remIp});
+      return;
+    }
+    if (r.statusUpdate){
+      this.group.updateGroup(r.statusUpdate);
       return;
     }
   }
   handleBCast(j){
     //console.log('bcast received: ',j);
     if (!j.msg.to) {return;}
-    if (j.msg.to == 'shardCells'){
-      this.updatePShardcellDB(j);  
+    if (j.msg.to == 'mailCells'){
+      this.updatePMailcellDB(j);  
       if (j.msg.req){
-        if (j.msg.req == 'sendShard')
-          this.doSendShardToOwner(j.msg,j.remIp);
-        if (j.msg.req == 'deleteShard')
-          this.doDeleteShardByOwner(j.msg,j.remIp);
+        if (j.msg.req == 'hello'){
+          var qres = {req : 'helloBack', mNodeID : this.net.peerMUID };
+          this.net.sendReply(j.remIp,qres);
+        }
+        if (j.msg.req == 'sendInBoxKey'){
+          this.doSendInBoxKey(j.msg,r.remIp);
+        }
+        if (j.msg.req == 'sendMail'){
+          this.doSendMailToOwner(j.msg,j.remIp);
+        }
+        if (j.msg.req == 'deleteMail'){
+          this.doDeleteMailByOwner(j.msg,j.remIp);
+        }
+        if (j.msg.req == 'sendNodeList'){
+          console.log('DOPOW xxxx',j.remIp);
+          this.doPow(j.msg,j.remIp);
+        }
+        if (j.msg.req == 'stopNodeGenIP'){
+          console.log('DOPOW stopNodeGenIP-XX Received:',j.remIp);
+          this.doPowStop(j.remIp);
+        }
       }
     } 
     return;
   }
   sayHelloPeerGroup(){
     var breq = {
-      to : 'shardCells',
-      token : 'some token'
+      to  : 'mailCells',
+      req : 'hello'
     }
-    //console.log('bcast greeting to shardCell group: ',breq);
+    if (this.receptor){
+      this.receptor.activeNodes = [];
+    } else {console.log('Receptor Not Ready!',this.receptor);}
+
     this.net.broadcast(breq);
     const gtime = setTimeout( ()=>{
       this.sayHelloPeerGroup();
-    },50*1000);
+    },15*1000);
   }
   isValidSig(sig) {
     if (!sig){console.log('remMessage signature is null',sig);return false;}
@@ -545,10 +750,61 @@ class shardTreeObj {
     const publicKey = ec.keyFromPublic(sig.pubKey,'hex');
     return publicKey.verify(calculateHash(sig.token), sig.signature);
   }
-  doSendShardToOwner(j,remIp){
-     //console.log('shard request from: ',remIp);
+  doSendInBoxKey(j,remIp){
+     var res = {
+       req : 'sendInBoxKeyResult',
+       result : false
+     }
+     if (this.isValidSig(j.sig)){
+       //*store the public key and reply true
+       const SQL = `select msubPubKey from mailTree.mailSubscriber where msubMUID = '${j.ownMUID}'`;
+       con.query(SQL , (err, result,fields)=>{
+         if (err){
+           console.log(err);
+           result.msg = err;
+         }
+         else {
+           if (result.length > 0){
+             res.result = true;
+             res.publicKey = result[0].msubPubKey;
+           }
+         }
+         this.net.sendReply(remIp,JSON.stringify(res));
+       });
+     }
+     else {
+        res.msg = 'invalid signature mailBox not created';
+        this.net.sendReply(remIp,JSON.stringify(res));
+     }
+   }
+   doRegisterInBox(j,remIp){
+     var res = {
+       req : 'registerInBoxResult',
+       result : false
+     }
+     if (this.isValidSig(j.sig)){
+       //*store the public key and reply true
+       const SQL = `insert into mailTree.mailSubscriber (msubMUID,msubPubKey) values ('${j.sig.ownMUID}','${j.sig.pubKey}')`;
+       con.query(SQL , (err, result,fields)=>{
+         if (err){
+           console.log(err);
+           result.msg = err;
+         }
+         else {
+           res.result = true;
+         }
+         this.net.sendReply(remIp,JSON.stringify(res));
+       });
+     } 
+     else {
+        res.msg = 'invalid signature mailBox not created';
+        this.net.sendReply(remIp,JSON.stringify(res));
+     }  
+  }
+  doSendMailToOwner(j,remIp){
+     //console.log('mail request from: ',remIp);
      //console.log('here is the req..',j);
-     var SQL = "select sownID from shardTree.shardOwners where sownMUID = '"+j.shard.ownerID+"'";
+     var SQL = "select sownID from mailTree.mailOwners where sownMUID = '"+j.mail.ownerID+"'";
      con.query(SQL , async(err, result,fields)=>{
        if (err){
          console.log(err);
@@ -556,21 +812,21 @@ class shardTreeObj {
        else {
          var sownID = null;
          if (result.length == 0){
-           console.log('Shard Owner Not Found On This Node.');
+           console.log('Mail Owner Not Found On This Node.');
            return;
          }
          else {
            sownID = result[0].sownID;
            var fsdat = null;
-	   const fname = ftreeRoot+sownID+'-'+j.shard.hash+'.srd'; 
+	   const fname = ftreeRoot+sownID+'-'+j.mail.hash+'.srd'; 
            try {
              fsdat =  fs.readFileSync(fname);
 	     var qres = {
-               req : 'pShardDataResult',
+               req : 'pMailDataResult',
                data : fsdat,
                qry : j
              }
-             //console.log('sending shard result:',qres);
+             //console.log('sending mail result:',qres);
              this.net.sendReply(remIp,qres);
            }    
            catch (err) {
@@ -578,22 +834,22 @@ class shardTreeObj {
              //console.log('Wallet Created And Saved!');
            }
            return;
-           var SQL = "select shardData from shardTree.shards where shardOwnerID = "+sownID+" and shardHash = '"+j.shard.hash+"'";
+           var SQL = "select mailData from mailTree.mails where mailOwnerID = "+sownID+" and mailHash = '"+j.mail.hash+"'";
            //console.log(SQL);
            con.query(SQL, (err, result, fields)=> {
              if (err) console.log(err);
              else {
                if (result.length > 0){
                  var qres = {
-                   req : 'pShardDataResult',
- 	           data : result[0].shardData,
+                   req : 'pMailDataResult',
+ 	           data : result[0].mailData,
                    qry : j		   
                  }
-                 //console.log('sending shard result:',qres);
+                 //console.log('sending mail result:',qres);
 		 this.net.sendReply(remIp,qres);
                } 
 	       else {
-		 console.log('Shard Not Stored On This Node.');
+		 console.log('Mail Not Stored On This Node.');
 	       }
              }		    
            });
@@ -602,24 +858,24 @@ class shardTreeObj {
      });
   }
   /******************************************************
-  Delete All Shard Files And Owner Record from this node
+  Delete All Mail Files And Owner Record from this node
   =======================================================
   */
   doDeleteAllByOwner(j,remIp){
 
-     if (!this.isValidSig(j.shard.signature)){
-       console.log('Shard Signature Invalid... NOT deleted');
+     if (!this.isValidSig(j.mail.signature)){
+       console.log('Mail Signature Invalid... NOT deleted');
        return;
      }
-     var SQL = "select sownID from shardTree.shardOwners where sownMUID = '"+j.shard.ownerID+"'";
+     var SQL = "select sownID from mailTree.mailOwners where sownMUID = '"+j.mail.ownerID+"'";
      con.query(SQL , async(err, result,fields)=>{
        if (err){
-         console.log('shard delete',err);
+         console.log('mail delete',err);
        }
        else {
          var sownID = null;
          if (result.length == 0){
-           console.log('Shard Owner Not Found On This Node.');
+           console.log('Mail Owner Not Found On This Node.');
            return;
          }
          else {
@@ -627,20 +883,20 @@ class shardTreeObj {
            var fsdat = null;
            const fname = ftreeRoot+sownID+'-*.srd';
            fs.unlink(fname, function (err) {
-             if (err) {console.log('shard delete all.. File not found:',fname);}
+             if (err) {console.log('mail delete all.. File not found:',fname);}
              else {
-               var SQL = "delete from shardTree.shardOwners where sownMUID = '"+j.shard.ownerID+"'";
+               var SQL = "delete from mailTree.mailOwners where sownMUID = '"+j.mail.ownerID+"'";
                con.query(SQL , async(err, result,fields)=>{
                  if (err){
-                   console.log('shard delete all fail',err);
+                   console.log('mail delete all fail',err);
                  }
 	       });	       
                var qres = {
-                 req : 'delAllShardsResult',
+                 req : 'delAllMailsResult',
                  result : 1,
                  qry : j
                }
-               //console.log('sending shard delete result:',qres);
+               //console.log('sending mail delete result:',qres);
                this.net.sendReply(remIp,qres);
              }
            });
@@ -650,38 +906,38 @@ class shardTreeObj {
      });
   }
   /******************************************************
-  Delete Shard File Specified By Owner from this nodee
+  Delete Mail File Specified By Owner from this nodee
   =======================================================
   */
-  doDeleteShardByOwner(j,remIp){
-     if (!this.isValidSig(j.shard.signature)){
-       console.log('Shard Signature Invalid... NOT deleted');
+  doDeleteMailByOwner(j,remIp){
+     if (!this.isValidSig(j.mail.signature)){
+       console.log('Mail Signature Invalid... NOT deleted');
        return;
      }
-     var SQL = "select sownID from shardTree.shardOwners where sownMUID = '"+j.shard.ownerID+"'";
+     var SQL = "select sownID from mailTree.mailOwners where sownMUID = '"+j.mail.ownerID+"'";
      con.query(SQL , async(err, result,fields)=>{
        if (err){
-         console.log('shard delete',err);
+         console.log('mail delete',err);
        }
        else {
          var sownID = null;
          if (result.length == 0){
-           console.log('Shard Owner Not Found On This Node.');
+           console.log('Mail Owner Not Found On This Node.');
            return;
          }
          else {
            sownID = result[0].sownID;
            var fsdat = null;
-           const fname = ftreeRoot+sownID+'-'+j.shard.hash+'.srd';
+           const fname = ftreeRoot+sownID+'-'+j.mail.hash+'.srd';
            fs.unlink(fname, function (err) {
-             if (err) {console.log('shard delete file not found:',fname);}
+             if (err) {console.log('mail delete file not found:',fname);}
 	     else {
 	       var qres = {
-                 req : 'pShardDeleteResult',
+                 req : 'pMailDeleteResult',
                  result : 1,
 		 qry : j
                }
-               //console.log('sending shard delete result:',qres);
+               //console.log('sending mail delete result:',qres);
                this.net.sendReply(remIp,qres);
              }
            });
@@ -690,71 +946,95 @@ class shardTreeObj {
        }
      });
   }
-  receptorReqDeleteMyShard(j){
+  receptorReqInBoxKey(j){
     return new Promise( (resolve,reject)=>{
       const gtime = setTimeout( ()=>{
-        console.log('Delete Request Timeout:',j);
+        console.log('Request User InBoxKey Request Timeout:',j);
         resolve(null);
-      },5*1000);
-      //console.log('bcasting reques for shard data: ',j);
-      var req = {
-        to : 'shardCells',
-        req : 'deleteShard',
-        shard : j.shard
-      }
+      },1000);
 
+      const bcast = {
+        to   : 'mailCells',
+        req  : 'sendInBoxKey',
+        MUID : j.ownMUID
+      }
       this.net.broadcast(req);
       this.net.once('mkyReply', r =>{
         //console.log('mkyReply is:',r);
-        if (r.req == 'pShardDeleteResult'){
-          //console.log('shardData Request',r);
+        if (r.req == 'sendInBoxKeyResult'){
+          if (r.result === true){
+            clearTimeout(gtime);
+            resolve(r.publicKey);
+          } 
+        }
+      });
+    });
+  }
+  receptorReqRegisterInBox(j,toIp){
+    return new Promise( (resolve,reject)=>{
+      const gtime = setTimeout( ()=>{
+        console.log('Register User InBox Request Timeout:',j);
+        resolve(null);
+      },1000);
+      //console.log('bcasting reques for mail data: ',j);
+      var req = {
+        to   : 'mailCells',
+        req  : 'registerInBox',
+        data : j
+      }
+
+      this.net.sendMsg(toIp,req);
+      this.net.once('mkyReply', r =>{
+        //console.log('mkyReply is:',r);
+        if (r.req == 'registerInBoxResult' && r.remIp == toIp){
+          //console.log('mailData Request',r);
           clearTimeout(gtime);
           resolve(r);
         }
       });
     });
   }
-  receptorReqSendMyShard(j){
+  receptorReqSendMyMail(j){
     return new Promise( (resolve,reject)=>{
       const gtime = setTimeout( ()=>{
-        console.log('Send Shard Request Timeout:',j);
+        console.log('Send Mail Request Timeout:',j);
         resolve(null);
       },20*1000);
-      //console.log('bcasting reques for shard data: ',j);
+      //console.log('bcasting reques for mail data: ',j);
       var req = {
-        to : 'shardCells',
-	req : 'sendShard',
-        shard : j.shard
+        to : 'mailCells',
+	req : 'sendMail',
+        mail : j.mail
       }
 
       this.net.broadcast(req);
       this.net.once('mkyReply', r =>{
         //console.log('mkyReply is:',r);
-	if (r.req == 'pShardDataResult'){
-          //console.log('shardData Request',r);
+	if (r.req == 'pMailDataResult'){
+          //console.log('mailData Request',r);
           clearTimeout(gtime);
           resolve(r);
         }
       });
     });
   }
-  receptorReqStoreShard(j,toIp){
-    //console.log('receptorReqStoreShard',j);
+  receptorReqStoreMail(j,toIp){
+    //console.log('receptorReqStoreMail',j);
     return new Promise( (resolve,reject)=>{	  
       const gtime = setTimeout( ()=>{
         console.log('Store Request Timeout:');
         resolve(null);
       },10*1000);  
-      console.log('Store Shard To: ',toIp);
+      console.log('Store Mail To: ',toIp);
       var req = {
-        req : 'storeShard',
-	shard : j.shard
+        req : 'storeMail',
+	mail : j.mail
       }
 
       this.net.sendMsg(toIp,req);
       this.net.once('mkyReply', r =>{
-        if (r.shardStoreRes && r.remIp == toIp){
-          //console.log('shardStoreRes OK!!',r);
+        if (r.mailStoreRes && r.remIp == toIp){
+          //console.log('mailStoreRes OK!!',r);
           clearTimeout(gtime);
 	  resolve(r);
         }		    
@@ -763,8 +1043,8 @@ class shardTreeObj {
   }	
   createNewSOWN(sown){
     return new Promise((resolve,reject)=>{
-      var SQL = "insert into shardTree.shardOwners (sownMUID) values ('"+sown+"');";
-      SQL += "SELECT LAST_INSERT_ID()newSownID;";
+      var SQL = "insert into mailTree.mailOwners (sownMUID) values ('"+sown+"');";
+      SQL += "SELECT LAST_INSERT_ID() AS newSownID;";
       con.query(SQL , (err, result,fields)=>{
         if (err){
           console.log(err);
@@ -781,13 +1061,13 @@ class shardTreeObj {
        token : sig.token,
        sig   : sig.signature
     }
-    var SQL = "INSERT INTO `shardTree`.`shards` SET ?";
+    var SQL = "INSERT INTO `mailTree`.`mails` SET ?";
     var values = {
-      shardOwnerID : sownID,
-      shardHash    : hash,
-      shardDate    : new Date(),
-      shardExpire  : null,
-      shardOwnSignature : JSON.stringify(invSig)
+      mailOwnerID : sownID,
+      mailHash    : hash,
+      mailDate    : new Date(),
+      mailExpire  : null,
+      mailOwnSignature : JSON.stringify(invSig)
     };
     con.query(SQL ,values, (err, result,fields)=>{
       if (err){
@@ -795,26 +1075,26 @@ class shardTreeObj {
       }
     });
   }
-  storeShard(j,remIp){
-    console.log('got request store shard',j.shard.signature);
-    if (!this.isValidSig(j.shard.signature)){
-      console.log('Shard Signature Invalid... NOT stored');
-        this.net.endRes(remIp,'{"shardStoreRes":false,"error":"Invalid Signature For Request"');
+  storeMail(j,remIp){
+    console.log('got request store mail',j.mail.signature);
+    if (!this.isValidSig(j.mail.signature)){
+      console.log('Mail Signature Invalid... NOT stored');
+        this.net.endRes(remIp,'{"mailStoreRes":false,"error":"Invalid Signature For Request"');
         return;
     }
-    var SQL = "select sownID from shardTree.shardOwners where sownMUID = '"+j.shard.from+"'";
+    var SQL = "select sownID from mailTree.mailOwners where sownMUID = '"+j.mail.from+"'";
     con.query(SQL , async(err, result,fields)=>{
       if (err){
         console.log(err);
-        this.net.endRes(remIp,'{"shardStoreRes":false,"error":"'+err+'"');
+        this.net.endRes(remIp,'{"mailStoreRes":false,"error":"'+err+'"');
         return;
       }
       else {
         var sownID = null;
 	if (result.length == 0){
-          sownID = await this.createNewSOWN(j.shard.from);
+          sownID = await this.createNewSOWN(j.mail.from);
           if (!sownID){
-            this.net.endRes(remIp,'{"shardStoreRes":false,"error":"failed to create new owner record for shardOwner"}');
+            this.net.endRes(remIp,'{"mailStoreRes":false,"error":"failed to create new owner record for mailOwner"}');
             return null;
           }
 	}
@@ -823,29 +1103,29 @@ class shardTreeObj {
 	}
       }
       
-      SQL = "SELECT count(*)nRec FROM `shardTree`.`shards` WHERE shardOwnerID = "+sownID+" and shardHash = '"+j.shard.hash+"'";
+      SQL = "SELECT count(*)nRec FROM `mailTree`.`mails` WHERE mailOwnerID = "+sownID+" and mailHash = '"+j.mail.hash+"'";
       con.query(SQL , async(err, result,fields)=>{
         if (err){
           console.log(err);
-          this.net.endRes(remIp,'{"shardStoreRes":false,"error":"'+err+'"');
+          this.net.endRes(remIp,'{"mailStoreRes":false,"error":"'+err+'"');
           return;
         }
         else {
           if (result[0].nRec > 0){
-	    console.log("Shard Record exists");
-            this.net.endRes(remIp,'{"shardStoreRes":false,"error":"Shard Record exists"');
+	    console.log("Mail Record exists");
+            this.net.endRes(remIp,'{"mailStoreRes":false,"error":"Mail Record exists"');
             return;
 	  }
         }
-        fs.writeFile(ftreeRoot+sownID+'-'+j.shard.hash+'.srd', j.shard.data, (err)=> {
+        fs.writeFile(ftreeRoot+sownID+'-'+j.mail.hash+'.srd', j.mail.data, (err)=> {
           if (err) {
             console.log('error writing srootTree:', err);
-            this.net.endRes(remIp,'{"shardStoreRes":false,"error":"'+err+'"');
+            this.net.endRes(remIp,'{"mailStoreRes":false,"error":"'+err+'"');
             //console.log('Wallet Created And Saved!');
 	  }
 	  else {
-	    this.createInvoiceRec(sownID,j.shard.hash,j.shard.signature);
-            this.net.endRes(remIp,'{"shardStoreRes":true,"shardStorHash":"' + j.shard.hash + '"}');
+	    this.createInvoiceRec(sownID,j.mail.hash,j.mail.signature);
+            this.net.endRes(remIp,'{"mailStoreRes":true,"mailStorHash":"' + j.mail.hash + '"}');
 	  }
         });
       });
@@ -858,5 +1138,5 @@ function sleep(ms){
     })
 }
 
-module.exports.shardTreeObj = shardTreeObj;
-module.exports.shardTreeCellReceptor = shardTreeCellReceptor;
+module.exports.mailTreeObj = mailTreeObj;
+module.exports.mailTreeCellReceptor = mailTreeCellReceptor;
