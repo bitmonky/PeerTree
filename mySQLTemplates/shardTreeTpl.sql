@@ -83,12 +83,13 @@ CREATE TABLE `shards` (
   `shardHash` varchar(84) DEFAULT NULL,
   `shardDate` datetime DEFAULT NULL,
   `shardExpire` datetime DEFAULT NULL,
-  `shardData` mediumblob,
+  `shardHashID` varchar(84) DEFAULT NULL,
   `shardOwnSignature` varchar(300) DEFAULT NULL,
   PRIMARY KEY (`shardID`),
   KEY `ndxShardDate` (`shardDate`),
   KEY `ndxShardHash` (`shardHash`),
   KEY `ndxShardOwnerID` (`shardOwnerID`),
+  KEY `ndxShardHashID` (`shardHashID`),
   KEY `jndxShardExpire` (`shardExpire`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
 /*!40101 SET character_set_client = @saved_cs_client */;

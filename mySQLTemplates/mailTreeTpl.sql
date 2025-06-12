@@ -51,12 +51,12 @@ DROP TABLE IF EXISTS `mailCells`;
 CREATE TABLE `mailCells` (
   `mcelID` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `mcelAddress` varchar(64) DEFAULT NULL,
-  `mselLastStatus` varchar(20) DEFAULT NULL,
+  `mcelLastStatus` varchar(20) DEFAULT NULL,
   `mcelLastMsg` datetime DEFAULT NULL,
   `mcelOwnMUID` varchar(84) DEFAULT NULL,
   PRIMARY KEY (`mcelID`),
   KEY `ndxMcelAddress` (`mcelAddress`),
-  KEY `ndxMcelLastStatus` (`mselLastStatus`),
+  KEY `ndxMcelLastStatus` (`mcelLastStatus`),
   KEY `ndxMcelLastMsg` (`mcelLastMsg`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -80,7 +80,7 @@ DROP TABLE IF EXISTS `mailSubscriber`;
 CREATE TABLE `mailSubscriber` (
   `msubID` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `msubMUID` varchar(64) DEFAULT NULL,
-  `msubPubKey` varchar(154) DEFAULT NULL,
+  `msubPubKey` text,
   PRIMARY KEY (`msubID`),
   KEY `ndxMsubMUID` (`msubMUID`)
 ) ENGINE=InnoDB DEFAULT CHARSET=latin1;

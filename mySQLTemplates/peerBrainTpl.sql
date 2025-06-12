@@ -47,36 +47,6 @@ LOCK TABLES `peerMemCells` WRITE;
 UNLOCK TABLES;
 
 --
--- Table structure for table `peerMemLocations`
---
-
-DROP TABLE IF EXISTS `peerMemLocations`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!40101 SET character_set_client = utf8 */;
-CREATE TABLE `peerMemLocations` (
-  `plocID` bigint(20) NOT NULL AUTO_INCREMENT,
-  `plocCityID` bigint(20) DEFAULT NULL,
-  `plocStateID` int(11) DEFAULT NULL,
-  `plocCountryID` int(11) DEFAULT NULL,
-  `plocWRegionID` int(11) DEFAULT NULL,
-  PRIMARY KEY (`plocID`),
-  KEY `ndxPlocCityID` (`plocCityID`),
-  KEY `ndxPlocStateID` (`plocStateID`),
-  KEY `ndxPlocCountryID` (`plocCountryID`),
-  KEY `ndxPlocWRegionID` (`plocWRegionID`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-/*!40101 SET character_set_client = @saved_cs_client */;
-
---
--- Dumping data for table `peerMemLocations`
---
-
-LOCK TABLES `peerMemLocations` WRITE;
-/*!40000 ALTER TABLE `peerMemLocations` DISABLE KEYS */;
-/*!40000 ALTER TABLE `peerMemLocations` ENABLE KEYS */;
-UNLOCK TABLES;
-
---
 -- Table structure for table `peerMemOwners`
 --
 
@@ -86,10 +56,8 @@ DROP TABLE IF EXISTS `peerMemOwners`;
 CREATE TABLE `peerMemOwners` (
   `permID` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
   `permMUID` varchar(84) DEFAULT NULL,
-  `permMemID` varchar(84) DEFAULT NULL,
-  `permAuthorizedBy` varchar(84) DEFAULT NULL,
   PRIMARY KEY (`permID`),
-  UNIQUE KEY `ndxPermMemID` (`permMUID`,`permMemID`)
+  UNIQUE KEY `ndxPermMUID` (`permMUID`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -113,25 +81,21 @@ CREATE TABLE `peerMemoryCell` (
   `pmcID` bigint(20) NOT NULL AUTO_INCREMENT,
   `pmcMownerID` varchar(84) DEFAULT NULL,
   `pmcMemObjID` varchar(84) DEFAULT NULL,
-  `pmcMemWord` varchar(145) DEFAULT NULL,
+  `pmcIsPrivate` tinyint(1) DEFAULT NULL,
+  `pmcMemWord` varchar(45) DEFAULT NULL,
   `pmcWordSequence` int(11) DEFAULT NULL,
   `pmcMemObjNWords` int(11) DEFAULT NULL,
   `pmcMemObjType` varchar(45) DEFAULT NULL,
   `pmcMemTWeight` int(11) DEFAULT NULL,
   `pmcMemTime` datetime DEFAULT NULL,
-  `pmcCityID` bigint(20) DEFAULT NULL,
-  `pmcWordCount` int(11) DEFAULT NULL,
-  `pmcWordWeight` int(11) DEFAULT '1',
   PRIMARY KEY (`pmcID`),
   KEY `ndxPmcOwnerID` (`pmcMownerID`),
   KEY `ndxPmcMemObjID` (`pmcMemObjID`),
+  KEY `ndxPmcIsPrivate` (`pmcIsPrivate`),
   KEY `ndxPmcWord` (`pmcMemWord`),
   KEY `ndxPmcWordSeqID` (`pmcWordSequence`),
   KEY `ndxPmcMemObjType` (`pmcMemObjType`),
-  KEY `ndxPmcMemTime` (`pmcMemTime`),
-  KEY `ndxPmcCityID` (`pmcCityID`),
-  KEY `ndxPmcWordCount` (`pmcWordCount`),
-  KEY `ndxPmcWordWeight` (`pmcWordWeight`)
+  KEY `ndxPmcMemTime` (`pmcMemTime`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
@@ -185,4 +149,4 @@ UNLOCK TABLES;
 /*!40101 SET COLLATION_CONNECTION=@OLD_COLLATION_CONNECTION */;
 /*!40111 SET SQL_NOTES=@OLD_SQL_NOTES */;
 
--- Dump completed on 2024-05-08 11:51:12
+-- Dump completed on 2023-03-17 18:53:04
