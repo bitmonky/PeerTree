@@ -67,7 +67,7 @@ process.on('unhandledRejection', (reason, promise) => { // Updated
     }
 });
 
-var   defPulse = 1500;
+var   defPulse = 15*1000;
 const maxPacket = 300000000;
 
 process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = 0;
@@ -264,7 +264,9 @@ class MkyRouting {
            }
          }
        } 
-       console.error('MkyRouting.findWhoIsRoot():: RootMap::',this.rootMap);
+       if (this.rootMap.size === 0) {
+         console.error('MkyRouting.findWhoIsRoot():: RootMap::',this.rootMap);
+       }
        resolve(this.rootMap); 
      });
    }
@@ -290,7 +292,7 @@ class MkyRouting {
              resolve(null);
            }
            else {
-             console.error('MkyRouting.whoIsRoot():: this.rootFound',j.whoIsRootReply);
+             //console.error('MkyRouting.whoIsRoot():: this.rootFound',j.whoIsRootReply);
              resolve(j.whoIsRootReply);
            }
            this.net.removeListener('peerTReply', rtListen);
@@ -310,7 +312,7 @@ class MkyRouting {
        const req = {
          req  : 'whoIsRoot?'
        }
-       console.error('MkyRouting.whoIsRoot():: sending message to'+ip,req);
+       //console.error('MkyRouting.whoIsRoot():: sending message to'+ip,req);
        this.net.sendMsgCX(ip,req);
      });
    }
@@ -3060,7 +3062,6 @@ class PeerTreeNet extends  EventEmitter {
       hbeat.pings.forEach((ping)=>{
         if (ping.pRes != 'hello back'){
           if (ping.pType != 'lastToRoot'){
-            console.error('hbeat:::fail::', ping);
             nFails++;
             //console.error('PeerTreeNet.reviewMyStatus():: PingFails::counter:',nFails,hbeat.pings.length,hbeat);
           }
