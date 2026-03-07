@@ -67,8 +67,9 @@ process.on('unhandledRejection', (reason, promise) => { // Updated
     }
 });
 
-var   defPulse = 15*1000;
-const maxPacket = 300000000;
+var   defPulse     = 15*1000;
+const maxPacket    = 300000000;
+const maxNetErrors = 5;
 
 process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = 0;
 
@@ -224,7 +225,7 @@ class MkyRouting {
        const rmap = await this.findWhoIsRoot();
        if (rmap.size){
          const rInfo = this.getMaxRoot();
-         //console.error('MkyRouting.verifyRoot():: VERIFIED::ROOT',rInfo);  
+         console.error('MkyRouting.verifyRoot():: VERIFIED best root to follow is:',rInfo);  
          if (this.myIp === rInfo.jroot.rip){
            //console.error('MkyRouting.verifyRoot():: OK I am still Root:',this.myIp);
          }
@@ -267,6 +268,7 @@ class MkyRouting {
        if (this.rootMap.size === 0) {
          console.error('MkyRouting.findWhoIsRoot():: RootMap::',this.rootMap);
        }
+       console.log('MkyRouting.findWhoIsRoot():: RootMap::',this.rootMap);
        resolve(this.rootMap); 
      });
    }
@@ -282,10 +284,10 @@ class MkyRouting {
          this.net.removeListener('peerTReply', rtListen);
          this.net.removeListener('xhrFail', rtLFail);
          resolve(null);
-       },800);
+       },1000);
 
        this.net.on('peerTReply', rtListen = (j)=>{
-         if (j.whoIsRootReply){
+         if (j.whoIsRootReply && j.remIp == ip){
            clearTimeout(gtime);
            if (j.whoIsRootReply == 'notready'){
              console.error('MkyRouting.whoIsRoot():: Repy::status not ready: ',j.remIp);
@@ -776,16 +778,35 @@ class MkyRouting {
      });
    }
    getMaxRoot(){
-     var max = 0;
-     var maxKey = null;
-     this.rootMap.forEach((root,key)=>{
-       if (root.count > max){
-         max = root.count;
-         maxKey = key;
-       }
-     });
-     return this.rootMap.get(maxKey);
-   }
+    let bestIp = null;
+    let bestData = null;
+
+    for (const [ip, data] of this.rootMap.entries()) {
+      if (!bestData) {
+        bestIp = ip;
+        bestData = data;
+        continue;
+      }
+
+      // Compare by count first
+      if (data.count > bestData.count) {
+        bestIp = ip;
+        bestData = data;
+        continue;
+      }
+
+      // If counts tie, compare by lnode
+      if (data.count === bestData.count && data.lnode > bestData.lnode) {
+        bestIp = ip;
+        bestData = data;
+      }
+    }
+    if (!bestIp) {
+      return null;
+    }
+    return this.rootMap.get(bestIp);
+  } 
+
    // *************************************************
    // check to see if i am a root node in the network
    // =================================================
@@ -866,7 +887,7 @@ class MkyRouting {
            if (node.rtab != 'na'){
              if (Array.isArray(node.rtab.myNodes)) {
                for (var p of node.rtab.myNodes){
-                 console.error('MkyRouting.routePastNode():: Send BCAST past node ',ip);
+                 //console.error('MkyRouting.routePastNode():: Send BCAST past node ',p.ip);
                  this.net.sendMsgCX(p.ip,msg);
                }
              } 
@@ -971,7 +992,7 @@ class MkyRouting {
    lnodeReplaceRoot(ip,nbr){
      console.error('MkyRouting.lnodeRplaceRoot():: lnodeReplaceRoot: '+ip,nbr);
      return new Promise( async (resolve,reject)=>{
-       this.dropIps.push(ip);
+       this.dropIps.push(ip);  // ?? is this redundent?
 
        const rip            = this.myIp;
        const dropNbr        = this.r.lnode;
@@ -1645,12 +1666,13 @@ class MkyRouting {
        return true;
      }
      if (j.req == 'whoIsRoot?'){
-       if (this.status == 'online' || this.status == 'root'){
+       if ((this.status == 'online' || this.status == 'root') && !(this.err || this.r.lnStatus == 'moving')) {
          const qres = {
            whoIsRootReply : {
              rip      : this.r.rootNodeIp,
              maxPeers : this.net.maxPeers,
-             reportBy : this.myIp
+             reportBy : this.myIp,
+             rtab     : this.r
            }
          } 
          //console.error('MkyRouting.handleReq():: here is root\n',qres);
@@ -1914,8 +1936,8 @@ class MkyRouting {
      }
      if (!this.err){ //this.node.isError(j.toHost)){
        this.net.incErrorsCnt(j.toHost);
-       if (this.net.getNodesErrorCnt(j.toHost) > 5){
-         console.error('MkyRouting.handleError():: Err Count Exceeded max 4 errros',j.toHost);
+       if (this.net.getNodesErrorCnt(j.toHost) > maxNetErrors){
+         console.error('MkyRouting.handleError():: Err Count Exceeded max ${maxNetErrors} errros',j.toHost);
       
          const myStat = await this.net.checkInternet();
          console.error('MkyRouting.handleError():: MyStat',myStat);
@@ -2905,7 +2927,7 @@ class PeerTreeNet extends  EventEmitter {
    */
    async heartBeat(){
       //console.error('PeerTreeNet.heartBeat():: starting heartBeat:',this.rnet.status,this.rnet.err,this.rnet.r.lnStatus);
-      if(this.rnet.r.lnStatus == 'moving'){
+      if(this.rnet.r.lnStatus == 'moving' || this.rnet.err){
         console.error('PeerTreeNet.heartBeat():: lnStatusMoving::ping blocked');
         let to = setTimeout( ()=>{this.heartBeat();},this.pulseRate);
         return;
@@ -2933,7 +2955,7 @@ class PeerTreeNet extends  EventEmitter {
               if (j.remIp == this.rnet.r.myParent){
                 if (j.statAction == 'doRejoinNet'){
                   console.error('PeerTreeNet.heartBeat():: PINGRESULT:MyParent:',this.rnet.status,j.pingResult,j.statAction,j);
-                  this.setNodeBackToStartup('heartBeate Result');
+                  this.setNodeBackToStartup('heartBeat MyParent Result: not my child!');
                 }
               }
               this.updateChildRTab(j.remIp,j.rtab);
@@ -2971,6 +2993,7 @@ class PeerTreeNet extends  EventEmitter {
             
         // Last Node Ping Root Node.
         if (this.rnet.r.nodeNbr == this.rnet.r.lnode && this.rnet.r.nodeNbr != 1 && !this.hbeatIncludes(hrtbeat.pings,this.rnet.r.rootNodeIp)){
+          console.error('PeerTreeNet.heartBeat():: last node ping root:',this.rnet.status,`rnet.r.lnode is: ${this.rnet.r.lnode}`);
           hrtbeat.pings.push({pIP:this.rnet.r.rootNodeIp,pType: 'lastToRoot',pRes : null});
           this.sendMsgCX(this.rnet.r.rootNodeIp,{ping : "hello",myStatus: this.rnet.status});
         }
@@ -3061,15 +3084,15 @@ class PeerTreeNet extends  EventEmitter {
       var nFails = 0;
       hbeat.pings.forEach((ping)=>{
         if (ping.pRes != 'hello back'){
-          if (ping.pType != 'lastToRoot'){
+          //if (ping.pType != 'lastToRoot'){
             nFails++;
             //console.error('PeerTreeNet.reviewMyStatus():: PingFails::counter:',nFails,hbeat.pings.length,hbeat);
-          }
+          //}
         }
       });
       //console.error('PeerTreeNet.reviewMyStatus():: PingFails::',nFails);
       if (nFails == hbeat.pings.length){
-        //console.error('PeerTreeNet.reviewMyStatus():: heartBeat::reviewMyStatus: '+nFails,hbeat.pings.length);
+        console.error('PeerTreeNet.reviewMyStatus():: heartBeat::reviewMyStatus: '+nFails,hbeat.pings.length);
         hbeat.myStatus = 'imOffline';
         if (!(this.rnet.r.nodeNbr == 1 || this.rnet.r.nodeNbr == 2)) {
           this.setNodeBackToStartup('I Appear To be Offline');
@@ -3088,7 +3111,7 @@ class PeerTreeNet extends  EventEmitter {
     });
   }
   async setNodeBackToStartup(msg='noMsg'){
-    console.error('PeerTreeNet.setNodeBackToStartup():: Node Appears offline ' + msg,this.rnet.r);
+    console.error('PeerTreeNet.setNodeBackToStartup():: Node Appears offline msg is: ' + msg,this.rnet.r);
     this.rnet.status = 'offline';
     this.resetErrorsCntAll();
 
@@ -3154,6 +3177,44 @@ class PeerTreeNet extends  EventEmitter {
   async checkInternet() {
     const os = require('os');
     const { exec } = require('child_process');
+
+    if (this.rnet.simulation) {
+      console.error('PeerTreeNet.checkInternet():: outage simulation no internet access available!');
+      return false;
+    }
+
+    // Check for any non-internal IPv4 interface
+    const interfaces = os.networkInterfaces();
+    const hasInterface = Object.values(interfaces).some(ifaces =>
+      ifaces.some(d => d.family === 'IPv4' && !d.internal)
+    );
+
+    if (!hasInterface) {
+      console.error('PeerTreeNet.checkInternet():: hasInternet fail on interfaces');
+      return false;
+    }
+
+    // Cross-platform ping command
+    const pingCmd = process.platform === 'win32'
+      ? 'ping -n 1 8.8.8.8'
+      : 'ping -c 1 8.8.8.8';
+
+    return new Promise(resolve => {
+      exec(pingCmd, (error) => {
+        if (error) {
+          console.error('PeerTreeNet.checkInternet():: hasInternet fail on ping', error);
+          resolve(false);
+        } else {
+          resolve(true);
+        }
+      });
+    });
+  }
+/* 
+** OLD
+  async checkInternet() {
+    const os = require('os');
+    const { exec } = require('child_process');
     return new Promise((resolve, reject) => {
       if (this.rnet.simulation){
         console.error('PeerTreeNet.checkInternet():: outage simulation no internet access available!');
@@ -3190,6 +3251,7 @@ class PeerTreeNet extends  EventEmitter {
       });
     });
   }
+*/  
   /******************************************************
   Finds the index of a peers heartBeat reply using its remIp
   */
@@ -3492,7 +3554,7 @@ class PeerTreeNet extends  EventEmitter {
          node.errors++;
      });
   }
-  checkExpire(date, expTime = 50*1000) {
+  checkExpire(date, expTime = defPulse*maxNetErrors*1000) {
     const now = Date.now();
     console.error('PeerTreeNet.checkEpire():: maxT is: '+expTime+' diff is: '+(now - date));
     return now - date >= expTime;
