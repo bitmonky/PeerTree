@@ -427,20 +427,20 @@ class MkyRouting {
          process.exit();
        }
        const prevNextParent = this.r.nextParent;
-       const oldNextPNbr = this.r.nextPNbr;
-       const newNextPNbr = this.getMyParentNbr(this.r.lnode+1);
+       const oldNextPNbr    = this.r.nextPNbr;
+       const newNextPNbr    = this.getMyParentNbr(this.r.lnode+1);
        console.error('MkyRouting.addNewNodeReq():: NextPNbr::',oldNextPNbr,newNextPNbr);
 
        if ( this.r.myNodes.length < this.net.maxPeers){
          var node = {ip : ip,nbr : this.r.lnode+1, pgroup : [],rtab : 'na'}
          this.r.myNodes.push(node);
          this.incCounters();
-         this.r.lastNode = ip;
-         this.newNode = clone(this.r);
-         this.newNode.leftNode = oldLastNodeIp;
+         this.r.lastNode        = ip;
+         this.newNode           = clone(this.r);
+         this.newNode.leftNode  = oldLastNodeIp;
          this.newNode.rightNode = null;
-         this.newNode.myParent = this.myIp;
-         this.newNode.mylayer = this.getNthLayer(this.net.maxPeers,this.r.lnode);
+         this.newNode.myParent  = this.myIp;
+         this.newNode.mylayer   = this.getNthLayer(this.net.maxPeers,this.r.lnode);
          resolve(true);
          return;
        }   
@@ -491,11 +491,11 @@ class MkyRouting {
        if (this.r.lnode == 2){
          this.r.rightNode = ip;
        }
-       this.newNode = clone(this.r);
-       this.newNode.myParent = nextParent;
-       this.newNode.leftNode = oldLastNodeIp;
+       this.newNode           = clone(this.r);
+       this.newNode.myParent  = nextParent;
+       this.newNode.leftNode  = oldLastNodeIp;
        this.newNode.rightNode = null;
-       this.newNode.mylayer = this.getNthLayer(this.net.maxPeers,this.r.lnode);
+       this.newNode.mylayer   = this.getNthLayer(this.net.maxPeers,this.r.lnode);
        console.error('MkyRouting.addNewNodeReq():: NewNODE::lookslike:',this.newNode);
        resolve(true);
        return;
@@ -523,14 +523,15 @@ class MkyRouting {
        } 
      });
    }
-   getMyParentNbr(n){
-     let p=0;
-     for ( let i=1; i < n;i++){
-       if ((i-1) % this.net.maxPeers === 0)
-          p++;
+   getMyParentNbr(nodeNbr) {
+     if (nodeNbr === 1) return 1 //null; // root has no parent
+     return Math.floor((nodeNbr - 2) / this.net.maxPeers) + 1;
+   }
+   lastNode(maxP, L) {
+     if (this.net.maxPeers === 1) {
+       return L;
      }
-     if (p==0){return 1;}
-     return p;
+    return (Math.pow(this.net.maxPeers, L) - 1) / (this.net.maxPeers - 1);
    }
    findWhoHasChild(ip){
      return new Promise((resolve,reject)=>{
@@ -590,6 +591,15 @@ class MkyRouting {
        var req = {req : 'nextParentAddChildIp',ip:ip,nbr:nbr,reqId:reqId};
        this.net.sendMsgCX(nextParent,req);
      });
+   }
+   getMyLayer(maxPeers, nodeNbr) {
+     let layer = 1;
+     let cumulative = 1; // end of layer 1
+     while (nodeNbr > cumulative) {
+       layer++;
+       cumulative += Math.pow(maxPeers, layer - 1);
+     }
+     return layer;
    }
    getMyLayer(maxPeers,nodeNbr){
      let start = 1;
@@ -655,19 +665,6 @@ class MkyRouting {
    
    getNthLayer(maxPeers,n){
      return this.getMyLayer(maxPeers,n);
-     if (n <= 1){
-       return 1;
-     }
-     var pmax   = 1;
-     var max    = 1;
-     var layer  = 1;
-
-     while (max <= n){
-       max = pmax + Math.pow(maxPeers,layer -1);
-       pmax = max;
-       layer++;
-     }
-     return layer -1;
    }
    // **********************************************************
    // Increment node and layer counters when adding peer nodes
@@ -695,7 +692,7 @@ class MkyRouting {
        var   jroot = null;
        var   rInfo = null;
        if (!rtab) 
-         console.error('MkyRouting.init():: NETWORK starting... I am new!', this.net.PTnodes);
+         console.error('MkyRouting.init():: NETWORK starting... I am a Genisis node!', this.net.PTnodes);
        else 
          if (Array.isArray(rtab))
            if (rtab.length > 0)
@@ -864,7 +861,7 @@ class MkyRouting {
    // ==========================================================
    bcast(msg){
      msg.ptreeId = this.r.ptreeId;
-     console.error(`MkyRouting.bcast():: this.r`,msg);
+     //console.error(`MkyRouting.bcast():: this.r`,msg);
      const bc = {
        req     : 'bcast',
        msg     : msg,
@@ -1514,23 +1511,12 @@ class MkyRouting {
        if (this.startJoin != remIp){
          this.joinQue.push({jIp:remIp,j:j,status:"waiting"});
          this.net.endResCX(remIp,`{"addResult":"reJoinQued","reqId":"${reqId}"}`);
-         return;
        }
+       return;
      }
 
-     // Set A timeout for the join operation.
-
-     const joinTime = setTimeout( async ()=>{
-       console.error('MkyRouting.handleJoins():: join timeout',remIp);
-       this.net.endResCX(remIp,`{"addResult":"timedOut","reqId:"${reqId}"}`);
-       rollbck = await this.restoreState(saveState,reqId);
-       this.startJoin = false;
-       joinFailed     = true;
-       if (!rollbck) {this.net.setNodeBackToStartup('Join Rollbck Failed:timeout');}
-     },8000);
-
      this.startJoin = remIp;
-     const addRes = await this.addNewNodeReq(j.remIp);
+     const addRes   = await this.addNewNodeReq(j.remIp);
 
      if (addRes){
        this.net.pulseRate = defPulse; 
@@ -1561,7 +1547,6 @@ class MkyRouting {
          }
        }
        this.startJoin = false;
-       clearTimeout(joinTime);
      }
      else {
        console.error('MkyRouting.handleJoins():: Node Not Added');
@@ -2092,7 +2077,7 @@ class MkyRouting {
          console.error('MkyRouting.handleError():: MyStat',myStat);
          if (!myStat){
            console.error('MkyRouting.handleError():: Its Me... Going to restart mode');
-           this.net.setNodeBackToStartup('Its Me Errror');
+           this.net.setNodeBackToStartup('Its Me Error');
            return;
          }
          // Only Parent Nodes Can Drop A Node.
@@ -2474,6 +2459,9 @@ class PeerTreeNet extends  EventEmitter {
       this.borgIOSkey='default';
       this.nodeType  = 'router';
       this.pulseRate = defPulse;	   
+      this.minPulse  = 350;    // fastest allowed heartbeat (ms)
+      this.maxPulse  = 5000;   // slowest allowed heartbeat (ms)
+
       this.maxPeers = maxPeers;
       this.rootIp   = null;
       this.isRoot   = false;
@@ -3118,13 +3106,14 @@ class PeerTreeNet extends  EventEmitter {
             }
           }
         });
-         
+        const REVIEW_OFFSET = Math.floor(this.pulseRate * 0.85);
+ 
         const hTimer = setTimeout(async ()=>{
           this.removeListener('peerTReply', rListener);
           this.removeListener('xhrFail', hListener);
           hrtbeat.myStatus = await this.reviewMyStatus(hrtbeat);
 	  //console.error('PeerTreeNet.heartBeat():: Done:',hrtbeat);
-        },this.pulseRate - 900);
+        },REVIEW_OFFSET); // set the timer for reviewMyStatus() to slightly less then the pulse rate.
 
 	// Ping Parent Node
         if (this.rnet.r.myParent){
@@ -3273,6 +3262,7 @@ class PeerTreeNet extends  EventEmitter {
     this.rootMap         = new Map();
 
     this.rnet.r = {
+      ptreeId    : crypto.randomUUID(),
       rootNodeIp : this.rnet.myIp,   // Top of the network.
       rootRTab   : 'na',
       myNodes    : [],   // forwarding ips for each nodes peers group.
@@ -3803,6 +3793,65 @@ class PeerTreeNet extends  EventEmitter {
          return;
      });
   } 
+  analyseTrafficRate(){
+    // track network traffic flow rate so that heartBeats pulse rate can be increased 
+    // when traffic is low and decreased as load increases.
+    // heartBeat rate is controled by this.pulseRate  which is initialy = global defPulse; 
+    const now = Date.now();
+
+    // --- 1. Track message timestamps ---
+    if (!this._trafficHistory) {
+        this._trafficHistory = [];
+        this._lastPulseAdjust = now;
+        this._currentRate = defPulse;   // starting pulse
+    }
+
+    // push timestamp
+    this._trafficHistory.push(now);
+
+    // keep only last N seconds of history
+    const WINDOW = 5000; // 5 seconds
+    this._trafficHistory = this._trafficHistory.filter(t => now - t <= WINDOW);
+
+    // --- 2. Compute traffic rate (messages/sec) ---
+    const rate = this._trafficHistory.length / (WINDOW / 1000);
+
+    // --- 3. Adaptive thresholds ---
+    const IDLE_THRESHOLD  = 1.0;  // <1 msg/sec → idle
+    const BUSY_THRESHOLD  = 10.0; // >10 msg/sec → busy
+
+    // --- 4. Hysteresis: adjust at most every 2 seconds ---
+    if (now - this._lastPulseAdjust < 2000) return;
+
+    let newPulse = this.pulseRate;
+
+    if (rate < IDLE_THRESHOLD) {
+        // Idle → speed up heartbeat
+        newPulse = Math.max(this.minPulse, this.pulseRate - 50);
+    } 
+    else if (rate > BUSY_THRESHOLD) {
+        // Busy → slow down heartbeat
+        newPulse = Math.min(this.maxPulse, this.pulseRate + 100);
+    } 
+    else {
+        // Normal → drift toward default
+        if (this.pulseRate < defPulse)
+            newPulse += 20;
+        else if (this.pulseRate > defPulse)
+            newPulse -= 20;
+    }
+
+    // clamp
+    newPulse = Math.max(this.minPulse, Math.min(this.maxPulse, newPulse));
+
+    // apply if changed
+    if (newPulse !== this.pulseRate) {
+        this.pulseRate = newPulse;
+        this._lastPulseAdjust = now;
+        // console.log(`Adaptive Pulse: ${rate.toFixed(2)} msg/s → pulseRate=${newPulse}`);
+    }
+    
+  }
   initHandlers(){ 
      this.setErrorHandlers();
 
@@ -3814,6 +3863,7 @@ class PeerTreeNet extends  EventEmitter {
          console.error('PeerTreeNet.initHandlers():: netREPLY... invalid signature message refused',j);
          return;
        }
+       this.analyseTrafficRate();
        if (this.rnet.handleReply(j))
          return;
        if (j.nodeReply){
@@ -3830,6 +3880,7 @@ class PeerTreeNet extends  EventEmitter {
          this.endResCX(remIp,'{"response":"' + error +'"}');
          return;
        }
+       this.analyseTrafficRate();
        // Add node the contacts List 
        this.pushToContacts(j);
 
