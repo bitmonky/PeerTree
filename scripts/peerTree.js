@@ -132,10 +132,13 @@ class MkyRouting {
      this.dropIps    = [];
      this.rootMap    = new Map();
      this.waitForNetTimer = null;
-     this.joinReqFails  = 0;
-     this.coldStart      = true;
+     this.joinReqFails    = 0;
+     this.coldStart       = true;
+     this.lastRootGenerationSeen = 0;
+     this.rootGeneration  = 1;
 
      this.r = {
+       sysTime    : Date.now(),
        ptreeId    : crypto.randomUUID(), // unique identifier of best branch of the network (new nodes need to join the largest healthy branch).
        rootNodeIp : myIp,                // Top of the network routing table plus each nodes peer group.
        rootRTab   : 'na',
@@ -152,8 +155,11 @@ class MkyRouting {
        lnStatus   : 'OK', // used for routing updates. 'OK' or 'moving'
        nextPNbr   : 1
      }
-     setTimeout(() => {this.verifyRoot();},60*1000);
-     setTimeout(() => {this.scanNodesRight();},65*1000);
+     setTimeout(() =>  {this.verifyRoot();},60*1000);
+     setTimeout(() =>  {this.scanNodesRight();},65*1000);
+     
+     this.timeSyncTimer = this.scheduleInterval(() => this.timeSyncPulse(), 90 * 1000);
+     this.scheduleInterval(() => this.timeSyncPulse(), 90 * 1000);
    }
    simulateOutage(mode){
      if (mode == 'startSim'){
@@ -164,6 +170,105 @@ class MkyRouting {
        this.simulation = false;
        console.error('MkyRouting. simulateOutage():: simulated outage stopping!');
      }
+   }
+   scheduleInterval(fn, ms) {
+     const delay = ms * (this.clockSlowFactor || 1);
+     return setInterval(fn, delay);
+   }
+
+   restartTimeSyncTimer() {
+     clearInterval(this.timeSyncTimer);
+     this.timeSyncTimer = this.scheduleInterval(() => this.timeSyncPulse(), 90 * 1000);
+   }
+
+   timeSyncPulse() {
+     if (this.status === 'root') {
+       // Root broadcasts authoritative time
+       this.r.sysTime = Date.now();
+       this.bcast({checkSystemClock : {rootTime: this.r.sysTime,rootGeneration: this.rootGeneration}});
+       return;
+     }
+
+     // Non-root: only sync if we have real data
+     this.r.sysTime = Date.now();
+     if (!this.lastRootTime) {
+       return; // No root broadcast received yet
+     }
+
+     // Non-root: apply correction using last known root time
+     if (this.lastRootTime) {
+       this.r.sysTime = this.lastRootTime;
+       this.applyClockDiscipline(this.lastRootTime, this.lastRootGenerationSeen);
+     }
+   }
+   async applyClockDiscipline(rootTime, rootGeneration) {
+     try {
+       const localTime = Date.now();
+       const drift = rootTime - localTime;
+
+       // Track root generation changes
+       if (rootGeneration > (this.lastRootGenerationSeen || 0)) {
+         this.lastRootGenerationSeen = rootGeneration;
+         console.error(`New root generation detected: ${rootGeneration}`);
+       }
+
+       // Ignore tiny drift
+       if (Math.abs(drift) < 20) return;
+
+       console.error(`Clock drift detected: ${drift} ms`);
+
+       // Never move clock backwards
+       if (drift < 0) {
+          console.error("Local clock ahead of root. Slowing clock slightly.");
+          this.slowClockSlightly();
+          return;
+       }
+
+       // Small drift: slew
+       if (drift < 500) {
+         console.error("Applying small slew correction.");
+         await this.runClockCommand("chronyc makestep");
+         return;
+       }
+
+       // Medium drift: step forward
+       if (drift < 2000) {
+         console.error("Applying moderate forward correction.");
+         await this.runClockCommand(`date -s "@${Math.floor(rootTime/1000)}"`);
+         return;
+       }
+
+       // Large drift: emergency correction
+       let newT = Math.floor(rootTime/1000);
+       console.error(`EMERGENCY: Large drift detected. Forcing clock forward to: ${new Date(newT * 1000)}`);
+       await this.runClockCommand(`date -s "@${newT}"`);
+
+     } catch (err) {
+       console.error("Clock discipline error:", err);
+     }
+   }
+
+   // Execute a system command
+   runClockCommand(cmd) {
+     return new Promise((resolve, reject) => {
+       //console.error(`Clock Change Simulated... ${cmd}`);
+       //resolve(`simulated update:${cmd}`);
+       //return;
+       require("child_process").exec(cmd, (error, stdout, stderr) => {
+         if (error) {
+           console.error(`Clock command failed: ${cmd}`, stderr);
+           return reject(error);
+         }
+         console.error(`Clock command executed: ${cmd}`);
+         resolve(stdout);
+       });
+     });
+   }
+
+   // Slow the internal timing slightly (no backward jump)
+   slowClockSlightly() {
+     this.clockSlowFactor = 1.01; // or whatever factor you choose
+     this.restartTimeSyncTimer();
    }
    async scanNodesRight(){
      //console.error('MkyRouting.scanNodesRight()::START node scan',this.myIp,this.r.rootNodeIp);
@@ -1969,6 +2074,11 @@ class MkyRouting {
      }
      if (j.msg.whoHasNodeIp){
        this.responseWhoHasNodeIp(j.remIp,j.msg.whoHasNodeIp);	     
+       return true;
+     }
+     if (j.msg.checkSystemClock){
+       this.lastRootTime = j.msg.checkSystemClock.rootTime;
+       this.lastRootGenerationSeen = j.msg.checkSystemClock.rootGeneration;
        return true;
      }
      if (j.msg.simReplaceNode){
