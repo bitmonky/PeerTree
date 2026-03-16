@@ -2091,6 +2091,7 @@ class MkyRouting {
          }
 
          this.err = true; 
+         const oldLastNodeIP = this.r.lastNode;
          console.error('MkyRouting.handleError():: setting this.err to: ',this.err);
          this.dropIps.push(j.toHost);
          var notifyRRes = null;
@@ -2115,12 +2116,13 @@ class MkyRouting {
            return;
          }
          console.error('MkyRouting.handleError():: Root Response was:',notifyRRes);
+
          // Set Timeout for drop operation.
-         this.eTime = setTimeout( ()=>{
-           console.error('MkyRouting.handleError():: Drop Time Out',this.net.formatMsg(j));
-           this.notifyRootDropComplete();
-           this.err = false; //this.node.clearError(j.toHost);
-         },6500);
+         //this.eTime = setTimeout( ()=>{
+         //  console.error('MkyRouting.handleError():: Drop Time Out',this.net.formatMsg(j));
+         //  this.notifyRootDropComplete();
+         //  this.err = false; //this.node.clearError(j.toHost);
+         //},6500);
 
          // Get nodeNbr of the node to drop.
          const nbr = this.inMyNodesList(j.toHost); 
@@ -2132,10 +2134,14 @@ class MkyRouting {
 
            // If nIp is null move opperation is completed.
            if(!nIp){
+             if (this.r.nextParent == j.toHost){
+               this.r.nextParent = oldLastNodeIP;
+               console.error(`MkyRouting.handleError():: nextParent changed from removed ${j.toHost} to: ${oldLastNodeIP}`);
+             }
              this.err = false; //this.node.clearError(j.toHost);
              this.notifyRootDropComplete();
              console.error(`MkyRouting.handleError():: node removed ${nIp} setting this.err to: ${this.err}`);
-             clearTimeout(this.eTime);
+             //clearTimeout(this.eTime);
            }
          }
        }
@@ -3081,6 +3087,10 @@ class PeerTreeNet extends  EventEmitter {
             const peer = this.heartbIndexOf(hrtbeat.pings,j.remIp);
             if (peer !== null){
               hrtbeat.pings[peer].pRes = 'dead';
+              if (j.xhrError == 523){
+                console.error(`PeerTreeNet.heartBeat():: peerTreeId conflict... fatal error shutting down`,j);
+                this.setNodeBackToStartup('Ping detected peerTreeId conflict');
+              }
             }  
           }        
         });
@@ -3155,6 +3165,7 @@ class PeerTreeNet extends  EventEmitter {
           }
           else {
 	    hrtbeat.myStatus = 'Alone';
+            this.r.status == 'root'
             console.error('PeerTreeNet.heartBeat():: lowering pulse rate to 15000!');
             this.pulseRate = 15000;
           }
