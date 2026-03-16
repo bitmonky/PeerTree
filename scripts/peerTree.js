@@ -3165,7 +3165,7 @@ class PeerTreeNet extends  EventEmitter {
           }
           else {
 	    hrtbeat.myStatus = 'Alone';
-            this.r.status == 'root'
+            this.rnet.r.status = 'root'
             console.error('PeerTreeNet.heartBeat():: lowering pulse rate to 15000!');
             this.pulseRate = 15000;
           }
