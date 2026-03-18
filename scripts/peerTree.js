@@ -15,6 +15,56 @@ console.log('running::',process.title);
 // Create a writable stream to your desired file
 const errorLog = fs.createWriteStream(process.title+'NodeErrors.log', { flags: 'a' });
 
+/*
+********************
+Override Date clase so that all nodes use one unifide time dictated By the root node.
+Capture the real Date constructor and real Date.now
+********************
+*/
+
+const RealDate = Date;
+const realNow = RealDate.now;
+
+let peerTCorrection = 0;
+
+// Override the Date constructor
+function CorrectedDate(...args) {
+  if (args.length === 0) {
+    return new RealDate(realNow() + peerTCorrection);
+  }
+  return new RealDate(...args);
+}
+
+// Copy static methods
+CorrectedDate.now = () => realNow() + peerTCorrection;
+CorrectedDate.UTC = RealDate.UTC;
+CorrectedDate.parse = RealDate.parse;
+
+// Preserve prototype so instanceof still works
+CorrectedDate.prototype = RealDate.prototype;
+
+// Install the override
+Date = CorrectedDate;console.log('running::',process.title);
+
+function parseChronyOffset(output) {
+  // Find the line containing "Last offset"
+  const match = output.match(/Last offset\s*:\s*([+-]?\d+\.?\d*)\s*seconds/i);
+  if (!match) {
+    throw new Error("Could not parse chronyc tracking output");
+  }
+
+  const seconds = parseFloat(match[1]);
+  const milliseconds = Math.round(seconds * 1000);
+
+  return milliseconds;
+}
+
+
+/*
+ ::End Time Overide code 
+*/
+
+
 // Override console.error
 console.error = function (...args) {
   const message = args.map(a => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
@@ -157,91 +207,165 @@ class MkyRouting {
      }
      setTimeout(() =>  {this.verifyRoot();},60*1000);
      setTimeout(() =>  {this.scanNodesRight();},65*1000);
-     
-     this.timeSyncTimer = this.scheduleInterval(() => this.timeSyncPulse(), 90 * 1000);
-     this.scheduleInterval(() => this.timeSyncPulse(), 90 * 1000);
+
+     this.clockPulseDef = 90 * 1000;  
+     this.clockPulse = this.clockPulseDef;
+     if (process.title == 'cronoTreeCell'){
+       console.error(`clock starting timeSynPulse();`);
+       setTimeout(() => this.timeSyncPulse(), this.clockPulse);
+     }
+     else { // Use time info from the cronoTreeCell network
+       this.applyCronoTreeTime();
+     }
    }
    simulateOutage(mode){
      if (mode == 'startSim'){
        this.simulation = true;
-       console.error('MkyRouting. simulateOutage():: simulated outage started!');
+       console.error('MkyRouting.simulateOutage():: simulated outage started!');
      }
      else {
        this.simulation = false;
-       console.error('MkyRouting. simulateOutage():: simulated outage stopping!');
+       console.error('MkyRouting.simulateOutage():: simulated outage stopping!');
      }
    }
-   scheduleInterval(fn, ms) {
-     const delay = ms * (this.clockSlowFactor || 1);
-     return setInterval(fn, delay);
+   getCronoTreeTime(){
+     // Only used by cronoTreeCell cells.
+     return {cronoTreeSystemClock : {rootTime: this.r.sysTime,rootGeneration: this.rootGeneration}}
    }
-
-   restartTimeSyncTimer() {
-     clearInterval(this.timeSyncTimer);
-     this.timeSyncTimer = this.scheduleInterval(() => this.timeSyncPulse(), 90 * 1000);
-   }
-
    timeSyncPulse() {
+     this.r.sysTime = realNow(); // set webMonitor display value to show real system time;
+
      if (this.status === 'root') {
        // Root broadcasts authoritative time
-       this.r.sysTime = Date.now();
        this.bcast({checkSystemClock : {rootTime: this.r.sysTime,rootGeneration: this.rootGeneration}});
-       return;
      }
+     else if (this.status === 'online') {
+       // Non-root: only sync if we have real data
+       if (this.lastRootTime) {
+         // Non-root: apply correction using last known root time
+         this.r.sysTime = this.lastRootTime;
+         this.applyClockDiscipline(this.lastRootTime, this.lastRootGenerationSeen);
+       }
+     }  
+     setTimeout(() => this.timeSyncPulse(), this.clockPulse);
+   }
+   async applyCronoTreeTime(){
+     // Only executed by none cronoTree cells
+     try {
+       j = await this.requestCronoTime();
+       const localTime = realNow();
+       const drift = j.cronoTreeSystemClock.rootTime - localTime;
+       peerTCorrection = drift;
+     }
+     catch(err) {console.error(`MkyRouting.applyCronoTreeTime rejected: ${err.message}`}
 
-     // Non-root: only sync if we have real data
-     this.r.sysTime = Date.now();
-     if (!this.lastRootTime) {
-       return; // No root broadcast received yet
-     }
+     setTimeout(() => this.applyCronoTreeTime(), this.clockPulse);
+   }
+   async requestCronoTime() {
+     const msg = { req: 'sendCronoTime' };
+     const body = JSON.stringify(msg);
 
-     // Non-root: apply correction using last known root time
-     if (this.lastRootTime) {
-       this.r.sysTime = this.lastRootTime;
-       this.applyClockDiscipline(this.lastRootTime, this.lastRootGenerationSeen);
-     }
+     const options = {
+       hostname: 'localhost',
+       port: 13397,
+       path: '/netReq',
+       method: 'POST',
+       rejectUnauthorized: false,   // allow self‑signed cert
+       headers: {
+         'Content-Type': 'application/json',
+         'Content-Length': Buffer.byteLength(body)
+       },
+       timeout: 1500   // 1.5s timeout — adjust as needed
+     };
+
+     return new Promise((resolve, reject) => {
+       const req = https.request(options, (res) => {
+         let data = '';
+
+         res.on('data', chunk => data += chunk);
+         res.on('end', () => {
+           try {
+             resolve(JSON.parse(data));
+           } catch (err) {
+             reject(new Error(`Invalid JSON response: ${data}`));
+           }
+         });
+       });
+
+       req.on('timeout', () => {
+         req.destroy();
+         reject(new Error('Request timed out'));
+       });
+
+       req.on('error', reject);
+
+       req.write(body);
+       req.end();
+     });
    }
    async applyClockDiscipline(rootTime, rootGeneration) {
+     // To be executed by cronoTree cells only
      try {
-       const localTime = Date.now();
+       const localTime = realNow();
        const drift = rootTime - localTime;
+       peerTCorrection = drift;
 
        // Track root generation changes
        if (rootGeneration > (this.lastRootGenerationSeen || 0)) {
          this.lastRootGenerationSeen = rootGeneration;
-         console.error(`New root generation detected: ${rootGeneration}`);
+         console.error(`mkyRouting.applyClockDiscipline():: New root generation detected: ${rootGeneration}`);
        }
 
        // Ignore tiny drift
        if (Math.abs(drift) < 20) return;
 
-       console.error(`Clock drift detected: ${drift} ms`);
+       console.error(`mkyRouting.applyClockDiscipline():: Clock drift detected: ${drift} ms`);
 
        // Never move clock backwards
        if (drift < 0) {
-          console.error("Local clock ahead of root. Slowing clock slightly.");
-          this.slowClockSlightly();
+          console.error("mkyRouting.applyClockDiscipline():: Local clock ahead of root. NO System Update!.");
+          //this.slowClockSlightly();
           return;
        }
 
        // Small drift: slew
        if (drift < 500) {
-         console.error("Applying small slew correction.");
          await this.runClockCommand("chronyc makestep");
+         let step = await this.runClockCommand("chronyc tracking");
+         peerTCorrection = peerTCorrection - parseChronyOffset(step);        
+         console.error(`mkyRouting.applyClockDiscipline():: Applying small slew correction. step: ${step} pTCorrection is now: ${peerTCorrection}`);
          return;
        }
 
        // Medium drift: step forward
        if (drift < 2000) {
-         console.error("Applying moderate forward correction.");
-         await this.runClockCommand(`date -s "@${Math.floor(rootTime/1000)}"`);
-         return;
+         console.error("Applying moderate clock forward correction.");
+
+         const before = realNow();
+         const targetSec = Math.floor(rootTime / 1000);
+
+         await this.runClockCommand(`date -s "@${targetSec}"`);
+
+         const after = targetSec * 1000;
+         const delta = after - before;
+
+         peerTCorrection = peerTCorrection - delta;
+         console.error(`mkyRouting.applyClockDiscipline():: Applying moderate correction. targetSec: ${targetSec} pTCorrection is now: ${peerTCorrection}`);
        }
 
        // Large drift: emergency correction
-       let newT = Math.floor(rootTime/1000);
-       console.error(`EMERGENCY: Large drift detected. Forcing clock forward to: ${new Date(newT * 1000)}`);
-       await this.runClockCommand(`date -s "@${newT}"`);
+       const before = realNow();
+       const targetSec = Math.floor(rootTime / 1000);
+
+       console.error(`EMERGENCY: Large drift detected. Forcing clock forward to: ${new Date(targetSec * 1000)}`);
+
+       await this.runClockCommand(`date -s "@${targetSec}"`);
+
+       const after = targetSec * 1000;
+       const delta = after - before;
+
+       peerTCorrection = peerTCorrection - delta;
+       console.error(`mkyRouting.applyClockDiscipline():: Applying moderate correction. targetSec: ${targetSec} pTCorrection is now: ${peerTCorrection}`);
 
      } catch (err) {
        console.error("Clock discipline error:", err);
@@ -251,25 +375,20 @@ class MkyRouting {
    // Execute a system command
    runClockCommand(cmd) {
      return new Promise((resolve, reject) => {
-       //console.error(`Clock Change Simulated... ${cmd}`);
+       //console.error(`mkyRouting.runClockCommand():: Clock Change Simulated... ${cmd}`);
        //resolve(`simulated update:${cmd}`);
        //return;
        require("child_process").exec(cmd, (error, stdout, stderr) => {
          if (error) {
-           console.error(`Clock command failed: ${cmd}`, stderr);
+           console.error(`mkyRouting.runClockCommand():: Clock command failed: ${cmd}`, stderr);
            return reject(error);
          }
-         console.error(`Clock command executed: ${cmd}`);
+         console.error(`mkyRouting.runClockCommand():: Clock command executed: ${cmd}`);
          resolve(stdout);
        });
      });
    }
 
-   // Slow the internal timing slightly (no backward jump)
-   slowClockSlightly() {
-     this.clockSlowFactor = 1.01; // or whatever factor you choose
-     this.restartTimeSyncTimer();
-   }
    async scanNodesRight(){
      //console.error('MkyRouting.scanNodesRight()::START node scan',this.myIp,this.r.rootNodeIp);
      if (this.myIp == this.r.rootNodeIp){
