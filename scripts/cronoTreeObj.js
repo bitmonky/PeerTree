@@ -6,22 +6,30 @@ class CronoTreeReceptor extends PtreeReceptor {
     super(peerTree, port);
   }
 
-  handleReq(msg, res) {
-    switch (msg.req) {
+  handleReq(j, res) {
+    switch (j.msg.req) {
       case 'sendCronoTime':
-        return this.handleTimeReq(msg, res);
+        return this.handleTimeReq(j.msg, res);
 
       case 'echo':
-        return this.handleEcho(msg, res);
+        return this.handleEcho(j.msg, res);
 
       default:
         res.writeHead(404);
-        res.end(JSON.stringify({ error: `Unknown request: ${msg.req}` }));
+        res.end(JSON.stringify({ error: `Unknown request: ${j}` }));
     }
   }
 
   handleTimeReq(msg, res) {
-    const reply = this.net.getCronoTreeTime();
+    console.error('CronoTreeReceptor.handleTimeReq():: got msg',msg);
+    let reply = {cronoTreeSystemClock : {rootTime: 'unavailable', status : 'preTry'}};
+    try {
+      reply = this.peer.net.rnet.getCronoTreeTime();
+      console.log(reply);
+    }
+    catch(err){
+      console.log('CronoTreeReceptor.handleTimeReq():: this.peer is: ',err,this);
+    }
     res.writeHead(200);
     res.end(JSON.stringify(reply));
   }
@@ -107,7 +115,7 @@ class CronoTreeObj {
   handleReply(r){
     if (r.req == 'doSomthingExample'){
       //do somestuff an pass result back to receptor
-      this.receptor.brain.processRemGroup.Chat(r);
+      //this.receptor.processResponse(r);
       return;
     } 
   }
@@ -123,9 +131,6 @@ class CronoTreeObj {
         this.receptor.someBCastREsult(j.remIp,qres);        
       }
       if (j.msg.req){
-        if (j.msg.req == 'shareDocHistory'){
-          this.receptor.brain.processSharedDocHistory(j.msg);
-        }
         // Sample goPOW (proof work random node selection.
         if (j.msg.req == 'sendNodeList'){
           console.log('DOPOW xxxx',j.remIp);
@@ -144,13 +149,7 @@ class CronoTreeObj {
       to : 'cronoAgents',
       token : 'hello'
     }
-    //console.log('bcast greeting to agentCell group: ',breq);
-    if (this.receptor){
-      if (this.receptor.brain){
-        this.receptor.brain.BORGO = [];
-      } else {console.log('receptor.brain Not Ready!',this.receptor);} 
-   
-    } else {console.log('Receptor Not Ready!',this.receptor);}
+
     this.net.broadcast(breq);
     const gtime = setTimeout( ()=>{
       this.sayHelloPeerGroup();

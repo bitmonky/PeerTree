@@ -22,14 +22,14 @@ class PtreeReceptorObj {
     // Allowlist enforcement
     this.server.on('connection', sock => {
       if (this.secureRecptor && !this.allow.includes(sock.remoteAddress)) {
-        console.log(`Rejected connection from ${sock.remoteAddress}`);
+        console.error(`Rejected connection from ${sock.remoteAddress}`);
         sock.destroy();
       }
     });
 
     this.server.listen(this.port, () => {
-      console.log(`PtreeReceptor running on port ${this.port}`);
-      console.log(`Allowlist:`, this.allow);
+      console.error(`PtreeReceptor running on port ${this.port}`);
+      console.error(`Allowlist:`, this.allow);
     });
   }
 
@@ -43,21 +43,21 @@ class PtreeReceptorObj {
       this.allow          = j.receptor.allow;
     } catch (err) {
       this.secureReceptor == false;
-      console.log('WARNING - Receptor Security Mode is OFF receptor is public::: !', err.message);
+      console.error('WARNING - Receptor Security Mode is OFF receptor is public::: !', err.message);
     }
   }
 
   _handleIncoming(req, res) {
     if (req.method !== 'POST') {
       res.writeHead(405);
-      return res.end('POST only');
+      return res.end('POST only\n');
     }
 
     let body = '';
     req.on('data', chunk => {
       body += chunk;
       if (body.length > 300_000_000) {
-        console.log('Max POST size exceeded');
+        console.error('Max POST size exceeded');
         req.destroy();
       }
     });
@@ -66,6 +66,7 @@ class PtreeReceptorObj {
       let json;
       try {
         json = JSON.parse(body);
+        console.log(`got request: `,json);
       } catch {
         res.writeHead(400);
         return res.end('Invalid JSON');

@@ -230,7 +230,12 @@ class MkyRouting {
    }
    getCronoTreeTime(){
      // Only used by cronoTreeCell cells.
-     return {cronoTreeSystemClock : {rootTime: this.r.sysTime,rootGeneration: this.rootGeneration}}
+     if ((this.status == 'root' || 'this.status == online') && !this.err){
+       return {cronoTreeSystemClock : {rootTime: this.r.sysTime,rootGeneration: this.rootGeneration}}
+     }
+     else {
+       return {cronoTreeSystemClock : {rootTime: 'unavailable',nodeStatus : this.status, err : this.err}}
+     }
    }
    timeSyncPulse() {
      this.r.sysTime = realNow(); // set webMonitor display value to show real system time;
@@ -252,18 +257,22 @@ class MkyRouting {
    async applyCronoTreeTime(){
      // Only executed by none cronoTree cells
      try {
-       j = await this.requestCronoTime();
-       const localTime = realNow();
-       const drift = j.cronoTreeSystemClock.rootTime - localTime;
-       peerTCorrection = drift;
+       let j = await this.requestCronoTime();
+       console.error(`MkyRouting.applyCronoTreeTime():: j is: `,j) ;
+       if (j.cronoTreeSystemClock.rootTime !== 'unavailable') {
+         const localTime = realNow();
+         const drift = j.cronoTreeSystemClock.rootTime - localTime;
+         peerTCorrection = drift;
+       }
      }
-     catch(err) {console.error(`MkyRouting.applyCronoTreeTime rejected: ${err.message}`}
+     catch(err) {console.error(`MkyRouting.applyCronoTreeTime():: rejected: ${err.message}`);}
 
      setTimeout(() => this.applyCronoTreeTime(), this.clockPulse);
    }
    async requestCronoTime() {
-     const msg = { req: 'sendCronoTime' };
+     const msg = {msg:{req:'sendCronoTime'}};
      const body = JSON.stringify(msg);
+     console.error(`MkyRouting.requestCronoTime():: body is: `,body);
 
      const options = {
        hostname: 'localhost',
@@ -272,10 +281,11 @@ class MkyRouting {
        method: 'POST',
        rejectUnauthorized: false,   // allow self‑signed cert
        headers: {
+         'Connection': 'close',
          'Content-Type': 'application/json',
-         'Content-Length': Buffer.byteLength(body)
+         'Content-Length': Buffer.byteLength(body, 'utf8')
        },
-       timeout: 1500   // 1.5s timeout — adjust as needed
+       timeout: 3500   // 1.5s timeout — adjust as needed
      };
 
      return new Promise((resolve, reject) => {
@@ -3468,7 +3478,7 @@ class PeerTreeNet extends  EventEmitter {
       });
       //console.error('PeerTreeNet.reviewMyStatus():: PingFails::',nFails);
       if (nFails == hbeat.pings.length){
-        console.error('PeerTreeNet.reviewMyStatus():: heartBeat::reviewMyStatus: '+nFails,hbeat.pings.length);
+        //console.error('PeerTreeNet.reviewMyStatus():: heartBeat::reviewMyStatus: '+nFails,hbeat.pings.length);
         hbeat.myStatus = 'imOffline';
         if (!(this.rnet.r.nodeNbr == 1 || this.rnet.r.nodeNbr == 2)) {
           this.setNodeBackToStartup('I Appear To be Offline');
