@@ -64,12 +64,17 @@ function parseChronyOffset(output) {
  ::End Time Overide code 
 */
 
-
 // Override console.error
 console.error = function (...args) {
   const message = args.map(a => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
-  const err = new Error(message);
-  errorLog.write('\n'+process.title+' '+logTimestamp()+' - '+erFormat(err.stack)+'\n');
+  if (typeof args[0] === 'string') {
+    if (args[0].startsWith('process.on()::')){
+      const err = new Error(message);
+      errorLog.write('\n'+process.title+' '+logTimestamp()+' - '+erFormat(err.stack)+'\n');
+      return;
+    }
+  }
+  errorLog.write('\n'+process.title+' '+logTimestamp()+' - '+message+'\n');
 };
 
 function erFormat(er){
@@ -107,13 +112,12 @@ process.on('uncaughtException', (err) => {
 });
 
 process.on('unhandledRejection', (reason, promise) => { // Updated
-    console.error('process.on():: Unhandled Promise Rejection:');
 
     // Print the full stack if available
     if (reason && reason.stack) {
-        console.error(reason.stack);
+        console.error('process.on():: unhandledRejection',reason.stack);
     } else {
-        console.error(reason);
+        console.error('process.on():: unhandledRejection NoStack',reason);
     }
 });
 
@@ -231,14 +235,14 @@ class MkyRouting {
    getCronoTreeTime(){
      // Only used by cronoTreeCell cells.
      if ((this.status == 'root' || 'this.status == online') && !this.err){
-       return {cronoTreeSystemClock : {rootTime: this.r.sysTime,rootGeneration: this.rootGeneration}}
+       return {cronoTreeSystemClock : {rootTime: Date.now(),rootGeneration: this.rootGeneration}}
      }
      else {
        return {cronoTreeSystemClock : {rootTime: 'unavailable',nodeStatus : this.status, err : this.err}}
      }
    }
    timeSyncPulse() {
-     this.r.sysTime = realNow(); // set webMonitor display value to show real system time;
+     this.r.sysTime = Date.now(); // set webMonitor display value to show network virtual time;
 
      if (this.status === 'root') {
        // Root broadcasts authoritative time
@@ -2444,6 +2448,75 @@ class MkyRouting {
      return null;
    }
 }
+/*
+Keeps track of expected hop times between the node and its peers.
+*/
+class cronoTimeMgr {
+  constructor() {
+    this.linkTMap     = new Map();
+    this.maxLog       = 35;
+    this.maxDeviation = 1 * 1000;   // 1 second
+    this.minSamples   = 8;
+    this.normalT      = 500;        // default expected RTT
+  }
+
+  addLinkTimeMgr(ip, lastT) {
+    const stats = {
+      avrgT: this.normalT,
+      lastT: lastT,
+      rollTLog: [lastT]
+    };
+
+    this.linkTMap.set(ip, stats);
+  }
+
+  updateLinkTimeMgr(ip, lastT) {
+    const stats = this.linkTMap.get(ip);
+
+    if (stats) {
+      if (this.filterOutDeviations(stats, lastT)) {
+        return; // ignore outlier
+      }
+
+      stats.rollTLog.push(lastT);
+
+      if (stats.rollTLog.length > this.maxLog) {
+        stats.rollTLog.shift();
+      }
+
+      stats.avrgT = this.average(stats.rollTLog);
+      stats.lastT = lastT;
+      return;
+    }
+
+    // If peer not found, create it
+    this.addLinkTimeMgr(ip, lastT);
+  }
+
+  average(aList) {
+    if (aList.length === 0) return 0;
+    let sum = 0;
+    for (const n of aList) sum += n;
+    return sum / aList.length;
+  }
+
+  filterOutDeviations(stats, lastT) {
+    // Enough samples to trust the average?
+    if (stats.rollTLog.length > this.minSamples) {
+      if (Math.abs(lastT - stats.avrgT) > this.maxDeviation) {
+        return true;
+      }
+    }
+
+    // Reject extreme values compared to normal baseline
+    if (Math.abs(lastT - this.normalT) > this.maxDeviation) {
+      return true;
+    }
+
+    return false;
+  }
+}
+
 // *********************************************************
 // CLASS: gPowQue
 // A Proof of work class Que Managerk.
@@ -3192,7 +3265,7 @@ class PeerTreeNet extends  EventEmitter {
           pings        : [],
           target       : targetIp,
           targetStatus : null,
-          tstamp       : Date.now()
+          tstamp       : realNow();
         };
         //create error and reply listeners
 	var errListener = null;
@@ -3205,7 +3278,7 @@ class PeerTreeNet extends  EventEmitter {
         });
         this.on('peerTReply',repListener  = (j)=>{ 
           if (j.pingResult && j.remIp == targetIp){
-            const pTime = Date.now() - grpPing.tstamp;
+            const pTime = realNow() - grpPing.tstamp;
             const peer = this.gPingIndexOf(grpPing.pings,targetIp);
             if (peer !== null){
               grpPing.pings[peer].pRes = j.pingResult;
@@ -3316,7 +3389,7 @@ class PeerTreeNet extends  EventEmitter {
         var hrtbeat = {
           pings    : [],
           myStatus : 'OK',
-          tstamp   : Date.now()
+          tstamp   : realNow()
         };
 	var hListener = null;
         var rListener = null;
@@ -3345,13 +3418,13 @@ class PeerTreeNet extends  EventEmitter {
               this.updateChildRTab(j.remIp,j.rtab);
             }
 
-            const pTime = Date.now() - hrtbeat.tstamp;
             const peer = this.heartbIndexOf(hrtbeat.pings,j.remIp);
             if (peer !== null){
-              hrtbeat.pings[peer].pRes = j.pingResult;
-              hrtbeat.pings[peer].pTime = pTime;
+              const pTime = realNow() - hrtbeat.pings[peer].sendTime;
+              hrtbeat.pings[peer].pRes    = j.pingResult;
+              hrtbeat.pings[peer].pTime   = pTime;            // the real time elapsed from send to reply.
               hrtbeat.pings[peer].pStatus = j.nodeStatus;
-              hrtbeat.pings[peer].pIp = j.remIp;
+              hrtbeat.pings[peer].pIp     = j.remIp;
             }
           }
         });
@@ -3366,31 +3439,31 @@ class PeerTreeNet extends  EventEmitter {
 
 	// Ping Parent Node
         if (this.rnet.r.myParent){
-          hrtbeat.pings.push({pIP:this.rnet.r.myParent,pType:'myParent',pRes : null});
+          hrtbeat.pings.push({pIP:this.rnet.r.myParent,pType:'myParent',pRes : null,sendTime : realNow()});
 	  this.sendMsgCX(this.rnet.r.myParent,{ping : "hello",action : "checkMyStatus",myStatus: this.rnet.status});
         }
         // Ping My Child Nodes
         if(this.rnet.r.myNodes)
           for (var node of this.rnet.r.myNodes){
-            hrtbeat.pings.push({pIP:node.ip,pType:'myNodes',pRes : null});
+            hrtbeat.pings.push({pIP:node.ip,pType:'myNodes',pRes : null,sendTime : realNow()});
             this.sendMsgCX(node.ip,{ping : "hello",myStatus: this.rnet.status});
           }
             
         // Last Node Ping Root Node.
         if (this.rnet.r.nodeNbr == this.rnet.r.lnode && this.rnet.r.nodeNbr != 1 && !this.hbeatIncludes(hrtbeat.pings,this.rnet.r.rootNodeIp)){
           console.error('PeerTreeNet.heartBeat():: last node ping root:',this.rnet.status,`rnet.r.lnode is: ${this.rnet.r.lnode}`);
-          hrtbeat.pings.push({pIP:this.rnet.r.rootNodeIp,pType: 'lastToRoot',pRes : null});
+          hrtbeat.pings.push({pIP:this.rnet.r.rootNodeIp,pType: 'lastToRoot',pRes : null,sendTime : realNow()});
           this.sendMsgCX(this.rnet.r.rootNodeIp,{ping : "hello",myStatus: this.rnet.status});
         }
       
         // Ping Left Node.
         if (this.rnet.r.leftNode && !this.hbeatIncludes(hrtbeat.pings,this.rnet.r.leftNode)){
-          hrtbeat.pings.push({pIP:this.rnet.r.leftNode,pType: 'pingLeft',pRes : null});
+          hrtbeat.pings.push({pIP:this.rnet.r.leftNode,pType: 'pingLeft',pRes : null,sendTime : realNow()});
           this.sendMsgCX(this.rnet.r.leftNode,{ping : "hello",myStatus: this.rnet.status});
         }
         // Ping Right Node.
         if (this.rnet.r.rightNode && !this.hbeatIncludes(hrtbeat.pings,this.rnet.r.rightNode)){
-          hrtbeat.pings.push({pIP:this.rnet.r.rightNode,pType: 'pingRight',pRes : null});
+          hrtbeat.pings.push({pIP:this.rnet.r.rightNode,pType: 'pingRight',pRes : null,sendTime : realNow()});
           this.sendMsgCX(this.rnet.r.rightNode,{ping : "hello",myStatus: this.rnet.status});
         }
 
