@@ -151,8 +151,71 @@ xError - retry server failed to respond
 const srvFatal = [413,520,521,523,550,551];
 const srvBusy  = [501,522,552,'xTime','xError'];
 
-function clone(obj){
-  return JSON.parse(JSON.stringify(obj));
+function clone(value, seen = new WeakMap()) {
+  // Handle primitives
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+
+  // Handle circular references
+  if (seen.has(value)) {
+    return seen.get(value);
+  }
+
+  // Handle Date
+  if (value instanceof Date) {
+    return new Date(value.getTime());
+  }
+
+  // Handle RegExp
+  if (value instanceof RegExp) {
+    return new RegExp(value.source, value.flags);
+  }
+
+  // Handle Array
+  if (Array.isArray(value)) {
+    const arr = [];
+    seen.set(value, arr);
+    for (const item of value) {
+      arr.push(clone(item, seen));
+    }
+    return arr;
+  }
+
+  // Handle Map
+  if (value instanceof Map) {
+    const map = new Map();
+    seen.set(value, map);
+    for (const [k, v] of value.entries()) {
+      map.set(clone(k, seen), clone(v, seen));
+    }
+    return map;
+  }
+
+  // Handle Set
+  if (value instanceof Set) {
+    const set = new Set();
+    seen.set(value, set);
+    for (const v of value.values()) {
+      set.add(clone(v, seen));
+    }
+    return set;
+  }
+
+  // Handle Typed Arrays
+  if (ArrayBuffer.isView(value)) {
+    return new value.constructor(value);
+  }
+
+  // Handle plain objects (preserve prototype)
+  const clonedObj = Object.create(Object.getPrototypeOf(value));
+  seen.set(value, clonedObj);
+
+  for (const key of Reflect.ownKeys(value)) {
+    clonedObj[key] = clone(value[key], seen);
+  }
+
+  return clonedObj;
 }
 function sleep(ms){
   return new Promise(resolve=>{
@@ -190,7 +253,7 @@ class MkyRouting {
      this.coldStart       = true;
      this.lastRootGenerationSeen = 0;
      this.rootGeneration  = 1;
-
+     this.cronoT  =  new CronoTimeMgr;
      this.r = {
        sysTime    : Date.now(),
        ptreeId    : crypto.randomUUID(), // unique identifier of best branch of the network (new nodes need to join the largest healthy branch).
@@ -462,7 +525,7 @@ class MkyRouting {
    }
    async verifyRoot(){
      //console.error('BorgUsage::',this.net.uStats);
-     if ((this.status == 'root') && !this.err) {
+     if (this.status == 'root') {
        const rmap = await this.findWhoIsRoot();
        if (rmap.size){
          const rInfo = this.getMaxRoot();
@@ -1243,6 +1306,7 @@ class MkyRouting {
      this.startJoin    = null;
      this.err          = null;
      this.procJoinQue();
+     if (this.cronoT) this.cronoT.reset();
    }
    // ***********************************************
    // last node replaces root node if root node is inactive
@@ -1818,7 +1882,7 @@ class MkyRouting {
          }
        });
        this.net.on('xhrFail', rtLFail = (j)=>{
-         if (j.bcast.msg.newNode && j.bcast.msg.reqId == reqId){
+         if (j.msg.newNode && j.msg.reqId == reqId){
          console.error('MkyRouting.notifyNetWorkNewNode():: addNode Fails on bcastNewNode:',j);
          clearTimeout(gtime);
            resolve(false);
@@ -1876,9 +1940,15 @@ class MkyRouting {
 
        this.net.on('peerTReply', rtListen = (j)=>{
          if (j.myHealthCheckReply && j.reqId == reqId){
-           console.error('MkyRouting. myHealthCheck():: Reply:',j);
+           //console.error('MkyRouting. myHealthCheck():: Reply:',j);
            clearTimeout(gtime);
-           resolve(true);
+           if (j.myHealthCheckReply == "OK"){
+             resolve(true);
+           }
+           else {
+             resolve(false);
+             console.error('MkyRouting. myHealthCheck():: NOT healthy!:',j);
+           }
            this.net.removeListener('peerTReply', rtListen);
            this.net.removeListener('xhrFail', rtLFail);
          }
@@ -1954,7 +2024,7 @@ class MkyRouting {
    // Handler for incoming http request
    // ================================   
    async handleReq(remIp,j){
-     //console.error(`MkyRouting.handleReq():: got req `,j);
+     console.error(`MkyRouting.handleReq():: got req `,j);
      var dropTimer = null;
      this.net.resetErrorsCnt(j.remIp);
      if (j.req == 'joinReq'){
@@ -2013,7 +2083,7 @@ class MkyRouting {
          if (this.myIp != this.r.rootNodeIp){
            healthy = await this.myHealthCheck();
          } 
-         if (healthy){
+         if (healthy && !this.err){
            const qres = {
              whoIsRootReply : {
                rip      : this.r.rootNodeIp,
@@ -2022,6 +2092,7 @@ class MkyRouting {
                rtab     : this.r
              }
            } 
+           console.log('responce stringify: ',JSON.stringify(qres))
            this.net.endResCX(remIp,JSON.stringify(qres)); 
            return true;
          }
@@ -2036,7 +2107,13 @@ class MkyRouting {
      }
      if (j.req == 'myHealthCheck'){
        console.error(`MkyRouting.handleReq():: myHealthCheck reply is: {"myHealthCheckReply":"OK","reqId":"${j.reqId}"} to is: ${remIp}`);
-       this.net.endResCX(remIp,`{"myHealthCheckReply":"OK","reqId":"${j.reqId}"}`);
+       console.error(`MkyRouting.handleReq():: myHealthCheck reply state is: {"status": ${this.status},"err":"${this.err}"} to is: ${remIp}`);
+       if (this.status == 'root' && !this.err){
+         this.net.endResCX(remIp,`{"myHealthCheckReply":"OK","reqId":"${j.reqId}"}`);
+       }
+       else {
+         this.net.endResCX(remIp,`{"myHealthCheckReply":"${this.status}","errState":"${this.err}",reqId":"${j.reqId}"}`);
+       }
        return true;
      }
      if (j.req == 'pRouteUpdate'){
@@ -2451,7 +2528,7 @@ class MkyRouting {
 /*
 Keeps track of expected hop times between the node and its peers.
 */
-class cronoTimeMgr {
+class CronoTimeMgr {
   constructor() {
     this.linkTMap     = new Map();
     this.maxLog       = 35;
@@ -2491,6 +2568,7 @@ class cronoTimeMgr {
 
     // If peer not found, create it
     this.addLinkTimeMgr(ip, lastT);
+    console.log(this.LinkTMap);
   }
 
   average(aList) {
@@ -2514,6 +2592,9 @@ class cronoTimeMgr {
     }
 
     return false;
+  }
+  reset(){
+    this.linkTMap.clear();
   }
 }
 
@@ -3117,27 +3198,28 @@ class PeerTreeNet extends  EventEmitter {
   	         if (!j.msg.remIp) j.msg.remIp = sRemIp;
                  clearTimeout(svtime);
                  
-                 if (j.msg.hasOwnProperty('PNETCOREX') === false){
-                   if (j.msg.ptreeId != this.rnet.r.ptreeId) {
+                 if (j.msg.hasOwnProperty('PNETCOREX') === true){
+                   let mAllow = ['whoIsRoot?','joinReq'];
+                   if (j.msg.ptreeId != this.rnet.r.ptreeId && !mAllow.includes(j.msg.req)) {
                      throw {error:523,msg:'req mode ptreeId check failed :: msg rejected'};
                    }
-                   this.emit('mkyReq',sRemIp,j.msg);
+                   this.emit('peerTReq',sRemIp,j.msg);
 		 } 
 	  	 else {
-                   if (j.msg.ptreeId != this.rnet.r.ptreeId && j.msg.req != 'joinReq' && j.msg.req != 'whoIsRoot?') {
-                     throw {error:523,msg:'req mode ptreeId check failed :: only joins req can be accepted'};
+                   if (j.msg.ptreeId != this.rnet.r.ptreeId) {
+                     throw {error:523,msg:'req mode ptreeId check failed :: apps can only talk on same tree chains'};
                    }
-                   this.emit('peerTReq',sRemIp,j.msg);
+                   this.emit('mkyReq',sRemIp,j.msg);
 	  	 }
                  res.statusCode = 200;
                  res.end('{"netPOST":"OK"}');
                  //console.timeEnd('Time Taken');
                }
                catch (err) {
-                 if (err.error != 522){
-	           //console.error(`PeerTreeNet.startServer():: POST netREQ from: ${sRemIp} Error: `,err);
-                   //console.error('PeerTreeNet.startServer():: POST msg was ->\n',body);
-                 }
+                 //if (err.error != 522){
+	           console.error(`PeerTreeNet.startServer():: POST netREQ from: ${sRemIp} Error: `,err);
+                   console.error('PeerTreeNet.startServer():: POST msg was ->\n',body);
+                 //}
                  clearTimeout(svtime);
                  res.statusCode = err.error;
                  res.end('{"netPOST":"FAIL","type":"netREQ","Error":"'+err+'","data":"'+body+'"}');
@@ -3201,6 +3283,8 @@ class PeerTreeNet extends  EventEmitter {
                  }
                  catch(err) {
                    clearTimeout(svtime);
+                   console.log('PeerTreeNet.startServer():: catch body',body);
+                   console.log('PeerTreeNet.startServer():: catch err:',err);
                    res.statusCode = err.error;
                    res.end('{"netPOST":"FAIL","type":"netREPLY","Error":"'+err+'","data":"'+body+'"}');
                    if (err.error != 552){
@@ -3265,7 +3349,7 @@ class PeerTreeNet extends  EventEmitter {
           pings        : [],
           target       : targetIp,
           targetStatus : null,
-          tstamp       : realNow();
+          tstamp       : realNow()
         };
         //create error and reply listeners
 	var errListener = null;
@@ -3425,6 +3509,9 @@ class PeerTreeNet extends  EventEmitter {
               hrtbeat.pings[peer].pTime   = pTime;            // the real time elapsed from send to reply.
               hrtbeat.pings[peer].pStatus = j.nodeStatus;
               hrtbeat.pings[peer].pIp     = j.remIp;
+              if (process.title == 'cronoTreeCell'){
+                this.rnet.cronoT.updateLinkTimeMgr(j.remIp, pTime);
+              }
             }
           }
         });
@@ -3583,6 +3670,7 @@ class PeerTreeNet extends  EventEmitter {
     this.rnet.joinQue    = [];
     this.dropIps         = [];
     this.rootMap         = new Map();
+    if (this.cronoT){ this.cronoT.reset(); }
 
     this.rnet.r = {
       ptreeId    : crypto.randomUUID(),
