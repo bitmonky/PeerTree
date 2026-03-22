@@ -534,7 +534,6 @@ class MkyRouting {
          }
          else {
            this.net.setNodeBackToStartup('Best Network Tree Root has changed! Shutting down to join new tree.');
-           return;
          }   
        }
      }
@@ -3480,7 +3479,7 @@ class PeerTreeNet extends  EventEmitter {
       //console.error('PeerTreeNet.heartBeat():: starting heartBeat:',this.rnet.status,this.rnet.err,this.rnet.r.lnStatus);
       if(this.rnet.err){
         console.error('PeerTreeNet.heartBeat():: lnStatusMoving::ping blocked');
-        let to = setTimeout( ()=>{this.heartBeat();},this.pulseRate);
+        setTimeout( ()=>{this.heartBeat();},this.pulseRate);
         return;
       }
       if(this.rnet && (this.rnet.status == 'online' || this.rnet.status == 'root') && !this.rnet.err){
