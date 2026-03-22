@@ -121,10 +121,11 @@ process.on('unhandledRejection', (reason, promise) => { // Updated
     }
 });
 
-var   defPulse        = 5*1000;
-const maxPacket       = 300000000;
-const maxNetErrors    = 5;
-const verifyRootTimer = 30*1000;
+var   defPulse            = 5*1000;
+const maxPacket           = 300000000;
+const maxNetErrors        = 5;
+const verifyRootTimer     = 30*1000;
+const joinWaitForDropTime = 60*1000;
 
 process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = 0;
 
@@ -325,7 +326,6 @@ class MkyRouting {
      // Only executed by none cronoTree cells
      try {
        let j = await this.requestCronoTime();
-       console.error(`MkyRouting.applyCronoTreeTime():: j is: `,j) ;
        if (j.cronoTreeSystemClock.rootTime !== 'unavailable') {
          const localTime = realNow();
          const drift = j.cronoTreeSystemClock.rootTime - localTime;
@@ -339,7 +339,6 @@ class MkyRouting {
    async requestCronoTime() {
      const msg = {msg:{req:'sendCronoTime'}};
      const body = JSON.stringify(msg);
-     console.error(`MkyRouting.requestCronoTime():: body is: `,body);
 
      const options = {
        hostname: 'localhost',
@@ -1054,45 +1053,46 @@ class MkyRouting {
        resolve(true);
      });	     
    }
-   resultFromJoinReq(ip,reqId){
-     return new Promise((resolve,reject)=>{
-       var rtListen = null;
-       var rtLFail  = null;
-       const gtime = setTimeout( ()=>{
-         console.error('MkyRouting.resultFromJoinReq():: timeout',ip);
-         this.net.removeListener('peerTReply', rtListen);
-         this.net.removeListener('xhrFail', rtLFail);
-         this.net.setNodeBackToStartup('my join request Timeout');
-         resolve(null);
-       },15800);
+   resultFromJoinReq(ip, reqId) {
+     return new Promise((resolve) => {
+       let done = false;
 
-       this.net.on('peerTReply', rtListen = async (j)=>{
-         if (j.addResult && j.remIp == ip && j.reqId == reqId){
-           console.error('MkyRouting.resultFromJoinReq():: \n',j,'\n');
-           let jres = await this.processMyJoinResponse(j);
+       const finish = (value) => {
+         if (done) return;
+         done = true;
+
+         clearTimeout(gtime);
+         this.net.removeListener('peerTReply', onReply);
+         this.net.removeListener('xhrFail', onFail);
+
+         resolve(value);
+       };
+
+        const onReply = async (j) => {
+         if (j.addResult && j.remIp === ip && j.reqId === reqId) {
+           const jres = await this.processMyJoinResponse(j);
+
            if (jres !== 'wait') {
-             console.error('MkyRouting.resultFromJoinReq():: NoWait\n',jres,'\n');
-             clearTimeout(gtime);
-             this.net.removeListener('peerTReply', rtListen);
-             this.net.removeListener('xhrFail', rtLFail);
-             resolve(jres);
-           }
-           else {
-             console.error('MkyRouting.resultFromJoinReq():: inWaitMode\n',jres,'\n');
-             this.net.removeListener('peerTReply', rtListen);
-             this.net.removeListener('xhrFail', rtLFail);
+             finish(jres);
+           } else {
+             this.status = 'waitingToJoin';
            }
          }
-       });
-       this.net.on('xhrFail', rtLFail = (j)=>{
-         if (j.req == 'joinReq' && j.remIp == ip && j.reqId == reqId ){
-           console.error('MkyRouting.resultFromJoinReq():: addFailxhr:\n',j);
-           clearTimeout(gtime);
-           this.net.removeListener('peerTReply', rtListen);
-           this.net.removeListener('xhrFail', rtLFail);
-           resolve(false);
+       };
+
+       const onFail = (j) => {
+         if (j.req === 'joinReq' && j.remIp === ip && j.reqId === reqId) {
+           finish(false);
          }
-       });
+       };
+
+       const gtime = setTimeout(() => {
+         this.net.setNodeBackToStartup('my join request Timeout');
+         finish(null);
+       }, 3 * 60 * 1000);  // allow the node to remain is waitMode for a longer time to avoid flooding with restart requests.
+
+       this.net.on('peerTReply', onReply);
+       this.net.on('xhrFail', onFail);
      });
    }
    getMaxRoot(){
@@ -1818,6 +1818,26 @@ class MkyRouting {
      }
 
      this.startJoin = remIp;
+
+     // check for routing table errors
+     if (this.isMyChild(remIp)){
+       this.net.endResCX(remIp,`{"addResult":"sorryTryNewRoot","reqId":"${reqId}"}`);
+       this.net.setNodeBackToStartup(`joining error:  isMyChild failure. restart required`);
+       return;
+     } 
+     let checkTree = await this.findWhoHasChild(remIp);
+     if (checkTree === null){
+       this.net.endResCX(remIp,`{"addResult":"sorryTryNewRoot","reqId":"${reqId}"}`);
+       this.net.setNodeBackToStartup(`joining error:  checkTree failure. restart required`);
+       return;
+     }
+     else if (checkTree !== 'noBody'){
+       this.net.endResCX(remIp,`{"addResult":"wait","reqId":"${reqId}"}`); 
+       console.error(`MkyRouting.handleJoins():: Sending AddResult:: wait for drop to complete`);
+       setTimeout(() => { this.joinQue.push({jIp:remIp,j:j,status:"waiting"}); },joinWaitForDropTime);
+       return;
+     }
+
      const addRes   = await this.addNewNodeReq(j.remIp);
 
      if (addRes){
@@ -1832,6 +1852,7 @@ class MkyRouting {
        }
 
        console.error('MkyRouting.handleJoins():: Sending AddResult::', {addResult : 'OK',newNode : this.newNode});
+
        const reply = {addResult : 'OK',newNode : this.newNode,reqId : reqId}
        this.net.endResCX(remIp,JSON.stringify(reply));
        this.newNode = null;
@@ -2024,7 +2045,7 @@ class MkyRouting {
    // Handler for incoming http request
    // ================================   
    async handleReq(remIp,j){
-     console.error(`MkyRouting.handleReq():: got req `,j);
+     //console.error(`MkyRouting.handleReq():: got req `,j);
      var dropTimer = null;
      this.net.resetErrorsCnt(j.remIp);
      if (j.req == 'joinReq'){
@@ -2188,14 +2209,10 @@ class MkyRouting {
        console.error('MkyRouting.processMyJoinResponse():: Processing\n', j,'\n');
        const reqId = j.reqId;
 
-       if ( j.addResult == 'Node Not Added'
-         || j.addResult == 'timedOut'){
-         this.joinReqFails ++;
-         console.error('MkyRouting.processMyJoinResponse():: JOINREQFAILS is now::\n',this.joinReqFails,'\n');
-         if (this.joinReqFails > 1 && 1 == 2)
-           this.becomeRoot();
-         else
-           this.net.setNodeBackToStartup('my join request failed');
+       let addFails = ['Node Not Added', 'timedOut','sorryTryNewRoot'];
+       if ( addFails.includes(j.addResult)){
+         console.error(`MkyRouting.processMyJoinResponse():: JOINREQFAILS on: ${j.addResult}`);
+         this.net.setNodeBackToStartup(`my join request failed with: ${j.addResult}`);
          resolve(false);
          return;
        }
@@ -2210,6 +2227,7 @@ class MkyRouting {
        var myLeft = j.newNode.leftNode;
        if (myLeft == this.myIp){
            console.error('MkyRouting.processMyJoinResponse():: MyLeft Is ME!!!! major errror ::: ',myLeft);
+           this.net.setNodeBackToStartup('my left is me error on join request');
            resolve(false);
            return;
        }
@@ -2336,14 +2354,10 @@ class MkyRouting {
        return true;
      }
      if (j.msg.findWhoHasChild){
-       var fres = false;
-       this.r.myNodes.forEach((child)=>{
-         if (child.ip == j.msg.findWhoHasChild.ip){
-           fres = true;
-         }
-       });
-       if (fres){
-         this.net.sendMsgCX(j.remIp,{resultWhoHasChild:this.myIp});
+       const fres = this.r.myNodes.some(child => child.ip === j.msg.findWhoHasChild.ip);
+
+       if (fres) {
+         this.net.sendMsgCX(j.remIp, { resultWhoHasChild: this.myIp });
        }
        return true;
      }
@@ -2383,7 +2397,7 @@ class MkyRouting {
        //return;
      }
      if (j.req == 'bcast'){
-       console.error('MkyRouting.handleError():: handleError::got bcast, re-routing:',j.msg);
+       //console.error('MkyRouting.handleError():: handleError::got bcast, re-routing:',j.msg);
        this.routePastNode(j);
        return true;
      }
