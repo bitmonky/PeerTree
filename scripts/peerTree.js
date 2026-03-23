@@ -523,8 +523,13 @@ class MkyRouting {
      });
    }
    async verifyRoot(){
-     //console.error('BorgUsage::',this.net.uStats);
+     if (this._verifyRootTimer) {
+       clearTimeout(this._verifyRootTimer);
+       this._verifyRootTimer = null;
+     }
+
      if (this.status == 'root') {
+       console.error('MkyRouting.verifyRoot():: BorgUsage::',this.net.uStats);
        const rmap = await this.findWhoIsRoot();
        if (rmap.size){
          const rInfo = this.getMaxRoot();
@@ -537,7 +542,7 @@ class MkyRouting {
          }   
        }
      }
-     setTimeout(() => {
+     this._verifyRootTimer = setTimeout(() => {
         this.verifyRoot();
      },verifyRootTimer);
    }
@@ -1306,6 +1311,7 @@ class MkyRouting {
      this.err          = null;
      this.procJoinQue();
      if (this.cronoT) this.cronoT.reset();
+     this.verifyRoot();
    }
    // ***********************************************
    // last node replaces root node if root node is inactive
@@ -1824,6 +1830,12 @@ class MkyRouting {
        this.net.setNodeBackToStartup(`joining error:  isMyChild failure. restart required`);
        return;
      } 
+     if (this.r.lastNode == remIp){
+       this.net.endResCX(remIp,`{"addResult":"sorryTryNewRoot","reqId":"${reqId}"}`);
+       this.net.setNodeBackToStartup(`joining error:  isMyLastNode failure. restart required`);
+       return;
+     }
+
      let checkTree = await this.findWhoHasChild(remIp);
      if (checkTree === null){
        this.net.endResCX(remIp,`{"addResult":"sorryTryNewRoot","reqId":"${reqId}"}`);
@@ -2112,7 +2124,7 @@ class MkyRouting {
                rtab     : this.r
              }
            } 
-           console.log('responce stringify: ',JSON.stringify(qres))
+           //console.log('responce stringify: ',JSON.stringify(qres))
            this.net.endResCX(remIp,JSON.stringify(qres)); 
            return true;
          }
