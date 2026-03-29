@@ -20,8 +20,8 @@ class CronoTreeReceptor extends PtreeReceptor {
     }
   }
 
-  handleTimeReq(msg, res) {
-    console.error('CronoTreeReceptor.handleTimeReq():: got msg',msg);
+  handleTimeReq(msg, res, req) {
+    //console.error('CronoTreeReceptor.handleTimeReq():: got msg',msg);
     let reply = {cronoTreeSystemClock : {rootTime: 'unavailable', status : 'preTry'}};
     try {
       reply = this.peer.net.rnet.getCronoTreeTime();

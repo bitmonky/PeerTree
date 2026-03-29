@@ -1,5 +1,8 @@
 const https = require('https');
-const fs = require('fs');
+const http  = require('http');
+const fs    = require('fs');
+const { URL } = require('url');
+
 
 class PtreeReceptorObj {
   constructor(peerTree, recPort,secure=false) {
@@ -72,14 +75,108 @@ class PtreeReceptorObj {
         return res.end('Invalid JSON');
       }
 
-      this.handleReq(json, res);
+      this.handleReq(json, res,req);
     });
   }
 
   // Subclasses override this
-  handleReq(msg, res) {
+  handleReq(msg, res,req) {
     res.writeHead(500);
     res.end('handleReq not implemented');
+  }
+
+  //
+  // ---------------------------------------------------------
+  //  xhrJSON — Node equivalent of tryJFetchURLnew()
+  // ---------------------------------------------------------
+  //
+  async xhrJSON({ url, method = 'GET', data = null, timeout = 5000, excTimeout = 180000 }) {
+    return new Promise((resolve) => {
+      try {
+        // Normalize URL like PHP version
+        if (!url.startsWith('http')) {
+          const domain = process.env.HOSTNAME || 'localhost';
+          url = `https://${domain}${url}`;
+        }
+
+        const u = new URL(url);
+
+        const opts = {
+          method,
+          hostname: u.hostname,
+          port: u.port || (u.protocol === 'https:' ? 443 : 80),
+          path: u.pathname + u.search,
+          rejectUnauthorized: false, // matches PHP curl SSL off
+          headers: {
+            'accept': 'application/json',
+            'content-type': 'application/json',
+            'user-agent': 'PeerTreeNode/1.0',
+            'referer': 'https://monkytalk/'
+          },
+          timeout
+        };
+
+        const protocol = u.protocol === 'https:' ? https : http;
+
+        const req = protocol.request(opts, (res) => {
+          let raw = '';
+
+          res.on('data', chunk => raw += chunk);
+          res.on('end', () => {
+            const reply = {
+              error: false,
+              data: raw,
+              json: null,
+              jsonError: null,
+              jsonErrorMsg: null,
+              rcode: res.statusCode,
+              furl: url
+            };
+
+            try {
+              reply.json = JSON.parse(raw);
+            } catch (err) {
+              reply.error = "JSON decode error";
+              reply.jsonError = err.code;
+              reply.jsonErrorMsg = err.message;
+            }
+
+            resolve(reply);
+          });
+        });
+
+        req.on('timeout', () => {
+          req.destroy();
+          resolve({ error: "timeout", data: null, json: null });
+        });
+
+        req.on('error', (err) => {
+          resolve({ error: err.message, data: null, json: null });
+        });
+
+        if (method === 'POST' && data) {
+          req.write(JSON.stringify(data));
+        }
+
+        req.end();
+
+      } catch (err) {
+        resolve({ error: err.message, data: null, json: null });
+      }
+    });
+  }
+
+  //
+  // Convenience wrapper for POST JSON
+  //
+  async xhrPostJSON(url, payload) {
+    return this.xhrJSON({
+      url,
+      method: 'POST',
+      data: payload,
+      timeout: 5000,
+      excTimeout: 180000
+    });
   }
 }
 
