@@ -111,9 +111,13 @@ class peerShardToken{
 
 class shardTreeCellReceptor{
   constructor(peerTree,recPort=1335){
-    this.peer = peerTree;
-    this.port = recPort;
-    this.allow = ["127.0.0.1"];
+    this.peer      = peerTree;
+    this.port      = recPort;
+    this.allow     = ["127.0.0.1"];
+    this.endPoints = null;
+    this.nWatch    = 5;
+    this.endPointWatchTimer = 5*60*1000;
+
     this.readConfigFile();
     console.log('ATTACHING - cellReceptor on port'+recPort);
     console.log('GRANTING cellRecptor access to :',this.allow);
@@ -159,8 +163,8 @@ class shardTreeCellReceptor{
 		console.log('json error : ',body);
                 return;
 	      }	 
-	      res.setHeader('Content-Type', 'application/json');
               if (j.msg.req == 'storeShard'){
+                res.setHeader('Content-Type', 'application/json');
                 res.writeHead(200);
                 this.reqStoreShard(j.msg,res);
                 return;
@@ -171,11 +175,18 @@ class shardTreeCellReceptor{
                 return;
               }
               if (j.msg.req == 'deleteShard'){
+                res.setHeader('Content-Type', 'application/json');
                 res.writeHead(200);
                 this.reqDeleteShard(j.msg,res);
                 return;
               }
-
+              if (j.msg.req == 'selectEndPoints'){
+                res.setHeader('Content-Type', 'application/json');
+                res.writeHead(200);
+                this.selectEndPoints(j.msg,res);
+                return;
+              }
+              res.setHeader('Content-Type', 'application/json');
               res.writeHead(200);
 	      res.end('{"netReq":"action '+j.msg.req+' not found"}');
             });
@@ -195,6 +206,7 @@ class shardTreeCellReceptor{
     });
     bserver.listen(this.port);
     console.log('peerTree Shard Receptor running on port:'+this.port);
+    this.watchEndPoints();
   }
   readConfigFile(){
      var conf = null;
@@ -244,54 +256,76 @@ class shardTreeCellReceptor{
     return decodeURIComponent(str);
   }
   async reqRetrieveShard(j,res){
-    //console.log(j);
-    var data = {result : 0, msg : 'no results found'};
     var stime = Date.now();
-    data = await this.peer.receptorReqSendMyShard(j);
+    console.log(`reqRetrieveShard():: starts: ${stime} :`);
+    const data = await this.peer.receptorReqSendMyShard(j);
+    console.log(`reqRetrieveShard():: complete time: ${stime - Date.now()} :`);
     if (data){
       if (j.shard.encrypted) {
-        var scrm  = Buffer.from(data.data.data).toString();
-        scrm  = decrypt(Buffer.from(scrm,'base64'),this.shardToken.shardCipher);
-        data.data = scrm.toJSON();
-
+        try {
+          var scrm  = Buffer.from(data.data.data).toString();
+          scrm  = decrypt(Buffer.from(scrm,'base64'),this.shardToken.shardCipher);
+          data.data = scrm.toJSON();
+        } 
+        catch(e){
+          console.log('reqRetrieveShard():: FAIL on decrypt:',e);
+          res.setHeader('Content-Type', 'application/json');
+          res.writeHead(200);
+          res.end('{"result": 0,"data" : "FAIL on Decrypt:"}');
+          return;
+        }
       }
       try {
-        //const buffer = Buffer.from(data.data.data);
-        //const base64Data = buffer.toString('base64');
         data.data = this.bufferToBase64(data.data.data); //base64Data;
       }
       catch(e) {
-        console.log('data.data.data::error');
         data.data = null;
+        console.log('reqRetrieveShard():: FAIL on bufferToBase64:',e);
+        res.setHeader('Content-Type', 'application/json');
+        res.writeHead(200);
+        res.end('{"result": 0,"data" : "FAIL on bufferToBase64:"}');
+        return;
       }
+
       if(data.data !== null){
-        console.log('Shard Request Time: ',Date.now() - stime);
+        console.log('reqRetrieveShard():: Shard Request Time: ',Date.now() - stime);
 
         let jdata = null;
         try { jdata = JSON.stringify(data);}
-        catch(e){ console.log('FAIL on JSON.encode::',data);}
+        catch(e){
+          console.log('reqRetrieveShard():: FAIL on JSON.encode::',data);
+          res.setHeader('Content-Type', 'application/json');
+          res.writeHead(200);
+          res.end('{"result": 0,"data" : "Shard Request JON encode Failed::"}');
+          return;
+        }
 
         if (jdata !== null){
           const responseBody = '{"result": 1,"data" : '+jdata+'}';
+          res.setHeader('Content-Type', 'application/json');
           res.setHeader('Content-Length', Buffer.byteLength(responseBody));
           res.writeHead(200);
           res.end(responseBody);
+          return;
         } 
-        else {
-          res.writeHead(200);
-          res.end('{"result": 0,"data" : "Shard Request JON encode Failed::"}');
-        }
-      }
-      else { 
-        console.log('Shard Request Fail::',data);
+        console.log('reqRetrieveShard():: jdata is in null',data);
+        res.setHeader('Content-Type', 'application/json');
         res.writeHead(200);
-        res.end('{"result": 0,"data" : "Shard Request Failed::"}');
+        res.end('{"result": 0,"data" : "Data buffer contained null"}');
+        return;
       }
-    }
-    else {
+      console.log('Shard Request Fail::',data);
+      res.setHeader('Content-Type', 'application/json');
       res.writeHead(200);
-      res.end('{"result" : 0, "msg" : "no results found"}');
+      res.end('{"result": 0,"data" : "Shard Request Failed::"}');
+      return;
     }
+      
+    console.log('reqRetrieveShard():: FAIL on req timeout::',data);
+    res.setHeader('Content-Type', 'application/json');
+    res.writeHead(200);
+    res.end('{"result" : 0, "msg" : "no results found"}');
+    return;
   }
   signRequest(j){
     const stoken = j.shard.token.ownMUID + new Date(); 
@@ -310,6 +344,41 @@ class shardTreeCellReceptor{
     });
     return hosts;
   }
+  async watchEndPoints() {
+    try {
+      const j = { shard: { nCopys: this.nWatch } };
+
+      console.log(`watchEndPoints():: fetching endpoints…`);
+
+      let IPs = await this.peer.receptorReqNodeList(j);
+
+      // Normalize into full URLs
+      IPs = IPs.map(IP => `https://${IP}:${this.port}`);
+
+      // Store them
+      this.endPoints = [...IPs];
+
+      console.log(`watchEndPoints():: updated endpoints:`, this.endPoints);
+
+    } catch (err) {
+      console.error("watchEndPoints() error:", err);
+    }
+
+    // Schedule next update
+    setTimeout(() => this.watchEndPoints(), this.endPointWatchTimer);
+  }
+  selectEndPoints(j, res) {
+    if (!this.endPoints || this.endPoints.length === 0) {
+      return res.end(`{"result":"noEndpoints"}`);
+    }
+
+    res.end(JSON.stringify({
+      result: "listOK",
+      useReceptors: this.endPoints
+    }));
+  }
+
+
   async reqStoreShard(j,res){
     if (!j.shard.xIP) j.shard.xIP = [];
     if (!j.shard.pass) j.shard.pass = 1;
@@ -386,7 +455,7 @@ class shardTreeCellReceptor{
     }, 300); 
     return;
   }
-};
+}
 /*----------------------------
 End Receptor Code
 ==============================
@@ -962,11 +1031,11 @@ class shardTreeObj {
     return new Promise( (resolve,reject)=>{
       var mkyReply = null;
       const gtime = setTimeout( ()=>{
-        //console.log('Send Shard Request Timeout:',j);
+        console.log(' receptorReqSendMyShard):: Send Shard Request Timeout:',j);
         this.net.removeListener('mkyReply', mkyReply);
         resolve(null);
-      },2.5*1000);
-      //console.log('bcasting reques for shard data: ',j);
+      },950);
+      console.log('bptorReqSendMyShard()::  request for shard data: ',j);
       var req = {
         to : 'shardCells',
 	req : 'sendShard',
@@ -978,7 +1047,7 @@ class shardTreeObj {
 	if (r.req == 'pShardDataResult' && j.shard.hashID == r.qry.shard.hashID){
           clearTimeout(gtime);
           this.net.removeListener('mkyReply', mkyReply);
-          console.log('shardData found for shard.hashID: ',r.qry.shard.hashID);
+          console.log(' receptorReqSendMyShard():: shardData found for shard.hashID: ',r.qry.shard.hashID);
           resolve(r);
         }
       });
