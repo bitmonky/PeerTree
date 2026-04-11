@@ -910,25 +910,25 @@ class MkyRouting {
        var rtListen = null;
        var rtLFail  = null;
        const gtime = setTimeout( ()=>{
-         console.error('MkyRouting.whoIsRoot():: timeout', ip);
+         console.error(`MkyRouting.whoIsRoot():: timeout`, ip);
          this.net.removeListener('peerTReply', rtListen);
          this.net.removeListener('xhrFail', rtLFail);
          resolve(null);
-       },1000);
+       },3500);
 
        this.net.on('peerTReply', rtListen = (j)=>{
          if (j.whoIsRootReply && j.remIp == ip){
            clearTimeout(gtime);
            if (j.whoIsRootReply == 'notready'){
-             console.error('MkyRouting.whoIsRoot():: Repy::status not ready: ',j.remIp);
+             console.error(`MkyRouting.whoIsRoot()::  ${ip} Reply::status not ready: `,j.remIp);
              resolve(null);
            }
            else if (j.whoIsRootReply == 'deadnode'){
-             console.error('MkyRouting.whoIsRoot():: Repy::status deadnode: ',j.remIp);
+             console.error(`MkyRouting.whoIsRoot()::  ${ip} Reply::status deadnode: `,j.remIp);
              resolve(null);
            }
            else {
-             //console.error('MkyRouting.whoIsRoot():: this.rootFound',j.whoIsRootReply);
+             console.error(`MkyRouting.whoIsRoot():: this.rootFound`,j.whoIsRootReply);
              resolve(j.whoIsRootReply);
            }
            this.net.removeListener('peerTReply', rtListen);
@@ -938,7 +938,7 @@ class MkyRouting {
        this.net.on('xhrFail', rtLFail = (j)=>{
          if (j.req == 'whoIsRoot?'){
            clearTimeout(gtime);
-           console.error('MkyRouting.whoIsRoot():: xhrFail::this.rootFound');
+           console.error(`MkyRouting.whoIsRoot():: ${ip} xhrFail::this.rootFound`);
            resolve (null);
            this.net.removeListener('peerTReply', rtListen);
            this.net.removeListener('xhrFail', rtLFail);
@@ -1053,10 +1053,16 @@ class MkyRouting {
        console.log('newLastNode',node,this.r.myNodes,newLastNode);
        this.r.lastNode = newLastNode.ip;
        const reply = await this.notifyNewLastNode(newLastNode.ip);
+       console.log(`MkyRouting.rootDropChild():: notifyNewLastNode ${newLastNode.ip} reply:`,reply);
        if (reply?.result !== 'OK'){
          console.log('MkyRouting.rootDropChild():: Failed At Case 2');
          this.net.setNodeBackToStartup('MkyRouting.rootDropChild():: Failed At Case 2');
          return 'FATAL_ERROR';
+       }
+       // Inform the network that a new last node exists.
+       if (this.r.lnode > 2) {
+         console.log(`console.log('MkyRouting.rootDropChild():: bcast: `,{lnodeNewLastNode : newLastNode.ip, newLastNodeNbr: this.r.lnode});
+         this.bcast({lnodeNewLastNode : newLastNode.ip, newLastNodeNbr: this.r.lnode});
        }
        return 'OK'
      }  
@@ -1107,7 +1113,7 @@ class MkyRouting {
       const msg = {
         req       : 'rootSaysYourLastNode',
         response  : 'rootSaysYourLastNodeResult',
-        rootRTab  : this.r.rtab
+        rootRTab  : this.r
       };
       console.log('MkyRouting.notifyNewLastNode():: sending',msg);
 
@@ -1125,7 +1131,7 @@ class MkyRouting {
        reqId    : j.reqId,
        result   : 'OK'
      };
-     
+     console.log(`rootSaysYourLastNode():: sending `,reply);     
      this.net.sendReplyCX(j.remIp,reply);
      return;
    }
@@ -1718,8 +1724,13 @@ class MkyRouting {
 
      if (joinRes === 'joinSuccess') {
        this.status = 'online';
+       let reply   = {resultFromJoin : 'Thanks',reqId : reqId};
+       this.net.endResCX(rip,JSON.stringify(reply));
        return;
      }
+
+     let reply = {resultFromJoin : 'FAILED',reqId : reqId};
+     this.net.endResCX(rip,JSON.stringify(reply));
 
      console.error('MkyRouting.init():: FAILED Join', joinRes);
      this.net.setNodeBackToStartup(`Init join request Failed with: ${joinRes}`);
@@ -2658,9 +2669,10 @@ class MkyRouting {
          if (j.resultFromJoin && j.reqId == reqId){
            console.error('MkyRouting.resultFromJoiningNode():: Reply:',j);
            clearTimeout(gtime);
-           resolve(true);
            this.net.removeListener('peerTReply', rtListen);
            this.net.removeListener('xhrFail', rtLFail);
+           if (j.resultFromJoin === 'Thanks') { resolve(true);}
+           else {resolve(false);}
          }
        });
        this.net.on('xhrFail', rtLFail = (j)=>{
@@ -2876,7 +2888,7 @@ class MkyRouting {
      if (j.req == 'myHealthCheck'){
        console.error(`MkyRouting.handleReq():: myHealthCheck reply is: {"response":"myHealthCheckReply","result":"OK","reqId":"${j.reqId}"} to is: ${remIp}`);
        console.error(`MkyRouting.handleReq():: myHealthCheck reply state is: {"status": ${this.status},"err":"${this.err}"} to is: ${remIp}`);
-       if (this.status === 'root' && !this.err){
+       if (this.status === 'root'){
          this.net.endResCX(remIp,JSON.stringify({response:"myHealthCheckReply",status:"OK",reqId:j.reqId}));
        }
        else {
@@ -3016,13 +3028,14 @@ class MkyRouting {
        this.newNode = null;
        this.status = 'online';
    
-       let sendRTab = 'OK'
        if (this.r.myParent !== null){
-         sendRTab = await this.pushRTabToParent();
+         let sendRTab = await this.pushRTabToParent();
+         console.log(`processMyJoinResponse():: pushRTabToParent`,sendRTab);
+         if (sendRTab?.result !== 'OK'){
+           resolve('pushRTabFailed');
+           return;
+         }
        } 
-
-       const reply = {resultFromJoin : 'Thanks',reqId : reqId};
-       this.net.endResCX(this.r.rootNodeIp,JSON.stringify(reply));
        resolve('joinSuccess');
      });
    }
@@ -3115,7 +3128,7 @@ class MkyRouting {
          return true;
        }
        this.r.lastNode = j.msg.lnodeNewLastNode;
-       this.r.ln       = j.msg.newLastNodeNbr;
+       this.r.lnode    = j.msg.newLastNodeNbr;
        console.log(`handleBcast():: heard There is a new last node: ${this.myIp} `, j.msg,this.r);
        return true;
      }
@@ -4700,7 +4713,8 @@ class PeerTreeNet extends  EventEmitter {
   queMsg(msg) {
     console.error(
       'PeerTreeNet.queMsg():: Msg Log Counter: ',
-      this.msgMgr.count(msg)
+      this.msgMgr.count(msg.toHost),
+      msg.toHost
     );
 
     if (this.msgMgr.count(msg.toHost) < 20) {
