@@ -408,6 +408,7 @@ class MkyRouting {
      this.rootMap    = new Map();
      this.waitForNetTimer = null;
      this.joinReqFails    = 0;
+     this.joinTicket      = null; 
      this.r = {
        rootLock   : false,
        pCount     : 0,
@@ -1759,6 +1760,7 @@ class MkyRouting {
              finish(jres);
            } else {
              this.status = 'waitingToJoin';
+             tick(); // Start monitering the root nodes progress on the join.
            }
          }
        };
@@ -1780,15 +1782,17 @@ class MkyRouting {
            // test root status periodically while waiting.
            const msg = {
              req      : 'joinWaitOK?',
-             response : 'joinWaitOKReply'
+             response : 'joinWaitOKReply',
+             ticketId : reqId
            };
            let reply = await this.net.reqReplyObj.waitForReply(ip, msg); 
-           if (this.status === 'waitingToJoin' && reply?.result?.status !== 'keepWaiting') {
+           console.log(`resultFromJoinReq():: wait reply: `,reply);
+           if (reply?.result?.status !== 'keepWaiting') {
              if (this.status === 'online') {
                finish('joinSuccess');
                return
              }
-             console.error('resultFromJoinReq():: lost contact with root',reply);
+             console.error('resultFromJoinReq():: keepWaiting Terminated: ',reply);
              this.net.setNodeBackToStartup('my join request Timeout: lost contact with root');
              finish('joinTimeout');
            } else {
@@ -1799,11 +1803,12 @@ class MkyRouting {
            }
          }, gInterval);
        };
-       tick();
 
        this.net.on('peerTReply', onReply);
        this.net.on('xhrFail', onFail);
      });
+   }
+   async keepWaiting(ticketId){
    }
    getMaxRoot(){
     let bestIp = null;
@@ -2533,7 +2538,7 @@ class MkyRouting {
  
      if (this.r.rootLock){    
        if (this.startJoin != remIp){
-         this.joinQue.set(remIp, { jIp: remIp, j: j, status: "waiting" });
+         this.joinQue.set(remIp, { jIp: remIp, j: j, joinTicket:j.reqId, status: "waiting" });
          this.net.endResCX(remIp,`{"addResult":"reJoinQued","reqId":"${reqId}"}`);
        }
        return;
@@ -2541,6 +2546,7 @@ class MkyRouting {
      try {
        this.startJoin  = remIp;
        this.r.rootLock = true;
+       this.joinTicket = j.reqId;
 
        // check for routing table errors
        if (this.isMyChild(remIp)){
@@ -2617,6 +2623,7 @@ class MkyRouting {
          if (!rollbck) {this.net.setNodeBackToStartup(`Join Rollbck Failed on: addRes: ${addRes}`);}
        }
      } finally {
+       this.joinTicket = null;
        this.r.rootLock = false;
      }
    }
@@ -2776,7 +2783,7 @@ class MkyRouting {
      this.net.resetErrorsCnt(j.remIp);
      if (j.req == 'joinReq'){
        console.error ('MkyRouting.handleReq():: Starting:qued',remIp,j);
-       this.joinQue.set(remIp, { jIp: remIp, j: j, status: "waiting" });
+       this.joinQue.set(remIp, { jIp: remIp, j: j, joinTicket:j.reqId, status: "waiting" });
        return true;
      }
      if (j.req == 'rootStatusDropNode'){
@@ -2820,14 +2827,33 @@ class MkyRouting {
        this.net.endResCX(remIp,JSON.stringify(reply));
      }
      if (j.req === 'joinWaitOK?') {
+       let wait = 'STOP';
+
+       // 1. Check the active join ticket
+       if (this.joinTicket === j.ticketId) {
+         wait = 'keepWaiting';
+       } else {
+         // 2. Check queued joins
+         const entry = this.joinQue.get(j.remIp);
+
+         if (!entry) {
+           console.log("No join entry for IP", j.remIp);
+         } else if (entry.joinTicket !== j.ticketId) {
+           console.log("Ticket mismatch, removing stale entry", entry.joinTicket, j.ticketId);
+           this.joinQue.delete(j.remIp);   // <-- remove invalid entry
+         } else {
+           wait = 'keepWaiting';
+         }
+       }
+
        const reply = {
          response : 'joinWaitOKReply',
          reqId    : j.reqId,
-         result : {
-           status : 'keepWaiting'
-         }
-       } 
-       this.net.endResCX(remIp,JSON.stringify(reply)); 
+         result   : { status: wait }
+       };
+
+       this.net.endResCX(remIp, JSON.stringify(reply));
+       return true;
      }
      if (j.req == 'sendNodeData'){
        if (this.status == 'online' || this.status == 'root'){
