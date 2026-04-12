@@ -1444,7 +1444,8 @@ class MkyRouting {
        }
  
        this.nextpIp = await this.nextParentAddChild(ip,this.r.lnode+1,nextParent);
-      
+       condose.log('MkyRouting.addNewNodeReq():: nextParentAddChild ->', nextIp); 
+
        if (!this.nextpIp){
          console.error('MkyRouting.addNewNodeReq():: nextParentAddChild:Failed For:',ip,newNextPNbr);
          resolve(false);
@@ -1538,8 +1539,73 @@ class MkyRouting {
        this.bcast({findWhoHasChild : {ip:ip,reqId}});
      });
    }
-   nextParentAddChild(ip,nbr,nextParent){
-     return new Promise((resolve,reject)=>{
+   async nextParentAddChild(ip,nbr,nextParent){
+
+     // check if it can be handled localy
+     if (this.r.nextParent === this.myIp && this.r.myNodes.length < this.net.maxPeers) {
+       var node = {ip : ip,nbr : nbr, pgroup : [],rtab : 'na'};
+       this.r.myNodes.push(node);
+       this.r.lnode = nbr;
+       this.r.lastNode = ip;
+
+       // Remove New Node Ip from dropped nodes list;
+       let newNodex = this.dropIps.indexOf(ip);
+       if (newNodex !== -1) {
+         this.dropIps.splice(newNodex, 1);
+       }
+       if ( this.r.myNodes.length < this.net.maxPeers) {return this.myIp;}
+       else { return this.r.rightNode;}
+     } 
+
+     const msg = {
+       req      : 'rootSaysAddChild',
+       response : 'rootSaysAddChildResult',
+       ip       : ip,
+       nbr      : nbr
+     };
+
+     let reply = await this.net.reqReplyObj.waitForReply(nextParent, msg);
+     console.log(`MkyRouting.nextParentAddChild():: child ${ip}, parent: ${nextParent} -> reply: `,reply);
+     if (reply?.result === 'OK'){
+        return reply?.resultNextParentAddChildIp;
+     }
+     return false;
+   }     
+   async rootSaysAddChild(j){
+     let result = 'OK';
+     let rip    = 'NULL';
+
+     console.error('MkyRouting.rootSaysAddChild():: Got Request:ReplyTO '+j.remIp,j);
+     this.parentSaveState = this.saveState();
+
+     if (this.r.myNodes.length < this.net.maxPeers){
+       var node = {ip : j.ip,nbr : j.nbr, pgroup : [],rtab : 'na'};
+       this.r.myNodes.push(node);
+       this.r.lnode = j.nbr;
+       this.r.lastNode = j.ip;
+
+       // Remove New Node Ip from dropped nodes list;
+       let newNodex = this.dropIps.indexOf(j.ip);
+       if (newNodex !== -1) {
+         this.dropIps.splice(newNodex, 1);
+       }
+     } else { result = 'FAILED_ParentFull';}
+
+     // X? Check if the parents child nodes are all filled.
+     // if yes get the ip of the next node right.
+     if (this.r.myNodes.length == this.net.maxPeers) { rip = this.r.rightNode; }
+     else { rip = this.myIp;}
+
+     const reply = {
+       response : 'rootSaysAddChildResult',
+       result   : result,
+       resultNextParentAddChildIp : rip
+     };
+
+     console.error(`MkyRouting.rootSaysAddChild():: sending reply `,j.remIp, reply);
+     this.net.endResCX(j.remIp,JSON.stringify(reply));
+   }
+/*   return new Promise((resolve,reject)=>{
        const reqId = crypto.randomUUID();
        //create error and reply listeners
        var errListener = null;
@@ -1563,6 +1629,7 @@ class MkyRouting {
        this.net.sendMsgCX(nextParent,req);
      });
    }
+*/  
    getMyLayer(maxPeers, nodeNbr) {
      let layer = 1;
      let cumulative = 1; // end of layer 1
@@ -2504,7 +2571,7 @@ class MkyRouting {
    // *****************************************************************
    // Handles all network join requests
    // =================================================================
-   procJoinQue() {
+   async procJoinQue() {
      if (this.joinQue.size > 0) {
 
        // Get first entry in the Map
@@ -2514,7 +2581,9 @@ class MkyRouting {
        this.joinQue.delete(jIp);
 
        // Process it
-       this.handleJoins(jIp, req.j);
+       await this.handleJoins(jIp, req.j)
+       .catch(err => console.error(` procJoinQue():: `, err));
+
      }
 
      setTimeout(() => {
@@ -2529,11 +2598,6 @@ class MkyRouting {
        this.net.endResCX(remIp,`{"addResult":"sorryTryNewRoot","reqId":"${reqId}"}`);
        return;
      }
- 
-     var joinFailed  = null;
-     const saveState = this.saveState();
-     var rollbck     = null;
-
      // Check If The Node Is Busy. If yes que the join request.
  
      if (this.r.rootLock){    
@@ -2544,6 +2608,10 @@ class MkyRouting {
        return;
      }
      try {
+       var joinFailed  = null;
+       const saveState = this.saveState();
+       var rollbck     = null;
+
        this.startJoin  = remIp;
        this.r.rootLock = true;
        this.joinTicket = j.reqId;
@@ -2981,30 +3049,8 @@ class MkyRouting {
        console.error('MkyRouting.handleReq():: gotRequest::dropDanglingNode',j);
        return true;
      }
-     if (j.req == 'nextParentAddChildIp'){
-       console.error('MkyRouting.handleReq():: Got Request:ReplyTO '+remIp,j);
-       this.parentSaveState = this.saveState();
-
-       if (this.r.myNodes.length < this.net.maxPeers){
-         var node = {ip : j.ip,nbr : j.nbr, pgroup : [],rtab : 'na'};
-         this.r.myNodes.push(node);
-         this.r.lnode = j.nbr;
-         this.r.lastNode = j.ip;
-
-         // Remove New Node Ip from dropped nodes list;
-         let newNodex = this.dropIps.indexOf(j.ip);
-         if (newNodex !== -1) {
-           this.dropIps.splice(newNodex, 1);
-         }
-       }
-       if (this.r.myNodes.length == this.net.maxPeers){
-         console.error('MkyRouting.handleReq():: ',remIp,'{"resultNextParentAddChildIp":"'+this.r.rightNode+'"}');
-         this.net.endResCX(remIp,'{"resultNextParentAddChildIp":"'+this.r.rightNode+'"}');
-       }
-       else {
-         console.error(remIp,'{"resultNextParentAddChildIp":"'+this.myIp+'"}');
-         this.net.endResCX(remIp,'{"resultNextParentAddChildIp":"'+this.myIp+'"}');
-       }
+     if (j.req == 'rootSaysAddChild'){
+       this.rootSaysAddChild(j);
        return true;
      }
      return false;
