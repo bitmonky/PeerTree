@@ -64,6 +64,7 @@ function parseChronyOffset(output) {
  ::End Time Overide code 
 */
 
+/*
 // Override console.error
 console.error = function (...args) {
   const message = args.map(a => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
@@ -76,6 +77,7 @@ console.error = function (...args) {
   }
   errorLog.write('\n'+process.title+' '+logTimestamp()+' - '+message+'\n');
 };
+*/
 
 function erFormat(er){
   const lines = er.split("\n");
@@ -291,7 +293,7 @@ class PtreeGenRequestHandler {
     this.net = net;
   }
 
-  waitForReply(ip, req, timeout = 2500) {
+  waitForReply(ip, req, timeout = 10000) {
     return new Promise((resolve) => {
 
       const action   = req.req;
@@ -434,11 +436,12 @@ class MkyRouting {
 
    }
    startTimers() {
-     setTimeout(() =>  {this.verifyRoot();},60*1000);
-     setTimeout(() =>  {this.scanNodesRight();},65*1000);
+     this.procJoinQue();
+     this.verifyRootTimer     = setTimeout(() =>  {this.verifyRoot();},60*1000);
+     this.scanNodesRightTimer = setTimeout(() =>  {this.scanNodesRight();},65*1000);
 
      this.clockPulseDef = 90 * 1000;  
-     this.clockPulse = this.clockPulseDef;
+     this.clockPulse    = this.clockPulseDef;
      if (process.title == 'cronoTreeCell'){
        console.error(`clock starting timeSynPulse();`);
        setTimeout(() => this.timeSyncPulse(), this.clockPulse);
@@ -862,7 +865,7 @@ class MkyRouting {
          }
          else {
            console.error('MkyRouting.verifyRoot():: Better Root Option Availble shutting down to join:',this.myIp,rInfo);
-           this.net.setNodeBackToStartup('Best Network Tree Root has changed! Shutting down to on verify root.');
+           this.net.setNodeBackToStartup('Best Network Tree Root has changed! Shutting down to on verify root.',rInfo.jroot.rip);
          }   
        }
      }
@@ -915,7 +918,7 @@ class MkyRouting {
          this.net.removeListener('peerTReply', rtListen);
          this.net.removeListener('xhrFail', rtLFail);
          resolve(null);
-       },3500);
+       },15*1000);
 
        this.net.on('peerTReply', rtListen = (j)=>{
          if (j.whoIsRootReply && j.remIp == ip){
@@ -1084,7 +1087,7 @@ class MkyRouting {
        console.log('rootDropChild():: rootSaysMoveTo',lastNode.ip,dropIndex,hotRtab);
        const reply = await this.rootSaysMoveTo(lastNode.ip,hotRtab);
 
-       if (reply?.result?.result !== 'OK') {
+       if (reply?.result?.result?.result !== 'OK') {
          console.log('rootDropChild():: Failed At Case 3',reply);
          let newRoot = await this.rootDeathGetNewBestRoot();
          this.bcast({rootDeath : 'migrateToHealthyRoot',bestRootIp:newRoot});
@@ -1093,7 +1096,6 @@ class MkyRouting {
        }
 
        // Update internal state
-       this.r.lnode--;
        this.r.rootLock = false;
      }
      return 'OK';
@@ -1156,7 +1158,8 @@ class MkyRouting {
      this.r = j.hotRtab;
      if (this.r.rightNode === this.myIp){
        this.r.rightNode = null;
-       this.r.lnode = this.r.nodeNbr;
+       this.r.lnode     = this.r.nodeNbr;
+       newLastNodeIp    = this.myIp;
      }
      else {
        this.r.lnode    = newLastNodeNbr;
@@ -1174,7 +1177,8 @@ class MkyRouting {
      }
 
      // Inform the network that a new last node exists.
-     if (response === 'OK') {
+     console.log('rootSaysLastMoveTo():: final response ',response);
+     if (response?.result?.result === 'OK') {
        this.bcast({lnodeNewLastNode : newLastNodeIp, newLastNodeNbr: newLastNodeNbr});
      }
      
@@ -1270,14 +1274,14 @@ class MkyRouting {
         rtab       : rtab,
         childIp    : this.myIp
       };
-      console.log('MkyRouting.backPropRTabChange():: sending to: ${ip} ',msg);
+      console.log(`MkyRouting.backPropRTabChange():: sending to: ${ip} `,msg);
 
       return  await this.net.reqReplyObj.waitForReply(ip, msg);
    }
    async parentUpdateMyRTab(j){
      // Prepare reply object
      const reply = {
-       response : 'backPropRTabChangeResult',
+       response : 'parentUpdateMyRTabResult',
        reqId    : j.reqId,
        result   : 'FAIL_CHILD_NOTFOUND'
      };
@@ -1286,11 +1290,13 @@ class MkyRouting {
      const index  = this.r.myNodes.findIndex(n => n.ip === j.childIp);
      if (index >= 0){
        const child  = this.r.myNodes[index];
+       console.log(`parentUpdateMyRTab():: child info is: `,child);
        child.rtab   = j.rtab;
        reply.result = 'OK';
      }
 
      // Send Reply
+     console.log(`MkyRouting.parentUpdateMyRTab():: sending to: ${j.remIp} `,reply);
      this.net.sendReplyCX(j.remIp,reply);
      return;
    }
@@ -1769,8 +1775,6 @@ class MkyRouting {
          this.status = 'root';
          this.r.nodeNbr = 1;
          console.error("MkyRouting.init():: I am alone :(");
-         
-         this.procJoinQue();
        }
        resolve(true);
      });	     
@@ -2064,11 +2068,12 @@ class MkyRouting {
    becomeRoot(){
      console.error('MkyRouting.becomeRoot():: becoming root node:replacing:'+this.myIp+'-',this.net.rootIp);
      this.initialize();
+     this.net.doHotStartInitialize();
+
      this.net.rootIp   = this.myIp;
      this.status       = 'root';  
      this.net.msgMgr.remove(this.net.rootIp);
 
-     this.procJoinQue();
      if (this.cronoT) this.cronoT.reset();
      this.verifyRoot();
    }
@@ -2145,7 +2150,6 @@ class MkyRouting {
        this.err = null;
        console.error('MkyRouting.lnodeReplaceRoot():: looksLike:',this.r,' For:',ip,nbr);
        console.error('MkyRouting.lnodeReplaceRoot():: I am now root... starting joinQue!');
-       this.procJoinQue(); //******** Are There Other Timers based functions to start!?? *********
        resolve(true);
      });
    }
@@ -2572,21 +2576,28 @@ class MkyRouting {
    // Handles all network join requests
    // =================================================================
    async procJoinQue() {
-     if (this.joinQue.size > 0) {
+     try {
+       // Clear previous timeout if it exists
+       if (this.procT) {
+         clearTimeout(this.procT);
+         this.procT = null;
+       }
 
-       // Get first entry in the Map
-       const [jIp, req] = this.joinQue.entries().next().value;
+       // Process one queued join
+       if (this.joinQue.size > 0) {
+         const [jIp, req] = this.joinQue.entries().next().value;
+         this.joinQue.delete(jIp);
 
-       // Remove it from the Map
-       this.joinQue.delete(jIp);
-
-       // Process it
-       await this.handleJoins(jIp, req.j)
-       .catch(err => console.error(` procJoinQue():: `, err));
-
+         try {
+           await this.handleJoins(jIp, req.j);
+         } catch (err) {
+           console.error("procJoinQue() handleJoins error:", err);
+         }
+       }
+     } catch (err) {
+       console.error("procJoinQue() outer error:", err);
      }
-
-     setTimeout(() => {
+     this.procT = setTimeout(() => {
        this.procJoinQue();
      }, 1000);
    }
@@ -3775,9 +3786,7 @@ class PeerTreeNet extends  EventEmitter {
       this.wmon     = wmon;
       this.options  = options;
       this.PTnodes  = [];
-      this.msgQue   = [];
-      this.rQue     = [];
-      this.msgMgr   = new MkyMsgQMgr();
+      this.doHotStartInitialize();
       this.processMsgQue();
       this.replyQueSend();
       this.sendingReq   = false;
@@ -3789,8 +3798,12 @@ class PeerTreeNet extends  EventEmitter {
          requests : 0,
          data     : 0
       }
-        
-   }  
+   } 
+   doHotStartInitialize(){
+      this.msgQue   = [];
+      this.rQue     = [];
+      this.msgMgr   = new MkyMsgQMgr();
+   } 
    verifyLogin(j){
      console.error('PeerTreeNet.verifyLogin():: verify:->',j);
      const tokTime = Number(j.sesTok.replace(j.ownMUID,''));
@@ -4396,6 +4409,9 @@ class PeerTreeNet extends  EventEmitter {
    your nodes health on the network
    */
    async heartBeat(){
+     try {
+      if (this.heartBeatTimer) clearTimeout(this.heartBeatTimer);
+
       //console.error('PeerTreeNet.heartBeat():: starting heartBeat:',this.rnet.status,this.rnet.err,this.rnet.r.lnStatus);
       if(this.rnet.err){
         console.error('PeerTreeNet.heartBeat():: lnStatusMoving::ping blocked');
@@ -4507,7 +4523,12 @@ class PeerTreeNet extends  EventEmitter {
       else {
         //console.error('PeerTreeNet.heartBeat():: Skipping',this.rnet.err,this.rnet.status);
       }
-      var timeout = setTimeout( ()=>{this.heartBeat();},this.pulseRate);
+    }
+    catch(err){ 
+      console.error('PeerTreeNet.heartBeat():: outer try catch',err);
+    }
+    
+    this.heartBeatTimer = setTimeout( ()=>{this.heartBeat();},this.pulseRate);
   }
   hbeatIncludes(hbeat,ip){
     var result = false;
@@ -4611,6 +4632,8 @@ class PeerTreeNet extends  EventEmitter {
     console.error('PeerTreeNet.setNodeBackToStartup():: Setting Status', this.rnet.status);
 
     this.rnet.initialize();
+    this.doHotStartInitialize();
+
     if (this.waitForNetTimer){
       clearTimeout(this.waitForNetTime);
     }
@@ -4762,22 +4785,26 @@ class PeerTreeNet extends  EventEmitter {
      return 'MSG: req:'+msg.req+',time:'+msg.msgTime+",toHost:"+msg.toHost+",xhrError:"+msg.xhrError;
   }
   processMsgQue() {
-    if (this.msgQue.length) {
-      const retryTime = 500; // 5 attempts over ~2.5 seconds
-      const msg = this.msgQue.shift();
+    try {
+      if (this.msgQue.length) {
+        const retryTime = 500; // 5 attempts over ~2.5 seconds
+        const msg = this.msgQue.shift();
 
-      const waitTime = Date.now() - msg.retryStartTime;
+        const waitTime = Date.now() - msg.retryStartTime;
 
-      if (waitTime > retryTime) {
-        this.msgMgr.remove(msg.toHost);
-        console.error('PeerTreeNet.processMsgQue():: Sending Message from que -> ',this.formatMsg(msg));
-        this.sendMsgCX(msg.toHost, msg);
+        if (waitTime > retryTime) {
+          this.msgMgr.remove(msg.toHost);
+          console.error('PeerTreeNet.processMsgQue():: Sending Message from que -> ',this.formatMsg(msg));
+          this.sendMsgCX(msg.toHost, msg);
         } else {
           this.msgQue.push(msg);
         }
       }
+    } catch(err) {
+      console.err(`processMsgQue()::  try/catch : `,err);
+    }
 
-      setTimeout(() => {
+    setTimeout(() => {
       this.processMsgQue();
     }, 500);
   }
