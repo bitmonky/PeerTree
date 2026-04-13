@@ -129,7 +129,7 @@ process.on('unhandledRejection', (reason, promise) => { // Updated
 var   defPulse            = 5*1000;
 const maxPacket           = 300000000;
 const maxNetErrors        = 5;
-const verifyRootTimer     = 30*1000;
+const verifyRootTimer     = 3500;
 const joinWaitForDropTime = 60*1000;
 
 process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = 0;
@@ -437,8 +437,8 @@ class MkyRouting {
    }
    startTimers() {
      this.procJoinQue();
-     this.verifyRootTimer     = setTimeout(() =>  {this.verifyRoot();},60*1000);
-     this.scanNodesRightTimer = setTimeout(() =>  {this.scanNodesRight();},65*1000);
+     setTimeout(() =>  {this.verifyRoot();},3*1000);
+     setTimeout(() =>  {this.scanNodesRight();},65*1000);
 
      this.clockPulseDef = 90 * 1000;  
      this.clockPulse    = this.clockPulseDef;
@@ -865,7 +865,8 @@ class MkyRouting {
          }
          else {
            console.error('MkyRouting.verifyRoot():: Better Root Option Availble shutting down to join:',this.myIp,rInfo);
-           this.net.setNodeBackToStartup('Best Network Tree Root has changed! Shutting down to on verify root.',rInfo.jroot.rip);
+           this.bcast({rootDeath : 'migrateToHealthyRoot',bestRootIp:rInfo.jroot.rip});
+           this.net.setNodeBackToStartup(`Best Network Tree Root has changed! Shutting down to join ${rInfo.jroot.rip} .`,rInfo.jroot.rip);
          }   
        }
      }
@@ -1831,7 +1832,6 @@ class MkyRouting {
              finish(jres);
            } else {
              this.status = 'waitingToJoin';
-             tick(); // Start monitering the root nodes progress on the join.
            }
          }
        };
@@ -1847,7 +1847,7 @@ class MkyRouting {
        // TIMEOUT LOOP (fixed)
        // -------------------------
        let gtime;
-       let gInterval = 3*1000; // initial wait for 3 seconds then switch to 500ms. 
+       let gInterval = 35*1000; // initial wait for 3 seconds then switch to 500ms. 
        const tick = () => {
          gtime = setTimeout( async () => {
            // test root status periodically while waiting.
@@ -1874,6 +1874,8 @@ class MkyRouting {
            }
          }, gInterval);
        };
+       
+       tick(); // Start monitering the root nodes progress on the join.
 
        this.net.on('peerTReply', onReply);
        this.net.on('xhrFail', onFail);
@@ -2728,9 +2730,9 @@ class MkyRouting {
          }
        });
        this.net.on('xhrFail', rtLFail = (j)=>{
-         if (j.msg.newNode && j.msg.reqId == reqId){
-         console.error('MkyRouting.notifyNetWorkNewNode():: addNode Fails on bcastNewNode:',j);
-         clearTimeout(gtime);
+         if (j.reqId == reqId){
+           console.error('MkyRouting.notifyNetWorkNewNode():: addNode Fails on bcastNewNode:',j);
+           clearTimeout(gtime);
            resolve(false);
            this.net.removeListener('peerTReply', rtListen);
            this.net.removeListener('xhrFail', rtLFail);
@@ -2778,7 +2780,8 @@ class MkyRouting {
         response : 'myHealthCheckReply'
       };
       let reply = await this.net.reqReplyObj.waitForReply(this.r.rootNodeIp, msg);
-      if ( reply?.status === 'OK') {
+      console.log(`myHealthCheck():: root reply:`,reply);
+      if ( reply?.status === 'OK' && this.r.ptreeId === reply.ptreeId) {
         return true;
       }
       console.error('MkyRouting.myHealthCheck():: Failed reply ->',reply);
@@ -2965,7 +2968,8 @@ class MkyRouting {
          if (this.myIp != this.r.rootNodeIp){
            healthy = await this.myHealthCheck();
          } 
-         if (healthy && !this.err){
+         console.log(`handleRequest():: ${j.req} myHealth is `,healthy);
+         if (healthy){
            const qres = {
              whoIsRootReply : {
                rip      : this.r.rootNodeIp,
@@ -3292,7 +3296,18 @@ class MkyRouting {
    async handleError(j){
      // Do NOT retry messages if the Nodes status is online or root.
      //  
+     if (j.req === 'myHealthCheck'){
+       console.error('MkyRouting.handleError():: My Root Not Reachable',j);
+       this.net.setNodeBackToStartup('myHealthCheck Root Not Reachable');
+       return 'FailedSend';
+     }
+
      if (!(this.status === 'root' || this.status === 'online')){
+       if (j.req === 'myHealthCheck'){ 
+         console.error('MkyRouting.handleError():: My Root Not Reachable',j);
+         this.net.setNodeBackToStartup('myHealthCheck Root Not Reachable');
+         return 'FailedSend';         
+       } 
        console.error(`MkyRouting.handleError():: Do not retry whoIsRoot? requests : ${j.req}`);
        return 'FailedSend';
      } 
@@ -3407,6 +3422,7 @@ class MkyRouting {
        // Check if the parent is Root
        if (this.status === 'root') {
          console.log('ERRRRRR drop cause by:',j);
+         this.err = false;
          return await this.rootDropChild(j.toHost);
        }
 
@@ -4516,7 +4532,7 @@ class PeerTreeNet extends  EventEmitter {
 	    hrtbeat.myStatus = 'Alone';
             this.rnet.r.status = 'root'
             console.error('PeerTreeNet.heartBeat():: lowering pulse rate to 15000!');
-            this.pulseRate = 15000;
+            this.pulseRate = 500;
           }
         }
       }
