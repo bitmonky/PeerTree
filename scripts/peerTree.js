@@ -1293,7 +1293,7 @@ class MkyRouting {
      let newLastNodeNbr = this.r.nodeNbr -1;
 
      this.r = j.hotRtab;
-     if (this.r.rightNode === this.myIp){
+     if (this.r.rightNode === this.myIp){ // X? - needs to check for this.r NOT == 'na'
        this.r.rightNode = null;
        this.r.lnode     = this.r.nodeNbr;
        newLastNodeIp    = this.myIp;
@@ -1587,7 +1587,7 @@ class MkyRouting {
        }
  
        this.nextpIp = await this.nextParentAddChild(ip,this.r.lnode+1,nextParent);
-       condose.log('MkyRouting.addNewNodeReq():: nextParentAddChild ->', nextIp); 
+       console.log('MkyRouting.addNewNodeReq():: nextParentAddChild ->', this.nextpIp); 
 
        if (!this.nextpIp){
          console.error('MkyRouting.addNewNodeReq():: nextParentAddChild:Failed For:',ip,newNextPNbr);
@@ -3415,7 +3415,7 @@ class MkyRouting {
        const fres = this.r.myNodes.some(child => child.ip === j.msg.findWhoHasChild.ip);
 
        if (fres) {
-         this.net.sendMsgCX(j.remIp, { resultWhoHasChild: this.myIp,reqId:findWhoHasChild.reqId });
+         this.net.sendMsgCX(j.remIp, { resultWhoHasChild: this.myIp,reqId:j.msg.findWhoHasChild.reqId });
        }
        return true;
      }
@@ -3534,10 +3534,10 @@ class MkyRouting {
       return  await this.net.reqReplyObj.waitForReply(this.r.rootNodeIp, msg);
    }
    async parentSaysRDropNode(j){
-      console.log(`MkyRouting.parentSaysRDropNode():: got msg: `,msg);
+      console.log(`MkyRouting.parentSaysRDropNode():: got msg: `,j);
 
       // Try to get rootLock.
-      console.log('rootDropChild():: try to get lock',node);
+      console.log('parentSaysRDropNode():: try to get lock',j);
       let lock = await this.getRootLock();
       if (lock !== true) {
         console.log("parentSaysRDropNode():: root busy, enqueue drop request", j);
@@ -3545,7 +3545,7 @@ class MkyRouting {
         return 'QUEUED';
       }
       try {
-        await doParentSaysDropNode(j);
+        await this.doParentSaysDropNode(j);
       } finally {
         this.r.rootLock = null;
         this._processDropQueue();
@@ -3553,21 +3553,22 @@ class MkyRouting {
       return;
    }
    async doParentSaysDropNode(j){
-        // Block mulitple attempts to remove the same node.
-        console.log(`rootDropChild():: begin dropping node`,node);
-        if (this.dropIps.includes(node)){
-          console.log('Node Has Been Dropped! ingoring drop:',this.r.myNodes,node);
-          return 'OK'
-        }
-        //...
+        
+        console.log(`rootDropChild():: begin dropping node`,j);
 
-
-        // SendResults Of Drop Request
+        // Prepare SendResults for Drop Request
         const reply = {
           response : 'parentSaysRDropNodeResult',
           reqId    : j.reqId,
           result   : 'OK'
         };
+
+        // Block mulitple attempts to remove the same j.
+        if (this.dropIps.includes(j.nodeIp)){
+          console.log('Node Has Been Dropped! ingoring drop:',this.r.myNodes,j);
+          this.net.sendReplyCX(j.remIp,reply);
+          return;
+        }
 
         console.log(`MkyRouting.parentSaysRDropNode():: sending `,reply);
         this.net.sendReplyCX(j.remIp,reply);
