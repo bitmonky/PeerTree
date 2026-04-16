@@ -1084,39 +1084,6 @@ class MkyRouting {
        this.net.sendMsgCX(ip,req);
      });
    }
-   // ***********************************************
-   // Notify Root That A Node Is Dropping
-   // ===============================================
-   async notifyRootDropingNode(node){
-      if (this.status === 'root') {
-         return await this.rootDropChild(node);
-      }
-     
-      // Send Node DropRequest
-      const msg = {
-        req      : 'rootDropThisNode',
-        response : 'rootDropThisNodeResult',
-        parent   : this.myIp,
-        node     : node
-      };
-      console.error('MkyRouting.notifyRootDropingNode():: send request to root',msg);
-
-      return  await this.net.reqReplyObj.waitForReply(this.r.rootNodeIp, msg);
-   }
-   async rootDropThisNode(j){
-       let result = false;
-       
-       //...
-
-       // SendResults Of Node Drop
-       const reply = {
-         response : 'rootDropThisNodeResult',
-         reqId    : j.reqId,
-         result   : result
-       };
-       this.net.sendReplyCX(j.remIp,reply);
-       return;
-   }
    async getRootLock(){
       let lockTimer   = Date.now();
       let maxLockTime = 60*1000;
@@ -1995,7 +1962,8 @@ class MkyRouting {
        rootTabUpdate : {
          rootIp      : this.r.rootNodeIp,
          lastNodeIp  : this.r.lastNode,
-         lastNodeNbr : this.r.lnode
+         lastNodeNbr : this.r.lnode,
+         nextParent  : this.r.nextParent
        }
      });
    }
@@ -3317,7 +3285,8 @@ class MkyRouting {
        this.r.rootNodeIp = j.msg.rootTabUpdate.rootIp;       
        this.r.lastNode   = j.msg.rootTabUpdate.lastNodeIp;
        this.r.lnode      = j.msg.rootTabUpdate.lastNodeNbr;
-       if (this.r.nodeNbr == this.r.lnode){
+       this.r.nextParent = j.msg.rootTabUpdate.nextParent;
+       if (this.r.nodeNbr === this.r.lnode){
          this.r.rightNode = null;
        }
        this.r.myNodes.forEach((child,index,object)=>{
@@ -3437,15 +3406,25 @@ class MkyRouting {
        //  Begin Drop.
        this.err = true;
 
-       // Check if the parent is Root
+       // Case 1. Check if the parent is Root
        if (this.status === 'root') {
          console.log('doHandleUnresponsiveNode():: parent is root - drop cause by:',j);
          await this.rootDropChild(j.toHost);
          this.err = false;
          return;
        }
-
-       // Parent node but not root
+       
+       // Case 2. Is LastNode and has lost contact with root.
+       // lastNode replaces root..
+   
+       if (this.myIp == this.r.lastNode){
+         console.error('MkyRouting.doHandleUnresponsiveNode():: Case 3. I am lastNode replacing root');
+         await this.lnodeReplaceRoot(this.r.rootNodeIp,1);
+         this.bcastRootTableUpdate();
+         return;
+       }
+ 
+       // Case 3. Is Parent node but not root
        console.log('doHandleUnresponsiveNode():: parent but NOT root - drop cause by:',j);
        await this.parentSaysRootDropNode(j.toHost);
        this.err = false;
@@ -3498,8 +3477,18 @@ class MkyRouting {
           this.net.sendReplyCX(j.remIp,reply);
           return;
         }
+        // X?...
+        // Case 1.  Parent has only one node (this means last node is dropping and nextParent ptr moves left .
+        
+        // Case 2.  Parent last child is droping
+        
+          // 2.1 - and is last node.
+       
+          // 2.2 - none last node dropping.
 
-        console.log(`MkyRouting.parentSaysRDropNode():: sending `,reply);
+
+        // Send drop result back to parent.
+        console.log(`MkyRouting.parentSaysRDropNode():: sending to parent ${j.remIp} result:`,reply);
         this.net.sendReplyCX(j.remIp,reply);
         return;
    }
