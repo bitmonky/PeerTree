@@ -1225,29 +1225,33 @@ class MkyRouting {
        return 'OK'
      }
 
+
      // Case 4. LastNode is a NOT a root child - tell Last Node to move to the dead node spot.
      // IMPORTANT must handle possible change of this.r.nextParent pointer.
-     let lnIp      = this.r.lastNode;
-     let lnPNbr    = this.getMyParentNbr(this.r.lnode);
-     let newLnPNbr = this.getMyParentNbr(this.r.lnode -1);
+     if (dropIndex >= 0 && this.r.lnode > (this.net.maxPeers +1)){
 
-     let tryGet = await this.getNodeLeftIp(this.r.lastNode);
+       console.log('rootDropChild():: starting Case 4. node drop',node);
 
-     if (tryGet?.result !== "OK"){
+       let lnIp      = this.r.lastNode;
+       let lnPNbr    = this.getMyParentNbr(this.r.lnode);
+       let newLnPNbr = this.getMyParentNbr(this.r.lnode -1);
+
+       let tryGet = await this.getNodeLeftIp(this.r.lastNode);
+
+       if (tryGet?.result !== "OK"){
          console.log('rootDropChild():: Failed At Case 4 on tryGet',tryGet);
          let newRoot = await this.rootDeathGetNewBestRoot();
          this.bcast({rootDeath : 'migrateToHealthyRoot',bestRootIp:newRoot});
          this.net.setNodeBackToStartup('Case 4 failure on tryGet');
          return 'FATAL_ERROR';
-     }
-     let newLnIp = tryGet.myLeftIp;
+       }
+       let newLnIp = tryGet.myLeftIp;
      
-     if (lnPNbr !== newLnPNbr){
-       this.r.nextParent = await this.getNodeLeftIp(this.r.nextParent);
-       this.r.nextPNbr   = this.r.nextPNbr -1;
-     }
+       if (lnPNbr !== newLnPNbr){
+         this.r.nextParent = await this.getNodeLeftIp(this.r.nextParent);
+         this.r.nextPNbr   = this.r.nextPNbr -1;
+       }
 
-     if (dropIndex >= 0 && this.r.lnode > (this.net.maxPeers +1)){
        console.log(`rootDropChild():: myNodes Case 4. node ${node} dropIndex ${dropIndex}`,this.r.myNodes);
        const hotRtab  = this.r.myNodes[dropIndex].rtab;
 
@@ -1283,6 +1287,7 @@ class MkyRouting {
        this.bcastRootTableUpdate();
        return 'OK'
      }
+     console.log('rootDropChild():: exited with out handle!');
      return 'NO_CaseHandler'
    }
    async rootDeathGetNewBestRoot(){
@@ -2162,6 +2167,15 @@ class MkyRouting {
    // Check If Ip is in either the root table or my peer group
    // If yes return the node number of the node.
    // ======================================================
+   isReallyMyChild(ip){
+     if (Array.isArray(this.r.myNodes)) {
+       for (var node of this.r.myNodes){
+         if (node.ip == ip)
+           return true;
+       }
+     }
+     return false;
+   }
    inMyNodesList(ip){
      // Last node has root as child.
      if (this.myIp == this.r.lastNode && ip == this.r.rootNodeIp )
@@ -2837,7 +2851,7 @@ class MkyRouting {
 
          console.error('MkyRouting.handleJoins():: addNewNODE Result',addRes);
          if (addRes){
-           rollbck = await this.notifyNetWorkNewNode(j.remIp,this.r.rootNodeIp,reqId);
+           rollbck = await this.notifyNetWorkNewNode(j.remIp,this.r.rootNodeIp,reqId,this.r.nextParent,this.r.nextPNbr);
            console.error('MkyRouting.handleJoins():: notifyNetworkNewNode is: -> ',rollbck);
          }
          else {
@@ -2864,7 +2878,7 @@ class MkyRouting {
        this.r.rootLock = false;
      }
    }
-   notifyNetWorkNewNode(remIp,rootIp,reqId){
+   notifyNetWorkNewNode(remIp,rootIp,reqId,nextParent,nextPNbr){
      return new Promise((resolve,reject)=>{
        var rtListen = null;
        var rtLFail  = null;
@@ -2894,8 +2908,8 @@ class MkyRouting {
            this.net.removeListener('xhrFail', rtLFail);
          }
        });
-       console.error(JSON.stringify({newNode:remIp, rootUpdate:rootIp, reqId:reqId}));
-       this.bcast({newNode:remIp, rootUpdate:rootIp, reqId:reqId});
+       console.error(JSON.stringify({newNode:remIp, rootUpdate:rootIp, reqId:reqId,nextParent:nextParent,nextPNbr:nextPNbr}));
+       this.bcast({newNode:remIp, rootUpdate:rootIp, reqId:reqId,nextParent:nextParent,nextPNbr:nextPNbr});
      });
    }
    async resultFromJoiningNode(joinIp){
@@ -3368,7 +3382,7 @@ class MkyRouting {
    handleBcast(j){
      //console.error('MkyRouting.handleBcast():: Broadcast Recieved: ',j);
      if (j.msg.newNode){
-       this.addNewNodeBCast(j.msg.newNode,j.msg.rootUpdate,j.msg.reqId);
+       this.addNewNodeBCast(j.msg);
        return true;
      }
      if (j.remIp == this.myIp){
@@ -3721,28 +3735,29 @@ class MkyRouting {
        this.PIR_processDropQueue();
      }
    }
-   addNewNodeBCast(ip,rUpdate,reqId){
-     console.error('MkyRouting.addNewNodeBCast():: Add by BROADCAST '+ip,rUpdate);
+   addNewNodeBCast(j) { 
+
+     console.error('MkyRouting.addNewNodeBCast():: Add by BROADCAST '+j.newNode,j.rootUpdate);
      if (this.startJoin){
        this.startJoin = false;
      }
-     if (this.inMyNodesList(ip)){
-       console.error('MkyRouting.addNewNodeBCast():: inMyNodesList true');
-       return false;
-     }
-
-     if (ip == this.myIp){
-       console.error('MkyRouting.addNewNodeBCast():: Join BCast Confirmed ',ip,rUpdate,reqId,this.r.rootNodeIp);
-       const reply = {resultFromJoinBCast : 'newLNodeOK',reqId : reqId};
+     
+     if (j.newNode == this.myIp){
+       console.error('MkyRouting.addNewNodeBCast():: Join BCast Confirmed ',j.newNode,j.rootUpdate,j.reqId,this.r.rootNodeIp);
+       const reply = {resultFromJoinBCast : 'newLNodeOK',reqId : j.reqId};
        this.net.endResCX(this.r.rootNodeIp,JSON.stringify(reply));
        return false;
      }
 
-     if (rUpdate)
-       this.r.rootNodeIp = rUpdate;
-     
-     this.r.lastNode = ip;
-     this.incCounters();
+     if (j.rootUpdate) {
+       this.r.rootNodeIp = j.rootUpdate;
+     }  
+     this.r.lastNode   = j.newNode;
+     this.r.nextParent = j.nextParent;
+     this.r.nextPNbr   = j.nextPNbr;
+     if (!this.inMyNodesList(j.newNode)){
+       this.incCounters();
+     }
      return false;
    }
    // ****************************************
