@@ -293,7 +293,7 @@ class PtreeGenRequestHandler {
     this.net = net;
   }
 
-  waitForReply(ip, req, timeout = 20000) {
+  waitForReply(ip, req, timeout = 10000) {
     return new Promise((resolve) => {
 
       const action   = req.req;
@@ -1155,7 +1155,6 @@ class MkyRouting {
        console.log('MkyRouting.rootDropChild():: Case 1. Only two nodes in the network',node);
 
          
-       this.r.rootNodeIp = this.myIp;  // Top of the network routing table plus each nodes peer group.
        this.r.rootRTab   = 'na';
        this.r.myNodes    = [];         // forwarding ips for each nodes peer group.
        this.r.lastNode   = this.myIp;
@@ -1954,6 +1953,13 @@ class MkyRouting {
      console.error('MkyRouting.init():: joinRes::', joinRes);
 
      if (joinRes === 'joinSuccess') {
+
+       if (this.myIp === this.r.rootNodeIp){
+         // X?toFIX - This should never happen!! but for now this is a fix
+         console.error(`MkyRouting.doMakeJoinRequest():: joining node  asigned rootNodeIp but NOT root conflict`,reqId);
+         this.setNodeBackToStartup('joining node  asigned rootNodeIp but not root conflict');
+         return;
+       }
        this.status = 'online';
        return;
      }
@@ -2878,6 +2884,15 @@ class MkyRouting {
        this.r.rootLock = false;
      }
    }
+   checkForRoutingErrors(){
+      // None RootNode errors.
+      if (this.status === 'online'){
+        if (this.myIp === this.r.rootNodeIp){
+          this.net.setNodeBackToStartup(`checkForRoutingErrors -> online ip same root ip`);
+          return;
+        } 
+      } 
+   }
    notifyNetWorkNewNode(remIp,rootIp,reqId,nextParent,nextPNbr){
      return new Promise((resolve,reject)=>{
        var rtListen = null;
@@ -2934,6 +2949,7 @@ class MkyRouting {
       while (trys < maxTry && (this.status === 'startingJoin' || this.status === 'waitingToJoin')){   
         console.log(`resultFromJoin():: waiting for 'online' signal`,this.status);
         await sleep(250);
+        trys++;
       }  
       let result = 'FAILED_JOIN'; 
       if (this.status === 'online') {
@@ -3301,16 +3317,20 @@ class MkyRouting {
        this.r.myNodes = [];
        this.r.nodeNbr = this.r.lnode;
        this.newNode = null;
-       this.status = 'online';
-   
+
+       console.log(`processMyJoinResponse():: pushRTab check: this.r.myParent`,this.r.myParent);
+ 
        if (this.r.myParent !== null){
          let sendRTab = await this.pushRTabToParent();
          console.log(`processMyJoinResponse():: pushRTabToParent`,sendRTab);
          if (sendRTab?.result !== 'OK'){
+           console.log(`processMyJoinResponse():: pushRTabToParent FAILED`,sendRTab);
+           this.net.setNodeBackToStartup('my join request failed on hRTabToParent.');
            resolve('pushRTabFailed');
            return;
          }
        } 
+  
        resolve('joinSuccess');
      });
    }
@@ -3755,7 +3775,7 @@ class MkyRouting {
      this.r.lastNode   = j.newNode;
      this.r.nextParent = j.nextParent;
      this.r.nextPNbr   = j.nextPNbr;
-     if (!this.inMyNodesList(j.newNode)){
+     if (!this.isReallyMyChild(j.newNode)){
        this.incCounters();
      }
      return false;
@@ -4474,7 +4494,8 @@ class PeerTreeNet extends  EventEmitter {
                    // if offline mode check for addResults only.
                    if(this.rnet.status != 'online' && this.rnet.status != 'root'){
                      if (!(j.msg.hasOwnProperty('addResult')
-                        || j.msg.hasOwnProperty('resultAddMeRight') 
+                        || j.msg.hasOwnProperty('resultAddMeRight')
+                        || j.msg.response === 'pushingRTabToParentResult' 
                         || j.msg.hasOwnProperty('whoIsRootReply'))){
                          
                        //console.error('PeerTreeNet.startServer():: NETReply::Offline Reject:',this.rnet.status,j);
@@ -4692,6 +4713,8 @@ class PeerTreeNet extends  EventEmitter {
    async heartBeat(){
      try {
       if (this.heartBeatTimer) clearTimeout(this.heartBeatTimer);
+      
+      this.rnet.checkForRoutingErrors();
 
       //console.error('PeerTreeNet.heartBeat():: starting heartBeat:',this.rnet.status,this.rnet.err,this.rnet.r.lnStatus);
       if(this.rnet.err){
