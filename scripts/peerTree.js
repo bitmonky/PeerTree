@@ -981,7 +981,8 @@ class MkyRouting {
        response : 'whoIsYourLeftResult',
        reqId    : j.reqId,
        result   : 'OK',
-       myLeftIp : this.r.leftNode
+       myLeftIp : this.r.leftNode,
+       myParent : this.r.myParent
      };
      console.log(`whoIsYourLeft():: sending to ${j.remIp} `,reply);
      this.net.sendReplyCX(j.remIp,reply);
@@ -1236,16 +1237,19 @@ class MkyRouting {
        let newLnPNbr = this.getMyParentNbr(this.r.lnode -1);
 
        let tryGet = await this.getNodeLeftIp(this.r.lastNode);
-
-       if (tryGet?.result !== "OK"){
-         console.log('rootDropChild():: Failed At Case 4 on tryGet',tryGet);
-         let newRoot = await this.rootDeathGetNewBestRoot();
-         this.bcast({rootDeath : 'migrateToHealthyRoot',bestRootIp:newRoot});
-         this.net.setNodeBackToStartup('Case 4 failure on tryGet');
-         return 'FATAL_ERROR';
+       if ( await this.tryGetFailHandle(tryGet,'Failed At Case 4 on getNodeLeftIp') === 'FAIL'){
+         return tryGet?.result;
        }
-       let newLnIp = tryGet.myLeftIp;
+
+       let newLnIp  = tryGet.myLeftIp;
+       let parentIp = tryGet.myParent;
      
+       // Tell lastNodes parent to drop its lastnode entry.
+       tryGet = await this.doTellLastNodeParentDrop(parentIp,lnIp);
+       if ( await this.tryGetFailHandle(tryGet,'Failed At Case 4 on TellLastNodeParent Drop') === 'FAIL'){
+         return tryGet?.result;
+       } 
+
        if (lnPNbr !== newLnPNbr){
          this.r.nextParent = await this.getNodeLeftIp(this.r.nextParent);
          this.r.nextPNbr   = this.r.nextPNbr -1;
@@ -1289,6 +1293,18 @@ class MkyRouting {
      console.log('rootDropChild():: exited with out handle!');
      return 'NO_CaseHandler'
    }
+   async tryGetFailHandle(tryGet, action, res = null) {
+     if (tryGet?.result !== "OK") {
+       console.log(`tryGetFailHandle():: Failed on: ${action}`, tryGet);
+
+       let newRoot = await this.rootDeathGetNewBestRoot();
+       this.bcast({ rootDeath: 'migrateToHealthyRoot', bestRootIp: newRoot });
+       this.net.setNodeBackToStartup(action);
+
+       return 'FAIL';
+     }
+     return 'OK';
+   }
    async rootDeathGetNewBestRoot(){
      let newRoot = this.myIp;
      const rmap = await this.findWhoIsRoot();
@@ -1299,6 +1315,36 @@ class MkyRouting {
        else {newRoot = newRoot.jroot.rip;}
      }
      return newRoot;
+   }
+   async doTellLastNodeParentDrop(parentIp,lastNode){
+     // tell lastNode's parent to drop entry to lastNode.
+      const msg = {
+        req       : 'rootSaysDropLastNode',
+        response  : 'rootSaysDropLastNodeResult',
+        lastNode  : lastNode
+      };
+   
+      console.log(`MkyRouting.doTellLastNodeParentDrop():: sending to ${parentIp}`,msg);
+
+      return  await this.net.reqReplyObj.waitForReply(parentIp, msg);
+   }
+   async rootSaysDropLastNode(j){
+     const reply = {
+       reqId     : j.reqId,
+       response  : 'rootSaysDropLastNodeResult',
+       result    : 'OK'
+     };
+
+     // Do drop lastNode from child nodes
+     if (this.r.myNodes[this.r.myNodes.length -1].ip === j.lastNode){
+       this.r.myNodes.pop();
+     } else { 
+       reply.result = 'FAILED_NOT_MYCHILD';       
+     }
+
+     console.log(`rootSaysDropLastNode():: sending `,reply);
+     this.net.sendReplyCX(j.remIp,reply);
+     return;
    }
    async notifyNewLastNode(ip){
       // tell node to become last node.
@@ -3195,6 +3241,10 @@ class MkyRouting {
        else {
          this.net.endResCX(remIp,JSON.stringify({response:"myHealthCheckReply",status:{nodeStatus:this.status,errState:this.err},reqId:j.reqId}));
        }
+       return true;
+     }
+     if (j.req === 'rootSaysDropLastNode'){
+       await this.rootSaysDropLastNode(j);
        return true;
      }
      if (j.req === 'parentDropLastNode'){
