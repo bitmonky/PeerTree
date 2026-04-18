@@ -1245,23 +1245,51 @@ class MkyRouting {
        let parentIp = tryGet.myParent;
      
        // Tell lastNodes parent to drop its lastnode entry.
-       tryGet = await this.doTellLastNodeParentDrop(parentIp,lnIp);
-       if ( await this.tryGetFailHandle(tryGet,'Failed At Case 4 on TellLastNodeParent Drop') === 'FAIL'){
-         return tryGet?.result;
-       } 
-
-       if (lnPNbr !== newLnPNbr){
-         this.r.nextParent = await this.getNodeLeftIp(this.r.nextParent);
-         this.r.nextPNbr   = this.r.nextPNbr -1;
-       }
+       // 4.1 make sure the drop node is NOT the lastNode parent.
+       if ( parentIp !== node){
+         tryGet = await this.doTellLastNodeParentDrop(parentIp,lnIp);
+         if ( await this.tryGetFailHandle(tryGet,'Failed At Case 4 on TellLastNodeParent Drop') === 'FAIL'){
+           return tryGet?.result;
+         }
+       }  
 
        console.log(`rootDropChild():: myNodes Case 4. node ${node} dropIndex ${dropIndex}`,this.r.myNodes);
        const hotRtab  = this.r.myNodes[dropIndex].rtab;
+       let parentNodeUpdate = false;
+
+       if (lnPNbr !== newLnPNbr){
+         if (this.r.nextParent !== node){
+           let tryGet = await this.getNodeLeftIp(this.r.nextParent);
+           if ( await this.tryGetFailHandle(tryGet,'Failed At Case 4.1 on getNodeLeftIp') === 'FAIL'){
+             return tryGet?.result;
+           }
+           this.r.nextParent = tryGet.myLeftIp;
+         } else {
+           this.r.nextParent = hotRtab.leftNode;
+         }
+         this.r.nextPNbr   = this.r.nextPNbr -1;
+       }
+       else if (this.r.nextParent === node){
+         this.r.nextParent = lnIp;
+
+         // 1. Remove lastNode from the dropping nodes hot routing table.
+         if(hotRtab.myNodes[hotRtab.myNodes.length -1].ip === lnIp){
+           hotRtab.myNodes.pop();
+         }
+         // 2. Find out if the new lastNode has the dead node as parent
+         //if (this.isMyRealChild(hotRtab.myNodes,newLnIp)){
+         //  newLastNodeParent = lnIp;
+         //}
+       }
+  
+       if (hotRtab.myNodes.length > 0) {
+         parentNodeUpdate = { oldParent : node, newParent : lnIp};
+       }
 
        // check if lastNode is the deadNodes child if yes remove it
        if (Array.isArray(hotRtab.myNodes)) {
          const last = hotRtab.myNodes.length - 1;
-         if (last >= 0 && hotRtab.myNodes[last] === this.r.lastNode) {
+         if (last >= 0 && hotRtab.myNodes[last].ip === this.r.lastNode) {
            hotRtab.myNodes.pop();
          }
        }
@@ -1276,8 +1304,8 @@ class MkyRouting {
        this.r.myNodes[dropIndex].ip = lnIp;
 
        // Tell last node to move into dropIndex
-       console.log(`rootDropChild():: rootSaysMoveTo to ${lnIp} `,lnIp,dropIndex,hotRtab);
-       const reply = await this.rootSaysMoveTo(lnIp,hotRtab);
+       console.log(`rootDropChild():: rootSaysMoveTo to ${lnIp} `,lnIp,dropIndex,hotRtab,parentNodeUpdate);
+       const reply = await this.rootSaysMoveTo(lnIp,hotRtab,parentNodeUpdate);
 
        if (reply?.result !== 'OK') {
          console.log('rootDropChild():: Failed At Case 4',reply);
@@ -1373,13 +1401,14 @@ class MkyRouting {
      this.net.sendReplyCX(j.remIp,reply);
      return;
    }
-   async rootSaysMoveTo(ip,hotRtab){
+   async rootSaysMoveTo(ip,hotRtab,newParent=false){
       // tell lastNode to replace dead node.
       if (hotRtab?.rootLock) hotRtab.rootLock = false;
       const msg = {
         req        : 'rootSaysLastMoveTo',
         response   : 'rootSaysLastMoveToResult',
-        hotRtab    : hotRtab
+        hotRtab    : hotRtab,
+        newParent  : newParent 
       };
       console.log(`MkyRouting.rootSaysMoveTo()::  sending to: ${ip} `,msg);
 
@@ -1427,7 +1456,7 @@ class MkyRouting {
      // Inform the network that a new last node exists.
      console.log('rootSaysLastMoveTo():: final response ',doTry,response);
      if (response === 'OK') {
-       this.bcast({lnodeNewLastNode : newLastNodeIp, newLastNodeNbr: newLastNodeNbr});
+       this.bcast({lnodeNewLastNode : newLastNodeIp, newLastNodeNbr: newLastNodeNbr,parentNodeUpdate:j.newParent});
      }
      
      // SendResults Of Change Request
@@ -3467,10 +3496,20 @@ class MkyRouting {
        if (this.myIp === j.msg.lnodeNewLastNode){
          this.r.rightNode = null;
          this.r.lastNode  = this.myIp;
-         this.r.lnode     = this.r.nodeNbr;
+         this.r.lnode     = j.msg.newLastNodeNbr;
          this.r.lnStatus  = 'OK';
+         if (j.msg?.parentNodeUpdate !== false){
+           if (this.r.myParent === j.msg.parentNodeUpdate.oldParent){
+             this.r.myParent = j.msg.parentNodeUpdate.newParent;
+           }
+         }
          console.log(`handleBcast():: heard I am new last node: ${this.myIp} `, j.msg,this.r);
          return true;
+       }
+       if (j.msg?.parentNodeUpdate !== false){
+         if ( this.r.myParent === j.msg.parentNodeUpdate.oldParent){
+           this.r.myParent = j.msg.parentNodeUpdate.newParent;
+         }
        }
        this.r.lastNode = j.msg.lnodeNewLastNode;
        this.r.lnode    = j.msg.newLastNodeNbr;
@@ -3833,6 +3872,13 @@ class MkyRouting {
    // ****************************************
    // Check if ip is in my child nodes list
    // ========================================
+   isMyRealChild(nodes,ip){
+     for (var node of nodes){
+       if (node.ip == ip)
+         return true;
+     }
+     return false;
+   }
    isMyChild(ip){
      if (this.myIp == this.r.lastNode && this.r.nodeNbr > 1 && ip == this.r.rootNodeIp ){
        return this.r.rootNodeIp;
