@@ -1193,8 +1193,8 @@ class MkyRouting {
        }
        // Inform the network that a new last node exists.
        if (this.r.lnode > 2) {
-         console.log(`console.log('MkyRouting.rootDropChild():: bcast: `,{lnodeNewLastNode : newLastNode.ip, newLastNodeNbr: this.r.lnode});
-         this.bcast({lnodeNewLastNode : newLastNode.ip, newLastNodeNbr: this.r.lnode});
+         console.log(`console.log('MkyRouting.rootDropChild():: bcast: `,{lnodeNewLastNode : newLastNode.ip, newLastNodeNbr: this.r.lnode,parentNodeUpdate:false});
+         this.bcast({lnodeNewLastNode : newLastNode.ip, newLastNodeNbr: this.r.lnode,parentNodeUpdate:false});
        }
        return 'OK'
      }  
@@ -3272,6 +3272,10 @@ class MkyRouting {
        }
        return true;
      }
+     if (j.req === 'rootSaysDropPDropChild'){
+       await this.rootSaysDropPDropChild(j);
+       return true;
+     }
      if (j.req === 'rootSaysDropLastNode'){
        await this.rootSaysDropLastNode(j);
        return true;
@@ -3691,19 +3695,20 @@ class MkyRouting {
  
          // Case 3. Is Parent node but not root
          console.log('doHandleUnresponsiveNode():: parent but NOT root - drop cause by:',j);
-         await this.parentSaysRootDropNode(j.toHost);
+         await this.parentSaysRootDropNode(j.toHost,this.r);
          this.err = false;
          return;
        } finally {
          this.err = false;
        }
    }
-   async parentSaysRootDropNode(nodeIp){
+   async parentSaysRootDropNode(nodeIp,rtab){
       // tell root node to initiate drop of my child node.
       const msg = {
-        req       : 'parentSaysRDropNode',
-        response  : 'parentSaysRDropNodeResult',
-        nodeIp    : nodeIp
+        req        : 'parentSaysRDropNode',
+        response   : 'parentSaysRDropNodeResult',
+        nodeIp     : nodeIp,
+        parentRtab : rtab 
       };
       console.log(`MkyRouting.parentSaysRootDropNode():: sending to root: ${this.r.rootNodeIp}`,msg);
 
@@ -3747,7 +3752,12 @@ class MkyRouting {
         }
         // X?...
         // Case 1.  Parent has only one node (this means last node is dropping and nextParent ptr moves left .
-        
+        if (j.parentRtab.myNodes.length === 1){
+          const tryGet = await this.rootSaysParentDropChild(j.remIp,j.nodeIp,'Case1');
+          if ( await this.tryGetFailHandle(tryGet,'doParenSaysDropNode Failed At Case 1.') === 'FAIL'){
+            return tryGet?.result;
+          }
+        }
         // Case 2.  Parent last child is droping
         
           // 2.1 - and is last node.
@@ -3759,6 +3769,44 @@ class MkyRouting {
         console.log(`MkyRouting.parentSaysRDropNode():: sending to parent ${j.remIp} result:`,reply);
         this.net.sendReplyCX(j.remIp,reply);
         return;
+   }
+   async rootSaysParentDropChild(toIp,dropIp,caseNbr){
+     // tell lastNode's parent to drop entry to lastNode.
+      const msg = {
+        req       : 'rootSaysDropPDropChild',
+        response  : 'rootSaysDropPDropChildResult',
+        dropIp    : dropIp,
+        case      : caseNbr
+      };
+
+      console.log(`MkyRouting.rootSaysParentDropChild():: sending to ${toIp}`,msg);
+
+      return  await this.net.reqReplyObj.waitForReply(toIp, msg);
+   }
+   async rootSaysDropPDropChild(j){
+     const reply = {
+       reqId     : j.reqId,
+       response  : 'rootSaysDropPDropChildResult',
+       result    : 'OK'
+     };
+     
+     // Case 1. last node is parents only child
+     if (j.case === 'Case1') {
+       if( this.r.myNodes[0].ip === j.dropIp && this.r.myNodes.length === 1){
+         const drRtab = this.r.myNodes[0].rtab; 
+         this.r.myNodes.pop();
+         this.r.lastNode = drRtab.leftNode;
+         this.r.lnode    = drRtab.nodeNbr -1;
+         console.log(`console.log('MkyRouting.rootSaysDropPDropChild():: bcast: `,{lnodeNewLastNode : drRtab.leftNode, newLastNodeNbr: this.r.lnode,parentNodeUpdate:false});
+         this.bcast({lnodeNewLastNode : drRtab.leftNode, newLastNodeNbr: this.r.lnode,parentNodeUpdate:false});
+       }
+     } else {
+       reply.result = 'FAILED_CASE1_MYCHILD';
+     }
+
+     console.log(`rootSaysDropPDropChild():: sending reply`,reply);
+     this.net.sendReplyCX(j.remIp,reply);
+     return;
    }
 /*
        const oldLastNodeIP = this.r.lastNode;
