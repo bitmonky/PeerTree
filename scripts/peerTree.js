@@ -3284,6 +3284,10 @@ class MkyRouting {
        await this.parentDropLastNode(j);
        return true;
      }
+     if (j.req === 'parentSaysLastMoveTo'){
+       await this.parentSaysLastMoveTo(j);
+       return true;
+     }
      if (j.req === 'whoIsYourLeft'){
        await this.whoIsYourLeft(j);
        return true;
@@ -3759,11 +3763,22 @@ class MkyRouting {
           }
         }
         // Case 2.  Parent last child is droping
-        
-          // 2.1 - and is last node.
-       
-          // 2.2 - none last node dropping.
+        if (j.parentRtab.myNodes.length > 1){
+          if(j.parentRtab.myNodes[j.parentRtab.myNodes.length -1].ip === j.nodeIp && j.parentRtab.myNodes.length === this.net.maxPeers){
+            // 2.1 - and it is last node.
 
+            let  tryGet = await this.rootSaysParentDropChild(j.remIp,j.nodeIp,'Case2.1');
+            if ( await this.tryGetFailHandle(tryGet,'doParenSaysDropNode Failed At Case 2.1') === 'FAIL'){
+              return tryGet?.result;
+            }
+       
+            // 2.2 All others
+            tryGet = await this.rootSaysParentDropChild(j.remIp,j.nodeIp,'Case2.2');
+            if ( await this.tryGetFailHandle(tryGet,'doParenSaysDropNode Failed At Case 2.2') === 'FAIL'){
+              return tryGet?.result;
+            }
+          } 
+        }
 
         // Send drop result back to parent.
         console.log(`MkyRouting.parentSaysRDropNode():: sending to parent ${j.remIp} result:`,reply);
@@ -3789,7 +3804,12 @@ class MkyRouting {
        response  : 'rootSaysDropPDropChildResult',
        result    : 'OK'
      };
-     
+
+     //check for lastNode in child list;
+     const lnIdx = this.r.myNodes.findIndex(n => n.ip === this.r.lastNode);
+     const oldLastNode = this.r.lastNode;
+     const parentUpdate = {oldParent : j.dropIp, newParent : oldLastNode};
+
      // Case 1. last node is parents only child
      if (j.case === 'Case1') {
        if( this.r.myNodes[0].ip === j.dropIp && this.r.myNodes.length === 1){
@@ -3797,14 +3817,126 @@ class MkyRouting {
          this.r.myNodes.pop();
          this.r.lastNode = drRtab.leftNode;
          this.r.lnode    = drRtab.nodeNbr -1;
-         console.log(`console.log('MkyRouting.rootSaysDropPDropChild():: bcast: `,{lnodeNewLastNode : drRtab.leftNode, newLastNodeNbr: this.r.lnode,parentNodeUpdate:false});
-         this.bcast({lnodeNewLastNode : drRtab.leftNode, newLastNodeNbr: this.r.lnode,parentNodeUpdate:false});
+         console.log(`console.log('MkyRouting.rootSaysDropPDropChild():: bcast: `,{lnodeNewLastNode : drRtab.leftNode, newLastNodeNbr: this.r.lnode,parentNodeUpdate:parentUpdate});
+         this.bcast({lnodeNewLastNode : drRtab.leftNode, newLastNodeNbr: this.r.lnode,parentNodeUpdate:parentUpdate});
        }
-     } else {
-       reply.result = 'FAILED_CASE1_MYCHILD';
+       else { reply.result = 'FAILED_CASE1_MYCHILD';}
+     }
+     else if (j.case === 'Case2.1'){
+       // Last Child Is LastNode
+
+       if( this.r.myNodes[this.r.myNodes.length -1].ip === j.dropIp && this.r.myNodes.length === this.net.maxPeers){
+         const drRtab = this.r.myNodes[this.r.myNodes.length -1].rtab;
+         this.r.myNodes.pop();
+         this.r.lastNode = drRtab.leftNode;
+         this.r.lnode    = drRtab.nodeNbr -1;
+         console.log(`console.log('MkyRouting.rootSaysDropPDropChild():: bcast: `,{lnodeNewLastNode : drRtab.leftNode, newLastNodeNbr: this.r.lnode,parentNodeUpdate:parentUpdate});
+         this.bcast({lnodeNewLastNode : drRtab.leftNode, newLastNodeNbr: this.r.lnode,parentNodeUpdate:parentUpdate});
+       }
+       else { reply.result = 'FAILED_CASE2.1_MYCHILD';}
+     }
+     else if (j.case === 'Case2.2'){
+       
+       if (lnIdx > -1){
+         // Child nodes contain the last node.
+  
+         const lnRtab = this.r.myNodes[lnIdx];
+         const idx = this.r.myNodes.findIndex(n => n.ip === j.dropIp);
+
+         if( idx > 0 && this.r.myNodes[idx].ip === j.dropIp) {
+           const drRtab = this.r.myNodes[idx].rtab;
+           const newLn  = lnRtab.leftNode;
+           this.r.myNodes.splice(idx, 1);
+           this.r.lastNode = newLn;
+           this.r.lnode    = lnRtab.nodeNbr -1;
+
+           const doTry = await this.parentSaysMoveTo(oldLastNode,drRtab);
+           if (doTry?.result === 'OK') {
+             console.log(`console.log('MkyRouting.rootSaysDropPDropChild():: bcast: `,{lnodeNewLastNode : newLn, newLastNodeNbr: this.r.lnode,parentNodeUpdate:parentUpdate});
+             this.bcast({lnodeNewLastNode : newLn, newLastNodeNbr: this.r.lnode,parentNodeUpdate:parentUpdate});
+           }
+           else { reply.result = 'FAILED_CASE2.2_MOVE_LN';}
+         } 
+         else { reply.result = 'FAILED_CASE2.2_MYCHILD';}
+       }
+       else { 
+         // No Child Is LastNode.
+
+         const doTry = await this.getNodeLeftIp(this.r.lastNode);
+         const idx   = this.r.myNodes.findIndex(n => n.ip === j.dropIp);
+
+         if (doTry?.result === 'OK' && this.r.myNodes[idx].ip === this.j.dropIp) {   
+           const drRtab = this.r.myNodes[idx].rtab;
+           this.r.myNodes.splice(idx, 1);
+           const newLn     = doTry.myLeftIp;
+           this.r.lastNode = newLn;
+           this.r.lnode    = this.r.lnode -1;
+
+           const doTry = await this.parentSaysMoveTo(oldLastNode,drRtab);
+           if (doTry?.result === 'OK'){
+             console.log(`console.log('MkyRouting.rootSaysDropPDropChild():: bcast: `,{lnodeNewLastNode : newLn, newLastNodeNbr: this.r.lnode,parentNodeUpdate:parentUpdate});
+             this.bcast({lnodeNewLastNode : newLn, newLastNodeNbr: this.r.lnode,parentNodeUpdate:parentUpdate});
+           }
+           else { reply.result = 'FAILED_CASE2.3_MOVE_LN';}
+         }
+         else { reply.result = 'FAILED_CASE2.3_MYCHILD';}     }
+     }
+     console.log(`rootSaysDropPDropChild():: sending reply`,reply);
+     this.net.sendReplyCX(j.remIp,reply);
+     return;
+   }
+   async parentSaysMoveTo(ip,hotRtab,newParent=false){
+      // tell lastNode to replace dead node.
+
+      const msg = {
+        req        : 'parentSaysLastMoveTo',
+        response   : 'parentSaysLastMoveToResult',
+        hotRtab    : hotRtab,
+        newParent  : newParent
+      };
+      console.log(`MkyRouting.parentSaysMoveTo()::  sending to: ${ip} `,msg);
+
+      return  await this.net.reqReplyObj.waitForReply(ip, msg);
+   }
+   async parentSaysLastMoveTo(j) {
+     let response = 'noRES';
+     let doTry    = 'noRES';
+
+     let newLastNodeIp  = this.r.leftNode;
+     let newLastNodeNbr = this.r.nodeNbr -1;
+
+     this.r = j.hotRtab;
+     if (this.r.rightNode === this.myIp){ // X? - needs to check for this.r NOT == 'na'
+       this.r.rightNode = null;
+       this.r.lnode     = this.r.nodeNbr;
+       newLastNodeIp    = this.myIp;
+     }
+     else {
+       this.r.lnode    = newLastNodeNbr;
+       this.r.lastNode = newLastNodeIp;
      }
 
-     console.log(`rootSaysDropPDropChild():: sending reply`,reply);
+     console.log('parentSaysLastMoveTo():: heard!!! parentSaysLastMoveTo',j);
+
+     doTry  = await this.doAddMeToYourRight(this.r.leftNode);
+     response = doTry?.result ?? 'FAIL';
+
+     console.log('parentSaysLastMoveTo():: doTry: ',doTry,response);
+     console.log('parentSaysLastMoveTo():: rightNode is ',this.r.rightNode);
+
+     if (response === 'OK' && this.r.rightNode){
+       doTry = await this.doAddMeToYourLeft(this.r.rightNode);
+       response = doTry?.result ?? 'FAIL';
+       console.log('parentSaysLastMoveTo():: doAddMeToYourLeft',doTry,response);
+     }
+
+     // SendResults Of Change Request
+     const reply = {
+       response : 'parentSaysLastMoveToResult',
+       reqId    : j.reqId,
+       result   : response
+     };
+
      this.net.sendReplyCX(j.remIp,reply);
      return;
    }
