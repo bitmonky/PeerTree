@@ -48,7 +48,7 @@ In the PeerTree project, the EC private-public key pair is used to digitally sig
 The peers form a tree structure where new nodes are added from left to right. The first node is the root of a tree. Each node keeps a list of the root peer group and its own peer group. Nodes that leave or time out are replaced by the last node to join. Messages that can not be sent are pushed onto a queue and are delivered as soon as the connection returns or the node is replaced.
 
 ## PeerTree Whitepaper
-To read the detailed whitepaper see [this link](whitepaper.md)
+To read the detailed whitepaper see [this link](whitepaperNew.md)
 
 Currently we are working on the cloud memory peerTree application. We include a working demo of the project [here](https://www.bitmonky.com/whzon/bitMiner/webConsole.php?git=git).
 
