@@ -289,10 +289,15 @@ function makeErr(code, msg) {
  */
 
 class PtreeGenRequestHandler {
-  constructor(net) {
+  constructor(net,isCoreNET=true) {
     this.net = net;
+    this.isCoreNET = isCoreNET
+    if (isCoreNET){
+      this.listener = 'peerTReply';
+    } else {
+      this.listener = 'mkyReply';
+    }
   }
-
   waitForReply(ip, req, timeout = 10000) {
     return new Promise((resolve) => {
 
@@ -323,7 +328,7 @@ class PtreeGenRequestHandler {
           timer = setTimeout(() => {
             console.error('mkyReplyObj::timeoutTick:',action,timeout,reqId);
             this.net.removeListener('xhrFail', failListener);
-            this.net.removeListener('peerTReply', replyListener);
+            this.net.removeListener(this.listener, replyListener);
             this.net.removeListener('xhrPostOK', sendOKListener);
             resolve({ result: 'timeout' });
           }, timeout);
@@ -339,7 +344,7 @@ class PtreeGenRequestHandler {
           clearTimeout(timer);
 
           this.net.removeListener('xhrFail', failListener);
-          this.net.removeListener('peerTReply', replyListener);
+          this.net.removeListener(this.listener, replyListener);
           this.net.removeListener('xhrPostOK', sendOKListener);
 
           resolve({ result: 'xhrFail' });
@@ -349,7 +354,7 @@ class PtreeGenRequestHandler {
       // -------------------------
       // SUCCESS PATH
       // -------------------------
-      this.net.on('peerTReply', replyListener = (j) => {
+      this.net.on(this.listener, replyListener = (j) => {
        //console.log('mkyReplyObj::peerTReply heard',reqId,ip,response,j);
        if (
           j.response === response &&
@@ -359,7 +364,7 @@ class PtreeGenRequestHandler {
           clearTimeout(timer);
 
           this.net.removeListener('xhrFail', failListener);
-          this.net.removeListener('peerTReply', replyListener);
+          this.net.removeListener(this.listener, replyListener);
           this.net.removeListener('xhrPostOK', sendOKListener);
 
           resolve(j);
@@ -369,7 +374,113 @@ class PtreeGenRequestHandler {
       // -------------------------
       // SEND THE REQUEST
       // -------------------------
-      this.net.sendMsgCX(ip, req);
+      if(this.isCoreNET) {
+        this.net.sendMsgCX(ip, req);
+      } else {
+        this.net.sendMsg(ip,req);
+      } 
+    });
+  }
+}
+class PtreeMultiReplyHandler {
+  constructor(net) {
+    this.net = net;
+  }
+
+  multiReply(req, maxGroups = 1, timeout = 5000) {
+    return new Promise((resolve) => {
+
+      // Assign reqId if missing
+      const reqId = req.reqId || crypto.randomUUID();
+      req.reqId = reqId;
+
+      const action   = req.req;
+      const response = req.response;
+
+      // Grouped replies: { key → { reply, nCopies } }
+      const groups = new Map();
+
+      let timer;
+      let sendOKListener, failListener, replyListener;
+
+      // -----------------------------------------
+      // DELIVERY CONFIRMATION (xhrPostOK)
+      // -----------------------------------------
+      this.net.on('xhrPostOK', sendOKListener = (j) => {
+        if (j.reqId === reqId) {
+
+          this.net.removeListener('xhrPostOK', sendOKListener);
+
+          // Start timeout ONLY after delivery confirmed
+          timer = setTimeout(() => {
+            this.net.removeListener('xhrFail', failListener);
+            this.net.removeListener('mkyReply', replyListener);
+
+            resolve([...groups.values()]);
+          }, timeout);
+        }
+      });
+
+      // -----------------------------------------
+      // FAILURE PATH
+      // -----------------------------------------
+      this.net.on('xhrFail', failListener = (j) => {
+        if (j.req === action && j.reqId === reqId) {
+
+          clearTimeout(timer);
+
+          this.net.removeListener('xhrFail', failListener);
+          this.net.removeListener('mkyReply', replyListener);
+          this.net.removeListener('xhrPostOK', sendOKListener);
+
+          resolve([...groups.values()]);
+        }
+      });
+
+      // -----------------------------------------
+      // SUCCESS PATH (multiple grouped replies)
+      // -----------------------------------------
+      this.net.on('mkyReply', replyListener = (j) => {
+
+        if (
+          j.reqId === reqId &&
+          j.req === action &&
+          j.response === response
+        ) {
+          // Create a grouping key (you can customize this)
+          const key = JSON.stringify({
+            remIp: j.remIp,
+            payload: j.payload || j.data || j.result || null
+          });
+
+          if (groups.has(key)) {
+            // Increment nCopies
+            groups.get(key).nCopies++;
+          } else {
+            // Add new group
+            groups.set(key, {
+              reply: j,
+              nCopies: 1
+            });
+          }
+
+          // Stop early if we reached the target number of unique groups
+          if (groups.size >= maxGroups) {
+            clearTimeout(timer);
+
+            this.net.removeListener('xhrFail', failListener);
+            this.net.removeListener('mkyReply', replyListener);
+            this.net.removeListener('xhrPostOK', sendOKListener);
+
+            resolve([...groups.values()]);
+          }
+        }
+      });
+
+      // -----------------------------------------
+      // SEND BROADCAST REQUEST
+      // -----------------------------------------
+      this.net.broadcast(req);
     });
   }
 }
