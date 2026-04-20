@@ -1,6 +1,6 @@
 # The PeerTree Project
 
-## A biological Model for computation 
+## A Biological Model For Computation 
 
 Self‑organizing peer‑to‑peer cells that form specialized functional organisms, scaling by cloning cell types to increase collective computing power. 
 Each cell type is identical to its peers and can instantly assume the role of any other cell in its tree, enabling seamless adaptation, redundancy, 
