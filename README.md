@@ -27,7 +27,7 @@ and self‑healing across the organism.
 
 ---
 
-##Cell Application Specialization and Cloning
+## Cell Application Specialization and Cloning
 
 Each application in PeerTree exists as a specialized cell type, with every cell running the same organs, membrane rules, and receptor APIs. When the organism needs more capacity, resilience, or throughput, it simply clones additional cells of that type, allowing the Tree to grow organically. Because all clones are genetically identical, any cell can instantly perform any role within its Tree — processing requests, storing shards, routing messages, or coordinating state. This specialization‑through‑cloning model creates true application‑level services: distributed tissues of identical cells that scale, heal, and adapt automatically as the organism evolves.
 
