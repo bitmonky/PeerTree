@@ -4577,6 +4577,19 @@ class PeerTreeNet extends  EventEmitter {
      } 
      catch (error) {console.error("PeerTreeNet.updatePortalsFile():: Error writing to file:", error);}
    }
+   startFileTouchLoop() {
+     // Keep this node discovery file date active for restart time delay to help mitigate restart storms.
+     const touch = () => {
+       const now = new Date();
+       fs.utimes(this.nodesFile, now, now, err => {
+         if (err) {
+           console.error("touch failed (ignored):", err);
+         }
+         setTimeout(touch, 5000); // touch every 5 seconds
+       });
+     };
+     touch();
+   }
    readNodeFile(doWait=false){
      console.error('PeerTreeNet.readNodeFile():: Random doWait = ',doWait);
      return new Promise( async (resolve,reject)=>{
@@ -4647,6 +4660,7 @@ class PeerTreeNet extends  EventEmitter {
        this.rnet = new MkyRouting(this.nIp,this);
        this.gpow = new gPowKey(this.nIp,this);
        await this.rnet.routingReady();
+       this.startFileTouchLoop();
        setTimeout ( ()=>{
 	 this.heartBeat();
        },this.pulseRate);
@@ -4773,17 +4787,6 @@ class PeerTreeNet extends  EventEmitter {
                this.uStats.data += body.length;
                res.setHeader('Content-Type', 'application/json');
                const time = new Date();
-
-               fs.utimes(this.nodesFile, time, time, (err) => {
-                 if (err) {console.error('PeerTreeNet.startServer():: \n',err);
-                   let myNodes = [];
-                   fs.writeFile(this.nodesFile, JSON.stringify(myNodes), function (err) {
-                     if (err) throw err;
-                     console.error('startServer()::node list saved to disk!');
-                   });
-                 }
-                 else {}
-               });
 
                var j = null;
                try {
