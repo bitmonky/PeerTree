@@ -1,9 +1,10 @@
 # The PeerTree Project
 
 
-## An open source self-organizing peer-to-peer shard storage solution for digital assets
+## A biological Model for computation 
+Self‑organizing peer‑to‑peer cells that form specialized functional organisms, scaling by cloning cell types to increase collective computing power. Each cell type is identical to its peers and can instantly assume the role of any other cell in its tree, enabling seamless adaptation, redundancy, and self‑healing across the organism.
 
-![main](images/main.png)
+![main](images/OrganicComputing.png)
 
 <div align = 'center'>
 
@@ -19,22 +20,13 @@
 
 
 </div>
+##No‑Files Storage: Redundant Shards as Digital DNA
+
+In this model, files don’t exist as monolithic objects. Instead, data is broken into fixed‑size shards, each identified solely by the SHA‑256 hash of its own contents. These shards are stored across the network by shardTreeCells, which replicate and distribute them like fragments of digital DNA. No filenames, no paths, no directories — only content‑addressed fragments. A separate class of cells, ftreeFileMgrCells, maintains lightweight hash‑maps that describe how to reassemble a file from its shards when needed. This separation of storage (shards) and structure (hash‑maps) creates a resilient, redundant, self‑healing storage organism where data persists as long as any quorum of shards survives.
 
 ---
 
-<h1 align='center'> Table of Contents </h1>
-
----
-
-- [The PeerTree Project](#the-peertree-project)
-  - [An open source self-organizing peer-to-peer shard storage solution for digital assets](#an-open-source-self-organizing-peer-to-peer-shard-storage-solution-for-digital-assets)
-  - [The PeerTree Project Introduction](#the-peertree-project-introduction)
-  - [EC Private-Public Key Pairs](#ec-private-public-key-pairs)
-  - [Digital Signatures](#digital-signatures)
-  - [PeerTree Whitepaper](#peertree-whitepaper)
-
-
-## The PeerTree Project Introduction
+## PeerTree.js — The Core Network Object That All Cells Inherit
 
 A self-organizing peer-to-peer network where peers can send and receive and broadcast JSON messages using HTTPS: using only self-signed certs. Messages are digitally signed by each node using EC private-public key pairs.
 
