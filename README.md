@@ -1,5 +1,7 @@
 # The PeerTree Project
 
+![main](images/main.png)
+
 ## A Biological Model For Computation 
 
 Self‑organizing peer‑to‑peer cells that form specialized functional organisms, scaling by cloning cell types to increase collective computing power. 
@@ -24,7 +26,7 @@ and self‑healing across the organism.
 </div>
 
 ---
-## No‑Files Storage: Redundant Shards as Digital DNA
+## No‑Files Storage: Redundant Shards Of Data Randomly Distributed on Mulitiple Devices.
 
 In this model, files don’t exist as monolithic objects. Instead, data is broken into fixed‑size shards, each identified solely by the SHA‑256 hash of its own contents. These shards are stored across the network by shardTreeCells, which replicate and distribute them like fragments of digital DNA. No filenames, no paths, no directories — only content‑addressed fragments. A separate class of cells, ftreeFileMgrCells, maintains lightweight hash‑maps that describe how to reassemble a file from its shards when needed. This separation of storage (shards) and structure (hash‑maps) creates a resilient, redundant, self‑healing storage organism where data persists as long as any quorum of shards survives.
 
