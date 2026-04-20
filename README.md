@@ -30,6 +30,10 @@ and self‑healing across the organism.
 
 In this model, files don’t exist as monolithic objects. Instead, data is broken into fixed‑size shards, each identified solely by the SHA‑256 hash of its own contents. These shards are stored across the network by shardTreeCells, which replicate and distribute them like fragments of digital DNA. No filenames, no paths, no directories — only content‑addressed fragments. A separate class of cells, ftreeFileMgrCells, maintains lightweight hash‑maps that describe how to reassemble a file from its shards when needed. This separation of storage (shards) and structure (hash‑maps) creates a resilient, redundant, self‑healing storage organism where data persists as long as any quorum of shards survives.
 
+## Cell Receptor API Access
+
+Every cell type exposes an identical receptor API, giving the organism a uniform interface regardless of which physical node receives the request. Because all cells of a given type share the same genome, organ set, and receptor definitions, any cell can service any request at any time. Clients and other Trees don’t need to know which node they’re talking to — they simply signal the receptor, and whichever cell receives it can instantly take on the required role. This creates a fully distributed, load‑balanced, self‑healing service layer where capacity scales organically as new clones join the Tree.
+
 ---
 
 ## PeerTree.js — The Core Network Object That All Cells Inherit
