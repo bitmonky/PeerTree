@@ -62,7 +62,7 @@ To read the detailed whitepaper see [this link](whitepaperNew.md)
 See The BorgIOS Project [Available Here](https://github.com/bitmonky/BorgIOS) 
 Shows what can be built with peerTree technology.
 
-We are currently working on the memory peerTree application, which allows natural‑language queries to retrieve files simply by describing what you’re looking for, instead of memorizing filenames or directory paths. [Can Be Seen Onine Here](https://www.bitmonky.com/whzon/bitMiner/webConsole.php?git=git).
+We are currently working on the memory peerTree application, which allows natural‑language queries to retrieve files simply by describing what you’re looking for, instead of memorizing filenames or directory paths. [Can Be Seen Online Here](https://www.bitmonky.com/whzon/bitMiner/webConsole.php?git=git).
 
 The project also includes a proof‑of‑concept non‑blockchain distributed ledger that implements BORG shells — virtual trading shells.
 
