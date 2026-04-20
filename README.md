@@ -57,20 +57,19 @@ The peers form a tree structure where new nodes are added from left to right. Th
 ## PeerTree Whitepaper
 To read the detailed whitepaper see [this link](whitepaperNew.md)
 
-Think PeerTree is cool?  See The BorgIOS Project [Available Here](https://github.com/bitmonky/BorgIOS) 
+## Think PeerTree is cool? 
+
+See The BorgIOS Project [Available Here](https://github.com/bitmonky/BorgIOS) 
 Shows what can be built with peerTree technology.
 
-Currently we are working on the cloud memory peerTree application. We include a working demo of the project [here](https://www.bitmonky.com/whzon/bitMiner/webConsole.php?git=git).
+We are currently working on the memory peerTree application, which allows natural‑language queries to retrieve files simply by describing what you’re looking for, instead of memorizing filenames or directory paths. [Can Be Seen Onine Here](https://www.bitmonky.com/whzon/bitMiner/webConsole.php?git=git).
 
-The project also includes a proof-of-concept blockchain application that runs on top of the PeerTree object.  
+The project also includes a proof‑of‑concept non‑blockchain distributed ledger that implements BORG shells — virtual trading shells.
 
 If you would like to support the project financially, consider
-purchasing some coins from Peter's coin store by clicking the link(s) below!
+buying me a coffee... See link below!
 
 <div align='center'>
-
-![Support](https://img.shields.io/badge/support-financing-green.svg)
-
 
 [![Buy Me A Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/petergs6)
 
