@@ -57,6 +57,8 @@ The peers form a tree structure where new nodes are added from left to right. Th
 ## PeerTree Whitepaper
 To read the detailed whitepaper see [this link](whitepaperNew.md)
 
+Think PeerTree is cool?  See The BorgIOS Project [this link](https://github.com/bitmonky/BorgIOS) Shows what can be done with peerTree's
+
 Currently we are working on the cloud memory peerTree application. We include a working demo of the project [here](https://www.bitmonky.com/whzon/bitMiner/webConsole.php?git=git).
 
 The project also includes a proof-of-concept blockchain application that runs on top of the PeerTree object.  
