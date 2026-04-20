@@ -34,7 +34,7 @@ In this model, files don’t exist as monolithic objects. Instead, data is broke
 
 ## PeerTree.js — The Core Network Object That All Cells Inherit
 
-A self-organizing peer-to-peer network where peers can send and receive and broadcast JSON messages using HTTPS: using only self-signed certs. Messages are digitally signed by each node using EC private-public key pairs.
+A self‑organizing peer‑to‑peer network where nodes send, receive, and broadcast JSON messages over HTTPS using only self‑signed certificates. Every message is digitally signed with each node’s EC private–public key pair, ensuring identity, integrity, and tamper‑resistance. The network continuously repairs itself: nodes automatically rejoin, rebalance, and re‑establish parent/child links when peers appear, disappear, or restart. This creates a resilient, self‑healing communication fabric where trust emerges from cryptographic signatures and behavior, not central authorities.
 
 ## EC Private-Public Key Pairs
 In the context of the PeerTree project, an *"EC private-public key pair"* refers to an encryption method called "elliptic curve cryptography." Elliptic curve cryptography (ECC) is a public key cryptography method that uses the properties of elliptic curves over finite fields to create a set of security keys.
