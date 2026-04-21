@@ -3383,6 +3383,10 @@ class MkyRouting {
        }
        return true;
      }
+     if (j.req === 'sendMeYourLastChildIp'){
+       await this.sendMeYourLastChildIp(j);
+       return true;
+     }
      if (j.req === 'rootSaysDropPDropChild'){
        await this.rootSaysDropPDropChild(j);
        return true;
@@ -3952,14 +3956,18 @@ class MkyRouting {
        if (lnIdx > -1){
          // Child nodes contain the last node.
   
-         const lnRtab = this.r.myNodes[lnIdx];
+         const lnRtab = this.r.myNodes[lnIdx].rtab;
+         console.log(`MkyRouting.rootSaysDropPDropChild():: inspect lnRtab`,lnRtab);
          const idx = this.r.myNodes.findIndex(n => n.ip === j.dropIp);
          console.log(`MkyRouting.rootSaysDropPDropChild():: inspect j`,j);
          console.log(`MkyRouting.rootSaysDropPDropChild():: inspect this.r`,this.r);
          console.log(`MkyRouting.rootSaysDropPDropChild():: inspect idx`,idx,this.r.myNodes);
          if( idx > -1 && this.r.myNodes[idx].ip === j.dropIp) {
            const drRtab = this.r.myNodes[idx].rtab;
-           const newLn  = lnRtab.leftNode;
+           let newLn  = lnRtab.leftNode;
+           if (newLn === j.dropIp){
+             newLn = oldLastNode;
+           }
            this.r.myNodes.splice(idx, 1);
            this.r.lastNode = newLn;
            this.r.lnode    = lnRtab.nodeNbr -1;
@@ -3996,6 +4004,38 @@ class MkyRouting {
          else { reply.result = 'FAILED_CASE2.3_MYCHILD';}     }
      }
      console.log(`rootSaysDropPDropChild():: sending reply`,reply);
+     this.net.sendReplyCX(j.remIp,reply);
+     return;
+   }
+   async doSendYourLastChildIp(toIp){
+     // tell your left node to send the ip of its last child.
+
+      const msg = {
+        req        : 'sendMeYourLastChildIp',
+        response   : 'sendMeYourLastChildIpResult',
+      };
+      console.log(`MkyRouting.doSendYourLastChildIp()::  sending to: ${toIp} `,msg);
+
+      return  await this.net.reqReplyObj.waitForReply(toIp, msg);
+   }
+   async sendMeYourLastChildIp(j){
+     let result = 'OK';
+     let lip    = null;
+     if (this.r.myNodes.length > 0){
+       lip = this.r.myNodes[this.r.myNodes.length -1].ip;
+     }
+     else {
+       result = 'ZEROCHILD';
+       lip    = 'empty';
+     }
+        
+     const reply  = {
+        reqId       : j.reqId,
+        response    : 'sendMeYourLastChildIpResult',
+        result      : result,
+        lastChildIp : lip
+     };
+     console.log(`MkyRouting.sendMeYourLastChildIp()::  sending reply to: ${j.remIp} `,reply);
      this.net.sendReplyCX(j.remIp,reply);
      return;
    }
