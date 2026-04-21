@@ -5776,22 +5776,29 @@ class PeerTreeNet extends  EventEmitter {
   }
   async pushToContacts(j){
     const isRoot = this.markWhoIsRoot(j);
-
+    let isNew = true;
+  
     // update last heard from date of the contact.
     for (var node of this.PTnodes){
        if (node.ip == j.remIp){
          node.date = Date.now();
          node.lastState = 'online';
-         this.pruneContacts();
-         return;
+         isNew = false;
+         break;
        }
      }
 
-     const newip = {ip : j.remIp,errors : 0,date : Date.now(),pKey : j.remPublicKey, isRoot : isRoot,lastState : 'online' }
-     console.error('PeerTreeNet.pushToContacts():: New Network Node Joined: ',newip.ip);
-     this.PTnodes.push(newip);
-     const myNodes = this.PTnodes;
-     fs.writeFile(this.nodesFile, JSON.stringify(myNodes), function (err) {
+     // Check if this is a new contact
+     if (isNew){
+       const newip = {ip : j.remIp,errors : 0,date : Date.now(),pKey : j.remPublicKey, isRoot : isRoot,lastState : 'online' }
+       console.error('PeerTreeNet.pushToContacts():: New Network Node Joined: ',newip.ip);
+       this.PTnodes.push(newip);
+       this.pruneContacts();
+     }
+
+     //update the known nodes file
+
+     fs.writeFile(this.nodesFile, JSON.stringify(this.PTnodes), function (err) {
        if (err) throw err;
        console.error('PeerTreeNet.pushToContacts():: node list saved to disk!');
      });
@@ -5820,7 +5827,42 @@ class PeerTreeNet extends  EventEmitter {
 
     return changed;
   }
-  pruneContacts() {
+ pruneContacts() {
+  // 1. Sort newest → oldest
+  const sorted = [...this.PTnodes].sort((a, b) => b.date - a.date);
+
+  // 2. Remove duplicates by IP (keep the newest one because sorted)
+  const uniqueByIp = [];
+  const seen = new Set();
+
+  for (const node of sorted) {
+    if (!seen.has(node.ip)) {
+      seen.add(node.ip);
+      uniqueByIp.push(node);
+    }
+  }
+
+  // 3. Keep only the first 10
+  const pruned = uniqueByIp.slice(0, 10);
+
+  // 4. Detect if anything changed
+  const changed =
+    pruned.length !== this.PTnodes.length ||
+    pruned.some((node, i) => !this.PTnodes[i] || node.ip !== this.PTnodes[i].ip);
+
+  if (changed) {
+    this.PTnodes = pruned;
+
+    // Persist to disk
+    fs.writeFile(this.nodesFile, JSON.stringify(this.PTnodes), err => {
+      if (err) throw err;
+    });
+  }
+
+  return changed;
+}
+/*
+ pruneContacts() {
     // Sort newest → oldest
     const sorted = [...this.PTnodes].sort((a, b) => b.date - a.date);
 
@@ -5843,6 +5885,7 @@ class PeerTreeNet extends  EventEmitter {
 
     return changed;
   }
+*/
   handleBcast(j){
      
      if (j.msg.addMe){
