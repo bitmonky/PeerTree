@@ -5774,35 +5774,57 @@ class PeerTreeNet extends  EventEmitter {
     }
     return false;
   }
-  async pushToContacts(j){
-    const isRoot = this.markWhoIsRoot(j);
-    let isNew = true;
-  
-    // update last heard from date of the contact.
-    for (var node of this.PTnodes){
-       if (node.ip == j.remIp){
-         node.date = Date.now();
-         node.lastState = 'online';
-         isNew = false;
-         break;
-       }
-     }
+  async pushToContacts(j) {
 
-     // Check if this is a new contact
-     if (isNew){
-       const newip = {ip : j.remIp,errors : 0,date : Date.now(),pKey : j.remPublicKey, isRoot : isRoot,lastState : 'online' }
-       console.error('PeerTreeNet.pushToContacts():: New Network Node Joined: ',newip.ip);
-       this.PTnodes.push(newip);
-       this.pruneContacts();
-     }
+    // If already running, skip this update
+    if (this.pushingContacts) {
+      return;
+    }
 
-     //update the known nodes file
+    this.pushingContacts = true;
 
-     fs.writeFile(this.nodesFile, JSON.stringify(this.PTnodes), function (err) {
-       if (err) throw err;
-       console.error('PeerTreeNet.pushToContacts():: node list saved to disk!');
-     });
+    try {
+      const isRoot = this.markWhoIsRoot(j);
+      let isNew = true;
 
+      // Update last-heard-from date
+      for (const node of this.PTnodes) {
+        if (node.ip === j.remIp) {
+          node.date = Date.now();
+          node.lastState = 'online';
+          isNew = false;
+          break;
+        }
+      }
+
+      // New contact
+      if (isNew) {
+        const newip = {
+          ip: j.remIp,
+          errors: 0,
+          date: Date.now(),
+          pKey: j.remPublicKey,
+          isRoot: isRoot,
+          lastState: 'online'
+        };
+
+        console.error('PeerTreeNet.pushToContacts():: New Network Node Joined:', newip.ip);
+        this.PTnodes.push(newip);
+
+        // prune duplicates + sort + limit
+        this.pruneContacts();
+      }
+
+      // Write updated list to disk
+      await fs.promises.writeFile(this.nodesFile, JSON.stringify(this.PTnodes));
+      console.error('PeerTreeNet.pushToContacts():: node list saved to disk!');
+
+    } catch (err) {
+      console.error("pushToContacts() failed:", err);
+
+    } finally {
+      this.pushingContacts = false;
+    }
   }
   setContactsStatusTo(ip, status) {
     let changed = false;
@@ -5999,7 +6021,9 @@ class PeerTreeNet extends  EventEmitter {
        }
        this.analyseTrafficRate();
        // Add node the contacts List 
-       this.pushToContacts(j);
+       this.pushToContacts(j).catch(err => {
+         console.error("pushToContacts() failed:", err);
+       });
 
        if (await this.rnet.handleReq(remIp,j)){
          //console.error('PeerTreeNet.initHandlers():: Request Handled By Handler',j);
