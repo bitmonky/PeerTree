@@ -2075,9 +2075,9 @@ class MkyRouting {
      console.error(`MkyRouting.init():: startup path: ${bestRootIp ? 'migration' : 'normal'}`, bestRootIp);
      return new Promise(async (resolve,reject)=>{
        const doWait = true;
-       const rtab = await this.net.readNodeFile(doWait);
-       var   jroot = null;
-       var   rInfo = null;
+       const rtab   = await this.net.readNodeFile(doWait);
+       var   jroot  = null;
+       var   rInfo  = null;
        if (!rtab) 
          console.error('MkyRouting.init():: NETWORK starting... I am a Genisis node!', this.net.PTnodes);
        else 
@@ -3885,7 +3885,7 @@ class MkyRouting {
           }
           else {
             // 2.2 All others
-            tryGet = await this.rootSaysParentDropChild(j.remIp,j.nodeIp,'Case2.2');
+            let tryGet = await this.rootSaysParentDropChild(j.remIp,j.nodeIp,'Case2.2');
             if ( await this.tryGetFailHandle(tryGet,'doParenSaysDropNode Failed At Case 2.2') === 'FAIL'){
               return tryGet?.result;
             }
