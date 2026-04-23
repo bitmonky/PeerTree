@@ -355,10 +355,9 @@ class PtreeGenRequestHandler {
       // SUCCESS PATH
       // -------------------------
       this.net.on(this.listener, replyListener = (j) => {
-       //console.log('mkyReplyObj::peerTReply heard',reqId,ip,response,j);
+       //console.error('mkyReplyObj::peerTReply heard',reqId,ip,response,j);
        if (
           j.response === response &&
-          j.remIp === ip &&
           j.reqId === reqId
         ) {
           clearTimeout(timer);
@@ -517,14 +516,14 @@ class NodeHealthMgr {
 
   // Remove old events from sliding window
   _prune(stats) {
-    //console.log(`_prune()::`,stats);
+    //console.error(`_prune()::`,stats);
     const cutoff = Date.now() - this.windowMs;
     stats.history = stats.history.filter(e => e.ts >= cutoff);
   }
 
   // Update exponential moving average
   _updateEMA(stats, resultType) {
-    //console.log(`_updateEMA`,stats,resultType);
+    //console.error(`_updateEMA`,stats,resultType);
 
     const x = (resultType === "success") ? 0 : 1;
     stats.ema = this.emaAlpha * x + (1 - this.emaAlpha) * stats.ema;
@@ -1082,7 +1081,7 @@ class MkyRouting {
         req       : 'whoIsYourLeft',
         response  : 'whoIsYourLeftResult'
       };
-      console.log(`MkyRouting.getNodeLeftIp():: sending to ${nodeIp}`,msg);
+      console.error(`MkyRouting.getNodeLeftIp():: sending to ${nodeIp}`,msg);
 
       return  await this.net.reqReplyObj.waitForReply(nodeIp, msg);
    }
@@ -1095,7 +1094,7 @@ class MkyRouting {
        myLeftIp : this.r.leftNode,
        myParent : this.r.myParent
      };
-     console.log(`whoIsYourLeft():: sending to ${j.remIp} `,reply);
+     console.error(`whoIsYourLeft():: sending to ${j.remIp} `,reply);
      this.net.sendReplyCX(j.remIp,reply);
      return;
    }
@@ -1139,15 +1138,15 @@ class MkyRouting {
      return new Promise( async (resolve,reject)=>{
        var jroot = null;
        while ( i < this.net.PTnodes.length){
-         //console.log(`i:${i} PTnode.length: ${this.net.PTnodes.length} node data:`,this.net.PTnodes[i]);
+         //console.error(`i:${i} PTnode.length: ${this.net.PTnodes.length} node data:`,this.net.PTnodes[i]);
          const tryIp  = this.net.PTnodes[i].ip;
          const status = this.net.PTnodes[i].lastState;
-         console.log(`this.status`,this.status,`status[i]`,status);
+         console.error(`this.status`,this.status,`status[i]`,status);
          i = i +1;
          if (1==1){
            if (tryIp != this.myIp){
              jroot = await this.whoIsRoot(tryIp);
-             console.log (`jroot`,jroot);
+             //console.error (`jroot`,jroot);
              if (jroot){
                var map = this.rootMap.get(jroot.rip);
                if (map)
@@ -1161,9 +1160,9 @@ class MkyRouting {
          }
        } 
        if (this.rootMap.size === 0) {
-         console.error('MkyRouting.findWhoIsRoot():: RootMap::',this.rootMap);
+         //console.error('MkyRouting.findWhoIsRoot():: RootMap::',this.rootMap);
        }
-       console.error('MkyRouting.findWhoIsRoot():: RootMap::',this.rootMap);
+       //console.error('MkyRouting.findWhoIsRoot():: RootMap::',this.rootMap);
        resolve(this.rootMap); 
      });
    }
@@ -1182,7 +1181,7 @@ class MkyRouting {
        },15*1000);
 
        this.net.on('peerTReply', rtListen = (j)=>{
-         console.log(`whoIsRoot():: heard `,j);
+         //console.error(`whoIsRoot():: heard `,j);
          if (j.whoIsRootReply && j.remIp == ip){
            clearTimeout(gtime);
            if (j.whoIsRootReply == 'notready'){
@@ -1194,7 +1193,7 @@ class MkyRouting {
              resolve(null);
            }
            else {
-             console.error(`MkyRouting.whoIsRoot():: this.rootFound`,j.whoIsRootReply);
+             console.error(`MkyRouting.whoIsRoot():: this.rootFound`,j.whoIsRootReply.rip);
              resolve(j.whoIsRootReply);
            }
            this.net.removeListener('peerTReply', rtListen);
@@ -1214,7 +1213,7 @@ class MkyRouting {
        const req = {
          req  : 'whoIsRoot?'
        }
-       console.error('MkyRouting.whoIsRoot():: sending message to'+ip,req);
+       //console.error('MkyRouting.whoIsRoot():: sending message to'+ip,req);
        this.net.sendMsgCX(ip,req);
      });
    }
@@ -1225,7 +1224,7 @@ class MkyRouting {
       while (this.r.rootLock === true){
         if (Date.now() - lockTimer  > maxLockTime) {
           this.r.rootLock = false;
-          console.log('getRootLock():: Took Too Long... giving up.');
+          console.error('getRootLock():: Took Too Long... giving up.');
           let newRoot = await this.rootDeathGetNewBestRoot();
           this.bcast({rootDeath : 'migrateToHealthyRoot',bestRootIp:newRoot});
           this.net.setNodeBackToStartup('GetRootLock Failed');
@@ -1238,7 +1237,7 @@ class MkyRouting {
    async rootDropChild(node){
 
      // Set rootLock.
-     console.log('rootDropChild():: try to get lock',node);
+     console.error('rootDropChild():: try to get lock',node);
      let lock = await this.getRootLock();
      if (lock !== true) {
        this.dropQuePIR.push(node);
@@ -1249,22 +1248,23 @@ class MkyRouting {
      } finally {
        // Update internal state
        this.r.rootLock = false;
+       await this.PIR_processDropQueue();
      }
      return 'OK';
    }
    async PIR_doDropCNode(node) {
 
      // Block mulitple attempts to remove the same node.
-     console.log(`rootDropChild():: begin dropping node`,node);
+     console.error(`rootDropChild():: begin dropping node`,node);
      if (this.dropIps.includes(node)){
-         console.log('Node Has Been Dropped! ingoring drop:',this.r.myNodes,node);
+         console.error('Node Has Been Dropped! ingoring drop:',this.r.myNodes,node);
          return 'OK'
      }
 
      //Case 1. Only two nodes in the network.
           
      if (this.r.lnode === 2 && this.r.lastNode === node){
-       console.log('MkyRouting.rootDropChild():: Case 1. Only two nodes in the network',node);
+       console.error('MkyRouting.rootDropChild():: Case 1. Only two nodes in the network',node);
 
          
        this.r.rootRTab   = 'na';
@@ -1293,18 +1293,18 @@ class MkyRouting {
        let newLastNode = this.r.myNodes[this.r.myNodes.length -2];
        this.r.myNodes.pop();
        this.r.lnode--;
-       console.log('newLastNode',node,this.r.myNodes,newLastNode);
+       console.error('newLastNode',node,this.r.myNodes,newLastNode);
        this.r.lastNode = newLastNode.ip;
        const reply = await this.notifyNewLastNode(newLastNode.ip);
-       console.log(`MkyRouting.rootDropChild():: notifyNewLastNode ${newLastNode.ip} reply:`,reply);
+       console.error(`MkyRouting.rootDropChild():: notifyNewLastNode ${newLastNode.ip} reply:`,reply);
        if (reply?.result !== 'OK'){
-         console.log('MkyRouting.rootDropChild():: Failed At Case 2');
+         console.error('MkyRouting.rootDropChild():: Failed At Case 2');
          this.net.setNodeBackToStartup('MkyRouting.rootDropChild():: Failed At Case 2');
          return 'FATAL_ERROR';
        }
        // Inform the network that a new last node exists.
        if (this.r.lnode > 2) {
-         console.log(`console.log('MkyRouting.rootDropChild():: bcast: `,{lnodeNewLastNode : newLastNode.ip, newLastNodeNbr: this.r.lnode,parentNodeUpdate:false});
+         console.error(`console.error('MkyRouting.rootDropChild():: bcast: `,{lnodeNewLastNode : newLastNode.ip, newLastNodeNbr: this.r.lnode,parentNodeUpdate:false});
          this.bcast({lnodeNewLastNode : newLastNode.ip, newLastNodeNbr: this.r.lnode,parentNodeUpdate:false});
        }
        return 'OK'
@@ -1314,7 +1314,7 @@ class MkyRouting {
      const dropIndex = this.r.myNodes.findIndex(n => n.ip === node);
 
      if (dropIndex >= 0 && this.r.lnode <= (this.net.maxPeers + 1)){  
-       console.log(`rootDropChild():: myNodes Case 3. node ${node} dropIndex ${dropIndex}`,this.r.myNodes);
+       console.error(`rootDropChild():: myNodes Case 3. node ${node} dropIndex ${dropIndex}`,this.r.myNodes);
        const lastNode = this.r.myNodes[this.r.myNodes.length - 1];
        const hotRtab  = this.r.myNodes[dropIndex].rtab;
 
@@ -1323,11 +1323,11 @@ class MkyRouting {
        this.r.myNodes.pop();
 
        // Tell last node to move into dropIndex
-       console.log('rootDropChild():: rootSaysMoveTo',lastNode.ip,dropIndex,hotRtab);
+       console.error('rootDropChild():: rootSaysMoveTo',lastNode.ip,dropIndex,hotRtab);
        const reply = await this.rootSaysMoveTo(lastNode.ip,hotRtab);
 
        if (reply?.result !== 'OK') {
-         console.log('rootDropChild():: Failed At Case 3',reply);
+         console.error('rootDropChild():: Failed At Case 3',reply);
          let newRoot = await this.rootDeathGetNewBestRoot();
          this.bcast({rootDeath : 'migrateToHealthyRoot',bestRootIp:newRoot});
          this.net.setNodeBackToStartup('Case 3 failure');
@@ -1341,7 +1341,7 @@ class MkyRouting {
      // IMPORTANT must handle possible change of this.r.nextParent pointer.
      if (dropIndex >= 0 && this.r.lnode > (this.net.maxPeers +1)){
 
-       console.log('rootDropChild():: starting Case 4. node drop',node);
+       console.error('rootDropChild():: starting Case 4. node drop',node);
 
        let lnIp      = this.r.lastNode;
        let lnPNbr    = this.getMyParentNbr(this.r.lnode);
@@ -1364,7 +1364,7 @@ class MkyRouting {
          }
        }  
 
-       console.log(`rootDropChild():: myNodes Case 4. node ${node} dropIndex ${dropIndex}`,this.r.myNodes);
+       console.error(`rootDropChild():: myNodes Case 4. node ${node} dropIndex ${dropIndex}`,this.r.myNodes);
        const hotRtab  = this.r.myNodes[dropIndex].rtab;
        let parentNodeUpdate = false;
 
@@ -1415,11 +1415,11 @@ class MkyRouting {
        this.r.myNodes[dropIndex].ip = lnIp;
 
        // Tell last node to move into dropIndex
-       console.log(`rootDropChild():: rootSaysMoveTo to ${lnIp} `,lnIp,dropIndex,hotRtab,parentNodeUpdate);
+       console.error(`rootDropChild():: rootSaysMoveTo to ${lnIp} `,lnIp,dropIndex,hotRtab,parentNodeUpdate);
        const reply = await this.rootSaysMoveTo(lnIp,hotRtab,parentNodeUpdate);
 
        if (reply?.result !== 'OK') {
-         console.log('rootDropChild():: Failed At Case 4',reply);
+         console.error('rootDropChild():: Failed At Case 4',reply);
          let newRoot = await this.rootDeathGetNewBestRoot();
          this.bcast({rootDeath : 'migrateToHealthyRoot',bestRootIp:newRoot});
          this.net.setNodeBackToStartup('Case 3 failure');
@@ -1429,12 +1429,12 @@ class MkyRouting {
        this.bcastRootTableUpdate();
        return 'OK'
      }
-     console.log('rootDropChild():: exited with out handle!');
+     console.error('rootDropChild():: exited with out handle!');
      return 'NO_CaseHandler'
    }
    async tryGetFailHandle(tryGet, action, res = null) {
      if (tryGet?.result !== "OK") {
-       console.log(`tryGetFailHandle():: Failed on: ${action}`, tryGet);
+       console.error(`tryGetFailHandle():: Failed on: ${action}`, tryGet);
 
        let newRoot = await this.rootDeathGetNewBestRoot();
        this.bcast({ rootDeath: 'migrateToHealthyRoot', bestRootIp: newRoot });
@@ -1463,7 +1463,7 @@ class MkyRouting {
         lastNode  : lastNode
       };
    
-      console.log(`MkyRouting.doTellLastNodeParentDrop():: sending to ${parentIp}`,msg);
+      console.error(`MkyRouting.doTellLastNodeParentDrop():: sending to ${parentIp}`,msg);
 
       return  await this.net.reqReplyObj.waitForReply(parentIp, msg);
    }
@@ -1481,7 +1481,7 @@ class MkyRouting {
        reply.result = 'FAILED_NOT_MYCHILD';       
      }
 
-     console.log(`rootSaysDropLastNode():: sending `,reply);
+     console.error(`rootSaysDropLastNode():: sending `,reply);
      this.net.sendReplyCX(j.remIp,reply);
      return;
    }
@@ -1492,7 +1492,7 @@ class MkyRouting {
         response  : 'rootSaysYourLastNodeResult',
         rootRTab  : this.r
       };
-      console.log('MkyRouting.notifyNewLastNode():: sending',msg);
+      console.error('MkyRouting.notifyNewLastNode():: sending',msg);
 
       return  await this.net.reqReplyObj.waitForReply(ip, msg);
    }
@@ -1508,7 +1508,7 @@ class MkyRouting {
        reqId    : j.reqId,
        result   : 'OK'
      };
-     console.log(`rootSaysYourLastNode():: sending `,reply);     
+     console.error(`rootSaysYourLastNode():: sending `,reply);     
      this.net.sendReplyCX(j.remIp,reply);
      return;
    }
@@ -1521,7 +1521,7 @@ class MkyRouting {
         hotRtab    : hotRtab,
         newParent  : newParent 
       };
-      console.log(`MkyRouting.rootSaysMoveTo()::  sending to: ${ip} `,msg);
+      console.error(`MkyRouting.rootSaysMoveTo()::  sending to: ${ip} `,msg);
 
       return  await this.net.reqReplyObj.waitForReply(ip, msg);
    } 
@@ -1543,29 +1543,29 @@ class MkyRouting {
        this.r.lastNode = newLastNodeIp;
      }
 
-     console.log('rootSaysLastMoveTo():: heard!!! rootSaysLastMoveTo',j);
+     console.error('rootSaysLastMoveTo():: heard!!! rootSaysLastMoveTo',j);
 
      doTry  = await this.doAddMeToYourRight(this.r.leftNode);
      response = doTry?.result ?? 'FAIL';
 
-     console.log('rootSaysLastMoveTo():: doTry: ',doTry,response);
-     console.log('rootSaysLastMoveTo():: rightNode is ',this.r.rightNode);
+     console.error('rootSaysLastMoveTo():: doTry: ',doTry,response);
+     console.error('rootSaysLastMoveTo():: rightNode is ',this.r.rightNode);
 
      if (response === 'OK' && this.r.rightNode){
        doTry = await this.doAddMeToYourLeft(this.r.rightNode);
        response = doTry?.result ?? 'FAIL';
-       console.log('rootSaysLastMoveTo():: doAddMeToYourLeft',doTry,response);
+       console.error('rootSaysLastMoveTo():: doAddMeToYourLeft',doTry,response);
      }
 
      // check for parent and tell it to drop old last node
      if (response === 'OK' && this.r.myParent){
        doTry = await this.notifyParentDropLastNode(this.r.myParent);
        response = doTry?.result ?? 'FAIL';
-       console.log('rootSaysLastMoveTo():: check for parent doTry/response ',doTry,response);
+       console.error('rootSaysLastMoveTo():: check for parent doTry/response ',doTry,response);
      }
 
      // Inform the network that a new last node exists.
-     console.log('rootSaysLastMoveTo():: final response ',doTry,response);
+     console.error('rootSaysLastMoveTo():: final response ',doTry,response);
      if (response === 'OK') {
        this.bcast({lnodeNewLastNode : newLastNodeIp, newLastNodeNbr: newLastNodeNbr,parentNodeUpdate:j.newParent});
      }
@@ -1585,7 +1585,7 @@ class MkyRouting {
         req        : 'parentDropLastNode',
         response   : 'parentDropLastNodeResult'
       };
-      console.log(`MkyRouting.notifyParentDropLastNode():: sending to: ${parentIp} `,msg);
+      console.error(`MkyRouting.notifyParentDropLastNode():: sending to: ${parentIp} `,msg);
 
       return await this.net.reqReplyObj.waitForReply(parentIp, msg);
    }
@@ -1598,7 +1598,7 @@ class MkyRouting {
        result   : 'OK'
      };
 
-     console.log(`parentDropLastNode():: heard from: ${j.remIp} `,j);
+     console.error(`parentDropLastNode():: heard from: ${j.remIp} `,j);
 
      // look for and remove lastnode child entry
      if (Array.isArray(this.r.myNodes)) {
@@ -1617,7 +1617,7 @@ class MkyRouting {
         req        : 'peerAddMeToYourRight',
         response   : 'peerAddMeToYourRightResult',
       };
-      console.log(`MkyRouting.doAddMeToYourRight():: sending to: ${ip} `,msg);
+      console.error(`MkyRouting.doAddMeToYourRight():: sending to: ${ip} `,msg);
 
       return  await this.net.reqReplyObj.waitForReply(ip, msg);
    }
@@ -1630,7 +1630,7 @@ class MkyRouting {
        reqId    : j.reqId,
        result   : 'OK'
      };
-     console.log(`peerAddMeToYourRight():: heard from: ${j.remIp} `,j);
+     console.error(`peerAddMeToYourRight():: heard from: ${j.remIp} `,j);
      // Try to back propagate changes to rtab 
      let doTry = await this.tryBackPropagateRTab(j);
      reply.result = doTry;
@@ -1640,7 +1640,7 @@ class MkyRouting {
      return;
    }
    async tryBackPropagateRTab(j){
-     console.log(`tryBackPropagateRTab():: starting: myParent :`,this.r.myParent,j);
+     console.error(`tryBackPropagateRTab():: starting: myParent :`,this.r.myParent,j);
      let result = 'OK';
      let doTry  = 'noRes';
      if (this.r.myParent != null){
@@ -1650,7 +1650,7 @@ class MkyRouting {
      else {
        // Top of tree .
        const index  = this.r.myNodes.findIndex(n => n.ip === j.remIp);
-       console.log(`tryBackPropagateRTab():: index: ${index} child: ${j.remIp} `);
+       console.error(`tryBackPropagateRTab():: index: ${index} child: ${j.remIp} `);
        if (index >= 0){
          const child  = this.r.myNodes[index];
          child.rtab   = j.rtab;
@@ -1671,7 +1671,7 @@ class MkyRouting {
         req        : 'peerAddMeToYourLeft',
         response   : 'peerAddMeToYourLeftResult',
       };
-      console.log('MkyRouting.doAddMeToYourLeft():: sending',msg);
+      console.error('MkyRouting.doAddMeToYourLeft():: sending',msg);
 
       return  await this.net.reqReplyObj.waitForReply(ip, msg);
    }
@@ -1686,6 +1686,7 @@ class MkyRouting {
      };
      // Try to back propagate changes to rtab
      let doTry = await this.tryBackPropagateRTab(j);
+     
      reply.result = doTry;
 
      this.net.sendReplyCX(j.remIp,reply);
@@ -1698,9 +1699,11 @@ class MkyRouting {
         rtab       : rtab,
         childIp    : this.myIp
       };
-      console.log(`MkyRouting.backPropRTabChange():: sending to: ${ip} `,msg);
+      console.error(`MkyRouting.backPropRTabChange():: sending to: ${ip} `,msg);
 
-      return  await this.net.reqReplyObj.waitForReply(ip, msg);
+      let reply = await this.net.reqReplyObj.waitForReply(ip, msg);
+      console.error(`backPropRTabChange ${JSON.stringify(reply)}`);
+      return reply;
    }
    async parentUpdateMyRTab(j){
      // Prepare reply object
@@ -1714,13 +1717,13 @@ class MkyRouting {
      const index  = this.r.myNodes.findIndex(n => n.ip === j.childIp);
      if (index >= 0){
        const child  = this.r.myNodes[index];
-       console.log(`parentUpdateMyRTab():: child info is: `,child);
+       console.error(`parentUpdateMyRTab():: child info is: `,child);
        child.rtab   = j.rtab;
        reply.result = 'OK';
      }
 
      // Send Reply
-     console.log(`MkyRouting.parentUpdateMyRTab():: sending to: ${j.remIp} `,reply);
+     console.error(`MkyRouting.parentUpdateMyRTab():: sending to: ${j.remIp} `,reply);
      this.net.sendReplyCX(j.remIp,reply);
      return;
    }
@@ -1811,14 +1814,14 @@ class MkyRouting {
    // ====================================================
    async addNewNodeReq(ip){
      return new Promise(async(resolve,reject)=>{
-       console.log('MkyRouting.addNewNodeReq():: Add by REQUESST',ip);
+       console.error('MkyRouting.addNewNodeReq():: Add by REQUESST',ip);
 
        const oldLastNodeIp  = this.r.lastNode;
        const prevNextParent = this.r.nextParent;
        const oldNextPNbr    = this.r.nextPNbr;
        const newNextPNbr    = this.getMyParentNbr(this.r.lnode+1);
 
-       console.log('MkyRouting.addNewNodeReq():: NextPNbr::',oldNextPNbr,newNextPNbr,this.r.myNodes.length,this.net.maxPeers);
+       console.error('MkyRouting.addNewNodeReq():: NextPNbr::',oldNextPNbr,newNextPNbr,this.r.myNodes.length,this.net.maxPeers);
 
        /*
         * Case 1. Root Node Not Full
@@ -1841,17 +1844,17 @@ class MkyRouting {
         * Case 2. Root Node Is Full start managing Next Parent Pointers  
        */
 
-       console.log(`addNewNodeReq():: case 2. start`,ip);
+       console.error(`addNewNodeReq():: case 2. start`,ip);
 
        var nextParent = await this.getNextParent(prevNextParent,oldNextPNbr,newNextPNbr);
        if (nextParent === null){
           return false;
        } 
        
-       console.log(`addNewNodeReq():: nextParent got -> `,nextParent);
+       console.error(`addNewNodeReq():: nextParent got -> `,nextParent);
 
        const reply = await this.nextParentAddChild(ip,this.r.lnode+1,nextParent);
-       console.log('MkyRouting.addNewNodeReq():: nextParentAddChild reply->', reply); 
+       console.error('MkyRouting.addNewNodeReq():: nextParentAddChild reply->', reply); 
 
        if (reply !== 'OK'){
          console.error('MkyRouting.addNewNodeReq():: nextParentAddChild:Failed For:',ip,newNextPNbr);
@@ -1872,14 +1875,14 @@ class MkyRouting {
        this.newNode.rightNode = null;
        this.newNode.mylayer   = this.getNthLayer(this.net.maxPeers,this.r.lnode);
 
-       console.log('MkyRouting.addNewNodeReq():: NewNODE::lookslike:',this.newNode);
+       console.error('MkyRouting.addNewNodeReq():: NewNODE::lookslike:',this.newNode);
        resolve(true);
        return;
      });
    }
    getNextParent(ip,oldNextPNbr,newNextPNbr){
      return new Promise(async(resolve,reject) => {
-       console.log('MkyRouting.GetNextParent():: ',ip,oldNextPNbr,newNextPNbr);
+       console.error('MkyRouting.GetNextParent():: ',ip,oldNextPNbr,newNextPNbr);
 
        // No Change Required
        if (oldNextPNbr === newNextPNbr){
@@ -1964,7 +1967,7 @@ class MkyRouting {
      };
 
      let reply = await this.net.reqReplyObj.waitForReply(nextParent, msg);
-     console.log(`MkyRouting.nextParentAddChild():: child ${ip}, parent: ${nextParent} -> reply: `,reply);
+     console.error(`MkyRouting.nextParentAddChild():: child ${ip}, parent: ${nextParent} -> reply: `,reply);
      if (reply?.result === 'OK'){
         return reply?.result;
      }
@@ -2131,12 +2134,8 @@ class MkyRouting {
        reqId: reqId
      };
 
-     console.error("MkyRouting.init():: New Node Sending Join.. req to:", rip, this.myIp, msg);
-
-     this.net.sendMsgCX(rip, msg);
-
-     const joinRes = await this.resultFromJoinReq(rip, reqId);
-     console.error('MkyRouting.init():: joinRes::', joinRes);
+     const joinRes = await this.resultFromJoinReq(rip, reqId,msg);
+     console.error('MkyRouting.doMakeJoinRequest():: joinRes::', joinRes);
 
      if (joinRes === 'joinSuccess') {
 
@@ -2153,10 +2152,10 @@ class MkyRouting {
      let reply = {resultFromJoin : 'FAILED',reqId : reqId};
      this.net.endResCX(rip,JSON.stringify(reply));
 
-     console.error('MkyRouting.init():: FAILED Join', joinRes);
+     console.error('MkyRouting.doMakeJoinRequest():: FAILED Join', joinRes);
      this.net.setNodeBackToStartup(`Init join request Failed with: ${joinRes}`);
    }
-   resultFromJoinReq(ip, reqId) {
+   resultFromJoinReq(ip, reqId,msg) {
      return new Promise((resolve) => {
        let done = false;
        let jres = null;
@@ -2164,7 +2163,7 @@ class MkyRouting {
        const finish = (value) => {
          if (done) return;
          done = true;
-         console.log(`resultFromJoinReq():: finished with: `,value); 
+         console.error(`resultFromJoinReq():: finished with: `,value); 
          clearTimeout(gtime);
          this.net.removeListener('peerTReply', onReply);
          this.net.removeListener('xhrFail', onFail);
@@ -2206,7 +2205,7 @@ class MkyRouting {
              ticketId : reqId
            };
            let reply = await this.net.reqReplyObj.waitForReply(ip, msg); 
-           console.log(`resultFromJoinReq():: wait reply: `,JSON.stringify(reply));
+           console.error(`resultFromJoinReq():: wait reply: `,JSON.stringify(reply));
            if (reply?.result?.status !== 'keepWaiting') {
              if (this.status === 'online' && reply?.result?.status === 'STOP') {
                finish('joinSuccess');
@@ -2238,11 +2237,12 @@ class MkyRouting {
          }, gInterval);
        };
        
-       tick(); // Start monitering the root nodes progress on the join.
-
        this.net.on('peerTReply', onReply);
        this.net.on('xhrFail', onFail);
-     });
+
+       console.error("MkyRouting.resultFromJoinReq():: New Node Sending Join.. req to:", ip, this.myIp, msg);
+       this.net.sendMsgCX(ip, msg); 
+    });
    }
    async keepWaiting(ticketId){
    }
@@ -2960,7 +2960,7 @@ class MkyRouting {
        }
 
        // Process one queued join
-       if (this.joinQue.size > 0) {
+       if (this.joinQue.size > 0 && this.dropQuePIR.length == 0 &&  this.dropQueue.length == 0) {
          const [jIp, req] = this.joinQue.entries().next().value;
          this.joinQue.delete(jIp);
 
@@ -3130,12 +3130,12 @@ class MkyRouting {
       };
 
       let reply = await this.net.reqReplyObj.waitForReply(joinIp, msg);
-      console.log(`resultFromJoiningNode():: new node reply:`,reply);
+      console.error(`resultFromJoiningNode():: new node reply:`,reply);
 
       if ( reply?.result === 'OK') {
         return true;
       }
-      console.log(`resultFromJoiningNode():: failed:`,reply);
+      console.error(`resultFromJoiningNode():: failed:`,reply);
       return false;
    }
    async resultFromJoin(j){
@@ -3143,7 +3143,7 @@ class MkyRouting {
       let maxTry = 10;
 
       while (trys < maxTry && (this.status === 'startingJoin' || this.status === 'waitingToJoin')){   
-        console.log(`resultFromJoin():: waiting for 'online' signal`,this.status);
+        console.error(`resultFromJoin():: waiting for 'online' signal`,this.status);
         await sleep(250);
         trys++;
       }  
@@ -3158,7 +3158,7 @@ class MkyRouting {
         result   : result
       };
       
-      console.log(`MkyRouting.resultFromJoin():: sending to:${j.remIp} `,reply);
+      console.error(`MkyRouting.resultFromJoin():: sending to:${j.remIp} `,reply);
       this.net.sendReplyCX(j.remIp,reply);
       return; 
    }
@@ -3168,7 +3168,7 @@ class MkyRouting {
         response : 'myHealthCheckReply'
       };
       let reply = await this.net.reqReplyObj.waitForReply(this.r.rootNodeIp, msg);
-      console.log(`myHealthCheck():: root reply:`,reply);
+      //console.error(`myHealthCheck():: root reply:`,reply);
       if ( reply?.status === 'OK' && this.r.ptreeId === reply.ptreeId) {
         return true;
       }
@@ -3311,9 +3311,9 @@ class MkyRouting {
            const entry = this.joinQue.get(j.remIp);
 
            if (!entry) {
-             console.log("No join entry for IP", j.remIp);
+             console.error("No join entry for IP", j.remIp);
            } else if (entry.joinTicket !== j.ticketId) {
-             console.log("Ticket mismatch, removing stale entry", entry.joinTicket, j.ticketId);
+             console.error("Ticket mismatch, removing stale entry", entry.joinTicket, j.ticketId);
              this.joinQue.delete(j.remIp);   // <-- remove invalid entry
            } else {
              wait = 'keepWaiting';
@@ -3361,7 +3361,7 @@ class MkyRouting {
          if (this.myIp != this.r.rootNodeIp){
            healthy = await this.myHealthCheck();
          } 
-         console.log(`handleRequest():: ${j.req} myHealth is `,healthy);
+         console.error(`handleRequest():: ${j.req} myHealth is `,healthy);
          if (healthy){
            const qres = {
              whoIsRootReply : {
@@ -3535,13 +3535,13 @@ class MkyRouting {
        this.r.nodeNbr = this.r.lnode;
        this.newNode = null;
 
-       console.log(`processMyJoinResponse():: pushRTab check: this.r.myParent`,this.r.myParent);
+       console.error(`processMyJoinResponse():: pushRTab check: this.r.myParent`,this.r.myParent);
  
        if (this.r.myParent !== null){
          let sendRTab = await this.pushRTabToParent();
-         console.log(`processMyJoinResponse():: pushRTabToParent`,sendRTab);
+         console.error(`processMyJoinResponse():: pushRTabToParent`,sendRTab);
          if (sendRTab?.result !== 'OK'){
-           console.log(`processMyJoinResponse():: pushRTabToParent FAILED`,sendRTab);
+           console.error(`processMyJoinResponse():: pushRTabToParent FAILED`,sendRTab);
            this.net.setNodeBackToStartup('my join request failed on hRTabToParent.');
            resolve('pushRTabFailed');
            return;
@@ -3558,7 +3558,7 @@ class MkyRouting {
         response  : 'pushingRTabToParentResult',
         rootRTab  : clone(this.r)
       };
-      console.log(`MkyRouting.notifyNewLastNode():: sending to: ${this.r.myParent} `,msg);
+      console.error(`MkyRouting.notifyNewLastNode():: sending to: ${this.r.myParent} `,msg);
 
       return  await this.net.reqReplyObj.waitForReply(this.r.myParent, msg);
    }
@@ -3641,7 +3641,7 @@ class MkyRouting {
              this.r.myParent = j.msg.parentNodeUpdate.newParent;
            }
          }
-         console.log(`handleBcast():: heard I am new last node: ${this.myIp} `, j.msg,this.r);
+         console.error(`handleBcast():: heard I am new last node: ${this.myIp} `, j.msg,this.r);
          return true;
        }
        if (j.msg?.parentNodeUpdate !== false){
@@ -3651,7 +3651,7 @@ class MkyRouting {
        }
        this.r.lastNode = j.msg.lnodeNewLastNode;
        this.r.lnode    = j.msg.newLastNodeNbr;
-       console.log(`handleBcast():: heard There is a new last node: ${this.myIp} `, j.msg,this.r);
+       console.error(`handleBcast():: heard There is a new last node: ${this.myIp} `, j.msg,this.r);
        return true;
      }
      if (j.msg.whoHasNodeIp){
@@ -3745,8 +3745,8 @@ class MkyRouting {
 
      this.net.setContactsStatusTo(j.toHost,j.xhrError);
 
-     console.log(`MkyRouting.handleSendMsgErrors():: node: ${j.toHost} Error rate:`, this.nodeHealthMgr.errorRate(j.toHost));
-     console.log(`MkyRouting.handleSendMsgErrors():: node: ${j.toHost} isFailing :`   ,  nodeIsFailing);
+     console.error(`MkyRouting.handleSendMsgErrors():: node: ${j.toHost} Error rate:`, this.nodeHealthMgr.errorRate(j.toHost));
+     console.error(`MkyRouting.handleSendMsgErrors():: node: ${j.toHost} isFailing :`   ,  nodeIsFailing);
 
      // route broadcasts past the unresponsive node.
 
@@ -3764,14 +3764,14 @@ class MkyRouting {
      }
 
      if (j.errCount >= 5){
-       console.log('MkyRouting.handleSendMsgErrors():: msg.errCount exceeded giving up',this.net.formatMsg(j));
+       console.error('MkyRouting.handleSendMsgErrors():: msg.errCount exceeded giving up',this.net.formatMsg(j));
        return 'FailedSend';
      }
 
      // Check for msg type to see if it should be retried.
      if (!(j.hasOwnProperty('ping') || j.hasOwnProperty('pingResult'))) {
        if (j.req != 'whoIsRoot?' && j.req != 'addMeToYourRight'){
-         console.log('MkyRouting.handleSendMsgErrors():: re-queing errored message',this.net.formatMsg(j));
+         console.error('MkyRouting.handleSendMsgErrors():: re-queing errored message',this.net.formatMsg(j));
          this.net.queMsg(j);
          return 'Retry';
        }
@@ -3810,7 +3810,7 @@ class MkyRouting {
        try {
          // Case 1. Check if the parent is Root
          if (this.status === 'root') {
-           console.log('doHandleUnresponsiveNode():: parent is root - drop cause by:',j);
+           console.error('doHandleUnresponsiveNode():: parent is root - drop cause by:',j);
            await this.rootDropChild(j.toHost);
            this.err = false;
            return;
@@ -3828,7 +3828,7 @@ class MkyRouting {
          }
  
          // Case 3. Is Parent node but not root
-         console.log('doHandleUnresponsiveNode():: parent but NOT root - drop cause by:',j);
+         console.error('doHandleUnresponsiveNode():: parent but NOT root - drop cause by:',j);
          await this.parentSaysRootDropNode(j.toHost,this.r);
          this.err = false;
          return;
@@ -3844,18 +3844,18 @@ class MkyRouting {
         nodeIp     : nodeIp,
         parentRtab : rtab 
       };
-      console.log(`MkyRouting.parentSaysRootDropNode():: sending to root: ${this.r.rootNodeIp}`,msg);
+      console.error(`MkyRouting.parentSaysRootDropNode():: sending to root: ${this.r.rootNodeIp}`,msg);
 
       return  await this.net.reqReplyObj.waitForReply(this.r.rootNodeIp, msg);
    }
    async parentSaysRDropNode(j){
-      console.log(`MkyRouting.parentSaysRDropNode():: got msg: `,j);
+      console.error(`MkyRouting.parentSaysRDropNode():: got msg: `,j);
 
       // Try to get rootLock.
-      console.log('parentSaysRDropNode():: try to get lock',j);
+      console.error('parentSaysRDropNode():: try to get lock',j);
       let lock = await this.getRootLock();
       if (lock !== true) {
-        console.log("parentSaysRDropNode():: root busy, enqueue drop request", j);
+        console.error("parentSaysRDropNode():: root busy, enqueue drop request", j);
         this.dropQueue.push(j);
         return 'QUEUED';
       }
@@ -3863,13 +3863,13 @@ class MkyRouting {
         await this.doParentSaysDropNode(j);
       } finally {
         this.r.rootLock = null;
-        this._processDropQueue();
+        await this._processDropQueue();
       }
       return;
    }
    async doParentSaysDropNode(j){
         
-        console.log(`rootDropChild():: begin dropping node`,j);
+        console.error(`rootDropChild():: begin dropping node`,j);
 
         // Prepare SendResults for Drop Request
         const reply = {
@@ -3880,7 +3880,7 @@ class MkyRouting {
 
         // Block mulitple attempts to remove the same j.
         if (this.dropIps.includes(j.nodeIp)){
-          console.log('Node Has Been Dropped! ingoring drop:',this.r.myNodes,j);
+          console.error('Node Has Been Dropped! ingoring drop:',this.r.myNodes,j);
           this.net.sendReplyCX(j.remIp,reply);
           return;
         }
@@ -3912,7 +3912,7 @@ class MkyRouting {
         }
 
         // Send drop result back to parent.
-        console.log(`MkyRouting.parentSaysRDropNode():: sending to parent ${j.remIp} result:`,reply);
+        console.error(`MkyRouting.parentSaysRDropNode():: sending to parent ${j.remIp} result:`,reply);
         this.net.sendReplyCX(j.remIp,reply);
         return;
    }
@@ -3925,7 +3925,7 @@ class MkyRouting {
         case      : caseNbr
       };
 
-      console.log(`MkyRouting.rootSaysParentDropChild():: sending to ${toIp}`,msg);
+      console.error(`MkyRouting.rootSaysParentDropChild():: sending to ${toIp}`,msg);
 
       return  await this.net.reqReplyObj.waitForReply(toIp, msg);
    }
@@ -3948,7 +3948,7 @@ class MkyRouting {
          this.r.myNodes.pop();
          this.r.lastNode = drRtab.leftNode;
          this.r.lnode    = drRtab.nodeNbr -1;
-         console.log(`MkyRouting.rootSaysDropPDropChild():: bcast: `,{lnodeNewLastNode : drRtab.leftNode, newLastNodeNbr: this.r.lnode,parentNodeUpdate:parentUpdate});
+         console.error(`MkyRouting.rootSaysDropPDropChild():: bcast: `,{lnodeNewLastNode : drRtab.leftNode, newLastNodeNbr: this.r.lnode,parentNodeUpdate:parentUpdate});
          this.bcast({lnodeNewLastNode : drRtab.leftNode, newLastNodeNbr: this.r.lnode,parentNodeUpdate:parentUpdate});
        }
        else { reply.result = 'FAILED_CASE1_MYCHILD';}
@@ -3961,7 +3961,7 @@ class MkyRouting {
          this.r.myNodes.pop();
          this.r.lastNode = drRtab.leftNode;
          this.r.lnode    = drRtab.nodeNbr -1;
-         console.log(`MkyRouting.rootSaysDropPDropChild():: bcast: `,{lnodeNewLastNode : drRtab.leftNode, newLastNodeNbr: this.r.lnode,parentNodeUpdate:parentUpdate});
+         console.error(`MkyRouting.rootSaysDropPDropChild():: bcast: `,{lnodeNewLastNode : drRtab.leftNode, newLastNodeNbr: this.r.lnode,parentNodeUpdate:parentUpdate});
          this.bcast({lnodeNewLastNode : drRtab.leftNode, newLastNodeNbr: this.r.lnode,parentNodeUpdate:parentUpdate});
        }
        else { reply.result = 'FAILED_CASE2.1_MYCHILD';}
@@ -3972,11 +3972,11 @@ class MkyRouting {
          // Child nodes contain the last node.
   
          const lnRtab = this.r.myNodes[lnIdx].rtab;
-         console.log(`MkyRouting.rootSaysDropPDropChild():: inspect lnRtab`,lnRtab);
+         console.error(`MkyRouting.rootSaysDropPDropChild():: inspect lnRtab`,lnRtab);
          const idx = this.r.myNodes.findIndex(n => n.ip === j.dropIp);
-         console.log(`MkyRouting.rootSaysDropPDropChild():: inspect j`,j);
-         console.log(`MkyRouting.rootSaysDropPDropChild():: inspect this.r`,this.r);
-         console.log(`MkyRouting.rootSaysDropPDropChild():: inspect idx`,idx,this.r.myNodes);
+         console.error(`MkyRouting.rootSaysDropPDropChild():: inspect j`,j);
+         console.error(`MkyRouting.rootSaysDropPDropChild():: inspect this.r`,this.r);
+         console.error(`MkyRouting.rootSaysDropPDropChild():: inspect idx`,idx,this.r.myNodes);
          if( idx > -1 && this.r.myNodes[idx].ip === j.dropIp) {
            const drRtab = this.r.myNodes[idx].rtab;
            let newLn  = lnRtab.leftNode;
@@ -3989,7 +3989,7 @@ class MkyRouting {
 
            const doTry = await this.parentSaysMoveTo(oldLastNode,drRtab);
            if (doTry?.result === 'OK') {
-             console.log(`MkyRouting.rootSaysDropPDropChild():: bcast: `,{lnodeNewLastNode : newLn, newLastNodeNbr: this.r.lnode,parentNodeUpdate:parentUpdate});
+             console.error(`MkyRouting.rootSaysDropPDropChild():: bcast: `,{lnodeNewLastNode : newLn, newLastNodeNbr: this.r.lnode,parentNodeUpdate:parentUpdate});
              this.bcast({lnodeNewLastNode : newLn, newLastNodeNbr: this.r.lnode,parentNodeUpdate:parentUpdate});
            }
            else { reply.result = 'FAILED_CASE2.2_MOVE_LN';}
@@ -4011,14 +4011,14 @@ class MkyRouting {
 
            const doTry = await this.parentSaysMoveTo(oldLastNode,drRtab);
            if (doTry?.result === 'OK'){
-             console.log(`MkyRouting.rootSaysDropPDropChild():: bcast: `,{lnodeNewLastNode : newLn, newLastNodeNbr: this.r.lnode,parentNodeUpdate:parentUpdate});
+             console.error(`MkyRouting.rootSaysDropPDropChild():: bcast: `,{lnodeNewLastNode : newLn, newLastNodeNbr: this.r.lnode,parentNodeUpdate:parentUpdate});
              this.bcast({lnodeNewLastNode : newLn, newLastNodeNbr: this.r.lnode,parentNodeUpdate:parentUpdate});
            }
            else { reply.result = 'FAILED_CASE2.3_MOVE_LN';}
          }
          else { reply.result = 'FAILED_CASE2.3_MYCHILD';}     }
      }
-     console.log(`rootSaysDropPDropChild():: sending reply`,reply);
+     console.error(`rootSaysDropPDropChild():: sending reply`,reply);
      this.net.sendReplyCX(j.remIp,reply);
      return;
    }
@@ -4029,7 +4029,7 @@ class MkyRouting {
         req        : 'sendMeYourLastChildIp',
         response   : 'sendMeYourLastChildIpResult',
       };
-      console.log(`MkyRouting.doSendYourLastChildIp()::  sending to: ${toIp} `,msg);
+      console.error(`MkyRouting.doSendYourLastChildIp()::  sending to: ${toIp} `,msg);
 
       return  await this.net.reqReplyObj.waitForReply(toIp, msg);
    }
@@ -4050,7 +4050,7 @@ class MkyRouting {
         result      : result,
         lastChildIp : lip
      };
-     console.log(`MkyRouting.sendMeYourLastChildIp()::  sending reply to: ${j.remIp} `,reply);
+     console.error(`MkyRouting.sendMeYourLastChildIp()::  sending reply to: ${j.remIp} `,reply);
      this.net.sendReplyCX(j.remIp,reply);
      return;
    }
@@ -4063,7 +4063,7 @@ class MkyRouting {
         hotRtab    : hotRtab,
         newParent  : newParent
       };
-      console.log(`MkyRouting.parentSaysMoveTo()::  sending to: ${ip} `,msg);
+      console.error(`MkyRouting.parentSaysMoveTo()::  sending to: ${ip} `,msg);
 
       return  await this.net.reqReplyObj.waitForReply(ip, msg);
    }
@@ -4085,18 +4085,18 @@ class MkyRouting {
        this.r.lastNode = newLastNodeIp;
      }
 
-     console.log('parentSaysLastMoveTo():: heard!!! parentSaysLastMoveTo',j);
+     console.error('parentSaysLastMoveTo():: heard!!! parentSaysLastMoveTo',j);
 
      doTry  = await this.doAddMeToYourRight(this.r.leftNode);
      response = doTry?.result ?? 'FAIL';
 
-     console.log('parentSaysLastMoveTo():: doTry: ',doTry,response);
-     console.log('parentSaysLastMoveTo():: rightNode is ',this.r.rightNode);
+     console.error('parentSaysLastMoveTo():: doTry: ',doTry,response);
+     console.error('parentSaysLastMoveTo():: rightNode is ',this.r.rightNode);
 
      if (response === 'OK' && this.r.rightNode){
        doTry = await this.doAddMeToYourLeft(this.r.rightNode);
        response = doTry?.result ?? 'FAIL';
-       console.log('parentSaysLastMoveTo():: doAddMeToYourLeft',doTry,response);
+       console.error('parentSaysLastMoveTo():: doAddMeToYourLeft',doTry,response);
      }
 
      // SendResults Of Change Request
@@ -4172,7 +4172,7 @@ class MkyRouting {
      } finally {
        this.r.rootLock = false;
        // Continue processing until queue is empty or lock fails
-       this._processDropQueue();
+       await this._processDropQueue();
      }
    }
    // Parent Is Root Drop Que
@@ -4190,7 +4190,7 @@ class MkyRouting {
      } finally {
        this.r.rootLock = false;
        // Continue processing until queue is empty or lock fails
-       this.PIR_processDropQueue();
+       await this.PIR_processDropQueue();
      }
    }
    addNewNodeBCast(j) { 
@@ -4900,7 +4900,7 @@ class PeerTreeNet extends  EventEmitter {
                  }
                  const isUnhandledNativeError =  err instanceof Error &&  Object.keys(err).length === 0;
                  if (isUnhandledNativeError) {
-                   console.log('wtf',err.stack);
+                   console.error('wtf',err.stack);
                    console.error("UNHANDLED ERROR:", err.stack);
                    // Close errorLog file and exit
                    errorLog.end(() => { process.exit(1); });
@@ -4938,7 +4938,7 @@ class PeerTreeNet extends  EventEmitter {
                      console.error('PeerTreeNet.startServer():: error:\n',err);
                      throw makeErr(550,"netREPLY JSON error");
                    }
-                   //console.log('PeerTreeNet.startServer():: heard: ',j); 
+                   //console.error('PeerTreeNet.startServer():: heard: ',j); 
                    if (j.hasOwnProperty('msg') === false) 
                      throw makeErr(551,'invalid netREPLY no msg body found');
 
@@ -4986,7 +4986,7 @@ class PeerTreeNet extends  EventEmitter {
                    //}
                    const isUnhandledNativeError =  err instanceof Error &&  Object.keys(err).length === 0;
                    if (isUnhandledNativeError) {
-                     console.log('wtf',err.stack);
+                     console.error('wtf',err.stack);
                      console.error("UNHANDLED ERROR:", err.stack);
                      // Close errorLog file and exit
                      errorLog.end(() => { process.exit(1); });
@@ -5204,7 +5204,7 @@ class PeerTreeNet extends  EventEmitter {
                   this.setNodeBackToStartup('heartBeat MyParent Result: not my child!');
                 }
               }
-              console.error('j.pingResults',j);
+              //console.error('j.pingResults',j);
               this.updateChildRTab(j.remIp,j.rtab);
             }
 
@@ -5371,14 +5371,16 @@ class PeerTreeNet extends  EventEmitter {
   }
   async setNodeBackToStartup(msg='noMsg',bestNewRootIp=null){
     
+    this.rnet.status = 'shutdown';
+
     // If migrating to the same root that just died, wait a random time
-    if (bestNewRootIp !== null && bestNewRootIp === this.rnet.r.rootNodeIp) {
+    //if (bestNewRootIp !== null && bestNewRootIp === this.rnet.r.rootNodeIp) {
 
       // Random delay between 250ms and 1250ms
-      const delay = 250 + Math.floor(Math.random() * 1000);
+      const delay = 2250 + Math.floor(Math.random() * 10000);
 
       await sleep(delay);
-    }
+    //}
 
     console.error('PeerTreeNet.setNodeBackToStartup():: Node Appears offline msg is: ' + msg,this.rnet.r);
     this.rnet.status = 'offline';
@@ -5689,7 +5691,7 @@ class PeerTreeNet extends  EventEmitter {
   }
   sendPostRequest(toHost,msg,endPoint='/netREPLY'){
 
-     console.log(`sendPostRequest(toHost:${toHost}`,msg,`endPoint='/netREPLY'`);
+     console.error(`sendPostRequest(toHost:${toHost}`,msg?.req,`endPoint='/netREPLY'`);
      if (this.rnet.simulation){
        console.error('PeerTreeNet.sendPostRequest():: outage simulation send failure',toHost);
        msg.xhrError = 500;
@@ -5726,11 +5728,11 @@ class PeerTreeNet extends  EventEmitter {
          msg.endpoint = options.path;
          msg.xhrError = res.statusCode;
          msg.errCount++;
-         console.log(`sendPostRequest():: xhrFailedTry`);
+         console.error(`sendPostRequest():: xhrFailedTry`);
          this.emit('xhrFailedTry',msg);
        } else {
          this.emit('xhrPostOK',msg);
-         console.log(`sendPostRequest():: success`);
+         console.error(`sendPostRequest():: success`);
          this.rnet.nodeHealthMgr.recordPostResult(msg.toHost, "success");
        }
 
@@ -5983,9 +5985,8 @@ class PeerTreeNet extends  EventEmitter {
      this.on('xhrFailedTry',async (j)=>{
        //console.error('xhrFail handler:',j);
        const retry = await this.rnet.handleSendMsgErrors(j);
-       console.error('PeerTreeNet.setErrorHandlers():: ',retry,j);
        if (retry === 'FailedSend'){
-         console.error('PeerTreeNet.setErrorHandlers():: FailedSend emit(xhrFail):',retry,j);
+         console.error('PeerTreeNet.setErrorHandlers():: FailedSend emit(xhrFail):',retry,j?.req);
          this.emit('xhrFail',j);
          return;
        }
