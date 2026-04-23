@@ -47,6 +47,7 @@ class FstreamTreeReceptor extends PtreeReceptor {
     }
   }
   startProcessingLoop() {
+    return;
     const LOOP_INTERVAL = 500; // ms — adjust as needed
 
     const process = async () => {
@@ -739,6 +740,8 @@ class FstreamTreeObj {
     this.net          = peerTree;
     this.receptor     = null;
     this.wcon         = new MkyWebConsole(this.net,null,this,'borgAgentCell');
+  }
+  startCell(){
     this.init();
     this.setNetErrHandle();
     this.sayHelloPeerGroup();

@@ -197,52 +197,27 @@ class ftreeFileMgrCellReceptor{
   processRequest(j,res){
      res.setHeader('Content-Type', 'application/json');
      res.writeHead(200);
-     if (j.msg.req == 'createRepo'){
-       this.reqCreateRepo(j.msg,res);
-       return;
-     }
-     if (j.msg.req == 'locateMyMasterRepo'){
-        this.doLocateMyMasterRepo(j.msg,res);
-        return;
-     }
-     if (j.msg.req == 'createRepoFolder'){
-       this.reqCreateRepoFolder(j.msg,res);
-       return;
-     }
-     if (j.msg.req == 'deleteRepoFolder'){
-       this.reqDeleteRepoFolder(j.msg,res);
-       return;
-     }
-     if (j.msg.req == 'getMyRepoFilePath'){
-       this.reqMyRepoFilePath(j.msg,res);
-       return;
-     }
-     if (j.msg.req == 'getMyRepoList'){
-       this.reqReadMyRepoList(res);
-       return;
-     }
-     if (j.msg.req == 'getMyRepoFiles'){
-       this.reqReadMyRepoFiles(j.msg,res);
-       return;
-     }
-     if (j.msg.req == 'getRepoFileData'){
-       this.reqGetRepoFileData(j.msg,res);
-       return;
-     }
-     if (j.msg.req == 'insertRSfile'){
-       this.reqInsertRSfile(j.msg,res);
-       return;
-     }
-     if (j.msg.req == 'deleteRSfile'){
-       this.reqDeleteRSfile(j.msg,res);
-       return;
-     }
-     if (j.msg.req == 'requestShard'){
-       this.reqRetrieveShard(j.msg,res);
-       return;
-     }
-     if (j.msg.req == 'deleteShard'){
-       this.reqDeleteRSfile(j.msg,res);
+
+     const handlers = {
+       createRepo          : this.reqCreateRepo,
+       locateMyMasterRepo  : this.doLocateMyMasterRepo,
+       selectEndPoints     : this.doSelectEndPoints,
+       createRepoFolder    : this.reqCreateRepoFolder,
+       deleteRepoFolder    : this.reqDeleteRepoFolder,
+       getMyRepoFilePath   : this.reqMyRepoFilePath,
+       getMyRepoList       : this.reqReadMyRepoList,
+       getMyRepoFiles      : this.reqReadMyRepoFiles,
+       getRepoFileData     : this.reqGetRepoFileData,
+       insertRSfile        : this.reqInsertRSfile,
+       deleteRSfile        : this.reqDeleteRSfile,
+       requestShard        : this.reqRetrieveShard,
+       deleteShard         : this.reqDeleteRSfile
+     };
+
+     const fn = handlers[j.msg.req];
+
+     if (fn) {
+       fn.call(this, j.msg, res);
        return;
      }
 
@@ -263,9 +238,14 @@ class ftreeFileMgrCellReceptor{
      } 
      res.end('{"result":false,"msg":"Master Repo Not Found!"}');
   }
+  async doSelectEndPoints(j,res){
+    let IPs = await this.peer.receptorReqNodeList(j);
+    IPs = IPs.map(IP => `https://${IP}:${this.port}`);
+    res.end(`{"result":"listOK","useReceptors":${JSON.stringify(IPs)}}`);
+  }
   locateMyRepoLocal(muid){
     return new Promise((resolve,reject)=>{
-      var SQL = `select count(*)as nRes FROM ftreeFileMgr.tblRepo where repoOwner = '${muid}'`;
+      var SQL = `select count(*)as nRes FROM ftreeFileMgr.tblRepo where repoOwner = '${muid}' and repoType = 'Master' `;
       console.log('locateMyRepoLocal .: ',SQL);
       con.query(SQL , (err, result,fields)=>{
         if (err){
@@ -895,7 +875,7 @@ class ftreeFileMgrCellReceptor{
     }
     return;
   }
-  async reqReadMyRepoList(res){
+  async reqReadMyRepoList(j,res){
     const result = {
       result  : true,
       list    : await this.doReadMyRepoList()
@@ -1141,20 +1121,28 @@ class ftreeFileMgrCellReceptor{
     });
   }
   async reqCreateRepoFolder(j,res){
-    const result = {
+    const tryRes = {
       result : await this.createLocalFolder(j.repo),
       msg : "OK"
     }
-    res.end(JSON.stringify(result));
-    const newFolderID = result.result;
+    if (!tryRes.result){
+      tryRes.msg = "Failed To Create Master Repo Folder";
+      res.end(JSON.stringify(result));
+      return;
+    }
+    res.end(JSON.stringify(tryRes));
 
-    j.repo.folderData = await this.getLocalRepoFolderRec(newFolderID);
-    console.log(JSON.stringify(j.repo));
+    const newFolderID = tryRes.result;
+    console.log(`reqCreateRepoFolder():: result was : `,tryRes);
 
+    j.repo.folder = await this.getLocalRepoFolderRec(newFolderID);
+    j.repo.data   =  {repoID_master : j.repo.folder.repoID_master};
+    console.log(j.repo);
+    
     var IPs = await this.peer.receptorReqNodeList(j);
     console.log('Folder::XXRANDNODES:',IPs);
     if (IPs.length == 0){
-      res.end('{"result":"repoOK","nRecs":0,"repoFolder":"No Nodes Available"}');
+      console.log(`reqCreateRepoFolder():: request backup nodes failed no other nodes found : `);
       return;
     }
     var n = 0;
@@ -1172,7 +1160,7 @@ class ftreeFileMgrCellReceptor{
         console.log('repo folder storage failed on:',IP);
       }
       if (n==IPs.length -1){
-        res.end('{"result":"repoOK","nStored":'+nStored+',"repo":'+JSON.stringify(j)+',"hosts":'+JSON.stringify(hosts)+'}');
+        console.log(`reqCreateRepoFolder():: backup copies of new repo folder created : `,nStored,hosts,j);
         return;
       }
       n = n + 1;
@@ -1285,7 +1273,7 @@ class ftreeFileMgrCellReceptor{
       }
       const repoID_master = await this.getRepoID(repo);
       repo.nCopys  = await this.getRepoNCopys(repo);
-      var SQL = "INSERT INTO `ftreeFileMgr`.`tblRepoFolder` (`rfoldRepoID`,`rfoldName`,`rfoldParentID`) "+
+      var SQL = "INSERT INTO `ftreeFileMgr`.`tblRepoFolder` (`repoID_master`,`rfoldName`,`rfoldParentID`) "+
         "VALUES ('"+repoID_master+"','"+repo.folder+"',"+repo.parent+");" +
         "SELECT LAST_INSERT_ID() AS newFolderID;";
       var newFolderID = null;
@@ -1912,6 +1900,8 @@ class ftreeFileMgrObj {
     this.receptor   = null;
     this.wcon       = new MkyWebConsole(this.net,con,this,'ftreeFileMgrCell');
     this.myPeers    = [];
+  }
+  startCell(){
     this.init();
     this.setNetErrHandle();
     this.sayHelloPeerGroup();
@@ -2113,7 +2103,7 @@ class ftreeFileMgrObj {
         }
         if (j.msg.req == 'stopNodeGenIP'){
           console.log('DOPOW stopNodeGenIP-XX Received:',j.remIp);
-          this.doPowStop(j.remIp);
+          this.doPowStop(j.remIp,j.msg.reqId);
         }
       }
     } 
@@ -2147,17 +2137,18 @@ class ftreeFileMgrObj {
   =================================================================================
   */
    async doSendMyMasterRIP(j,remIp){
+     console.log(`doSendMyMasterRIP():: req-> `,j);
      const result = await this.receptor.locateMyRepoLocal(j.owner);
      if (result) {
        var qres = {
-         req : 'sendMyMasterRIPResult',
+         req    : 'sendMyMasterRIPResult',
+         reqId  : j.reqId,
          result : true,
-         ip : this.net.rnet.myIp
+         ip     : this.net.rnet.myIp
        }
        this.net.sendReply(remIp,qres); 
        return;    
      } 
-     this.net.sendReply(remIp,{req:'sendMyMasterRIPResult',result:false});
    }
    doSendMyRepoList(j,remIp){
      var SQL = `select * from ftreeFileMgr.tblRepo where repoOwner = '${j.repoOwner}' and repoType = 'Public' limit ${j.limit} offset ${j.offset}`;
@@ -2175,6 +2166,7 @@ class ftreeFileMgrObj {
          else {
            var qres = {
              req    : 'sendMyRepoListResult',
+             reqId  : j.reqId,
              result : result
            }
            //console.log('sending activeRepoResult :',qres);
@@ -2202,8 +2194,9 @@ class ftreeFileMgrObj {
         }
 
         var qres = {
-            req: 'sendMyFolderListResult',
-            result: result
+            req    : 'sendMyFolderListResult',
+            reqId  : j.reqId,
+            result : result
         };
 
         this.net.sendReply(remIp, qres);
@@ -2228,8 +2221,9 @@ class ftreeFileMgrObj {
         }
 
         var qres = {
-            req: 'sendMyFileMgrListResult',
-            result: result
+            req    : 'sendMyFileMgrListResult',
+            reqId  : j.reqId,
+            result : result
         };
 
         this.net.sendReply(remIp, qres);
@@ -2251,8 +2245,9 @@ class ftreeFileMgrObj {
          else {
            repo = result[0];
            var qres = {
-             req  : 'activeRepoIP',
-             repo : repo
+             req   : 'activeRepoIP',
+             reqId : j.reqId,
+             repo  : repo
            }
            //console.log('sending activeRepoResult :',qres);
            this.net.sendReply(remIp,qres);
@@ -2276,8 +2271,9 @@ class ftreeFileMgrObj {
          else {
            repo = result[0];
            var qres = {
-             req  : 'activeRepoFolderIP',
-             repo : repo
+             req   : 'activeRepoFolderIP',
+             reqId : j.reqId,
+             repo  : repo
            }
            //console.log('sending activeRepoFolderResult :',qres);
            this.net.sendReply(remIp,qres);
@@ -2301,8 +2297,9 @@ class ftreeFileMgrObj {
          else {
            repo = result[0];
            var qres = {
-             req  : 'activeRepoFileIP',
-             repo : repo
+             req   : 'activeRepoFileIP',
+             reqId : j.reqId,
+             repo  : repo
            }
            //console.log('sending activeRepoFileResult :',qres);
            this.net.sendReply(remIp,qres);
@@ -2326,8 +2323,9 @@ class ftreeFileMgrObj {
         else {
           repo = result[0];
           var qres = {
-            req  : 'activeRepoShardIP',
-            repo : repo
+            req   : 'activeRepoShardIP',
+            reqId : j.reqId,
+            repo  : repo
           }
           this.net.sendReply(remIp,qres);
         }
@@ -2349,9 +2347,10 @@ class ftreeFileMgrObj {
       else {ermsg = 'Update Repo Delete File Record Failed: '+pj.msg;}
 
       var qres = {
-        req : 'updateRepoDeleteFileResult',
+        req    : 'updateRepoDeleteFileResult',
+        reqId  : r.reqId,
         result : result,
-        ermsg : ermsg
+        ermsg  : ermsg
       }
       this.net.sendReply(remIp,qres);
   }
@@ -2370,9 +2369,10 @@ class ftreeFileMgrObj {
       else {ermsg = 'Update Repo Insert File Record Failed: '+pj.msg;}
 
       var qres = {
-        req : 'updateRepoInsertFileResult',
+        req    : 'updateRepoInsertFileResult',
+        reqId  : r.reqId,
         result : result,
-        ermsg : ermsg
+        ermsg  : ermsg
       }
       this.net.sendReply(remIp,qres);	  
   }
@@ -2401,7 +2401,7 @@ class ftreeFileMgrObj {
     console.log('got request store repo',j.repo.signature);
     if (!this.isValidSig(j.repo.signature)){
       console.log('Repo Signature Invalid... NOT stored');
-      this.net.sendReply(remIp,{reply : 'repoStoreRes',result :false,error : "Invalid Signature For Request"});
+      this.net.sendReply(remIp,{reply : 'repoStoreRes',reqId : j.reqId, result :false,error : "Invalid Signature For Request"});
       return;
     }
     var SQL = "select repoID_master from ftreeFileMgr.tblRepo where repoID_master = '"+j.repo.data.repoID_master+"'";
@@ -2410,9 +2410,10 @@ class ftreeFileMgrObj {
       if (err){
         console.log(err);
         var qres = {
-          reply : 'repoStoreRes',
+          reply  : 'repoStoreRes',
+          reqId  : j.reqId,
           result : false,
-          error : err,
+          error  : err,
           repoID_master : null
         }
         this.net.sendReply(remIp,qres);
@@ -2425,9 +2426,10 @@ class ftreeFileMgrObj {
           console.log('New Repo Created:',repoID_master);
           if (!repoID_master){
             var qres = {
-              reply : 'repoStoreRes',
+              reply  : 'repoStoreRes',
+              reqId  : j.reqId,
               result : false,
-              error : "failed to create new repo record for repoOwner",
+              error  : "failed to create new repo record for repoOwner",
               repoID_master : null
             }
             this.net.sendReply(remIp,qres);
@@ -2435,7 +2437,8 @@ class ftreeFileMgrObj {
           }
           else {
             var qres = {
-              reply : 'repoStoreRes',
+              reply  : 'repoStoreRes',
+              reqId  : j.reqId,
               result : true,
               repoID_master : repoID_master
             }
@@ -2445,9 +2448,10 @@ class ftreeFileMgrObj {
         }
         else {
           var qres = {
-            reply : 'repoStoreRes',
+            reply  : 'repoStoreRes',
+            reqId  : j.reqId,
             result : false,
-            error : 'Something Fishy Happend',
+            error  : 'Something Fishy Happend',
             repoID_master : repoID_master
           }
           console.log('sending storeRepo:'+remIp,qres);
@@ -2516,9 +2520,10 @@ class ftreeFileMgrObj {
       if (err){
         console.log(err);
         var qres = {
-          reply : 'repoStoreFolderRes',
+          reply  : 'repoStoreFolderRes',
+          reqId  : j.reqId,
           result : false,
-          error : err,
+          error  : err,
           rfoldID_master : null
         }
         this.net.sendReply(remIp,qres);
@@ -2532,9 +2537,10 @@ class ftreeFileMgrObj {
           console.log('New Repo Folder Created:',rfoldID_master);
           if (!rfoldID_master){
             var qres = {
-              reply : 'repoStoreFolderRes',
+              reply  : 'repoStoreFolderRes',
+              reqId  : j.reqId,
               result : false,
-              error : "failed to create new repo record for repoOwner",
+              error  : "failed to create new repo record for repoOwner",
               rfoldID_master : null
             }
             this.net.sendReply(remIp,qres);
@@ -2542,7 +2548,8 @@ class ftreeFileMgrObj {
           }
           else {
             var qres = {
-              reply : 'repoStoreFolderRes',
+              reply  : 'repoStoreFolderRes',
+              reqId  : j.reqId,
               result : true,
               rfoldID_master : rfoldID_master
             }
@@ -2552,9 +2559,10 @@ class ftreeFileMgrObj {
         }
         else {
           var qres = {
-            reply : 'repoStoreFolderRes',
+            reply  : 'repoStoreFolderRes',
+            reqId  : j.reqId,
             result : false,
-            error : 'Something Fishy Happend',
+            error  : 'Something Fishy Happend',
             rfoldID_master : rfoldID_master
           }
           console.log('sending storeRepoFolder:'+remIp,qres);
@@ -2644,9 +2652,10 @@ class ftreeFileMgrObj {
       if (err) {
         console.error('Database error:', err);
         this.net.sendReply(remIp, {
-          reply: 'repoStoreShardRes',
-          result: false,
-          error: err.message,
+          reply  : 'repoStoreShardRes',
+          reqId  : j.reqId,
+          result : false,
+          error  : err.message,
           sfilID_master: null
         });
         return;
@@ -2661,34 +2670,38 @@ class ftreeFileMgrObj {
 
           if (!sfilID_master) {
             this.net.sendReply(remIp, {
-              reply: 'repoStoreShardRes',
-              result: false,
-              error: "Shard creation failed",
+              reply  : 'repoStoreShardRes',
+              reqId  : j.reqId,
+              result : false,
+              error  : "Shard creation failed",
               sfilID_master: null
             });
             return;
           }
 
           this.net.sendReply(remIp, {
-            reply: 'repoStoreShardRes',
-            result: true,
-            sfilID_master: sfilID_master,
-            shardHash: j.repo.shard.sfilShardHash
+            reply  : 'repoStoreShardRes',
+            reqId  : j.reqId,
+            result : true,
+            sfilID_master : sfilID_master,
+            shardHash     : j.repo.shard.sfilShardHash
           });
         } catch (createErr) {
           console.error('Shard creation error:', createErr);
           this.net.sendReply(remIp, {
-            reply: 'repoStoreShardRes',
-            result: false,
-            error: createErr.message
+            reply  : 'repoStoreShardRes',
+            reqId  : j.reqId,
+            result : false,
+            error  : createErr.message
           });
         }
       } else {
         console.log('Shard already exists:', result[0].sfilID);
         this.net.sendReply(remIp, {
-          reply: 'repoStoreShardRes',
-          result: false,
-          error: 'Shard conflict',
+          reply  : 'repoStoreShardRes',
+          reqId  : j.reqId,
+          result : false,
+          error  : 'Shard conflict',
           sfilID_master: result[0].sfilID
         });
       }
@@ -2784,15 +2797,17 @@ class ftreeFileMgrObj {
         resolve(IPs);
       },1.5*1000);
 
+      const reqId = crypto.randomUUID();
       var req = {
-        to : 'ftreeCells',
-        req : 'sendActiveRepo',
-        repo : j.repo
+        to    : 'ftreeCells',
+        req   : 'sendActiveRepo',
+        reqId : reqId,
+        repo  : j.repo
       }
 
       this.net.broadcast(req);
       this.net.on('mkyReply', mkyReply = (r)=>{
-        if (r.req == 'activeRepoIP'){
+        if (r.req == 'activeRepoIP' && reqId == r.reqId){
           //console.log('mkyReply Active Repo is:',r.remIp);
           if (this.verifyActiveRepo(r)){
             if (IPs.length <= maxIP){
@@ -2824,20 +2839,23 @@ class ftreeFileMgrObj {
     return new Promise( (resolve,reject)=>{
       var mkyReply = null;
       const gtime = setTimeout( ()=>{
-        console.log('locateMyMasterRepo Request Timeout:');
+        console.log('locateMyMasterRepo():: Request Timeout:');
         this.net.removeListener('mkyReply', mkyReply);
         resolve(null);
       },1.5*1000);
 
+      const reqId = crypto.randomUUID();
       var req = {
-        to   : 'ftreeCells',
-        req  : 'sendMyMasterRIP',
+        to    : 'ftreeCells',
+        req   : 'sendMyMasterRIP',
+        reqId : reqId,
         owner : muid
       }
 
       this.net.broadcast(req);
       this.net.on('mkyReply', mkyReply = (r)=>{
-        if (r.req == 'sendMyMasterRIPResult'){
+        console.log(`locateMyMasterRepo():: heard reply: `, r);
+        if (r.req == 'sendMyMasterRIPResult' && r.reqId == reqId){
           resolve(r);
         }
         clearTimeout(gtime);
@@ -2857,15 +2875,17 @@ class ftreeFileMgrObj {
         resolve(IPs);
       },1.5*1000);
 
+      const reqId = crypto.randomUUID();
       var req = {
-        to   : 'ftreeCells',
-        req  : 'sendActiveRepoFolder',
-        repo : j.repo
+        to    : 'ftreeCells',
+        req   : 'sendActiveRepoFolder',
+        reqId : reqId,
+        repo  : j.repo
       }
 
       this.net.broadcast(req);
       this.net.on('mkyReply', mkyReply = (r)=>{
-        if (r.req == 'activeRepoFolderIP'){
+        if (r.req == 'activeRepoFolderIP' && reqId == r.reqId ){
           if (this.verifyActiveRepoFolder(r)){
             if (IPs.length <= maxIP){
               IPs.push(r.remIp);
@@ -2893,15 +2913,17 @@ class ftreeFileMgrObj {
         resolve(IPs);
       }, 1.5 * 1000);
 
+      const reqId = crypto.randomUUID();
       const req = {
-        to: 'ftreeCells',
-        req: 'sendActiveRepoFile',  
-        repo: j.repo
+        to    : 'ftreeCells',
+        req   : 'sendActiveRepoFile',  
+        reqId : reqId,
+        repo  : j.repo
       };
 
       this.net.broadcast(req);
       this.net.on('mkyReply', mkyReply = (r) => {
-        if (r.req === 'activeRepoFileIP') {  
+        if (r.req === 'activeRepoFileIP' && reqId == r.reqId) {  
           if (this.verifyActiveRepoFile(r)) {  
             if (IPs.length <= maxIP) {
               IPs.push(r.remIp);
@@ -2929,15 +2951,17 @@ class ftreeFileMgrObj {
         resolve(IPs);
       }, 1.5 * 1000);
 
+      const reqId = crypto.randomUUID();
       const req = {
-        to: 'ftreeCells',
-        req: 'sendActiveRepoShard',
-        repo: j.repo
+        to     : 'ftreeCells',
+        req    : 'sendActiveRepoShard',
+        reqId  : reqId,
+        repo   : j.repo
       };
 
       this.net.broadcast(req);
       this.net.on('mkyReply', mkyReply = (r) => {
-        if (r.req === 'activeRepoShardIP') {
+        if (r.req === 'activeRepoShardIP' && reqId == r.reqId) {
           if (this.verifyActiveRepoShard(r)) {
             if (IPs.length <= maxIP) {
               IPs.push(r.remIp);
@@ -2963,7 +2987,8 @@ class ftreeFileMgrObj {
   }
   receptorReqReadMyRemoteRepos(ownMUID,limit,offset){
     return new Promise( (resolve,reject)=>{
-      var mkyReply = null;
+     const reqId = crypto.randomUUID();
+     var mkyReply = null;
       const maxIP = this.myPeers.length || 3;
       var   results = [];
       const gtime = setTimeout( ()=>{
@@ -2975,6 +3000,7 @@ class ftreeFileMgrObj {
       const msg = {
         to        : 'ftreeCells',
         req       : 'sendMyRepoList',
+        reqId     : reqId,
         repoOwner : ownMUID,
         limit     : limit,
         offset    : offset
@@ -2982,7 +3008,7 @@ class ftreeFileMgrObj {
       console.log(msg);
       this.net.broadcast(msg);    
       this.net.on('mkyReply', mkyReply = (r)=>{
-        if (r.req == 'sendMyRepoListResult'){
+        if (r.req == 'sendMyRepoListResult' && reqId == r.reqId){
           console.log('mkyReply Remote Repo List:',r.remIp);
           if (results.length <= maxIP){
             results.push({result:r.result,remIp:r.remIp});
@@ -3000,7 +3026,7 @@ class ftreeFileMgrObj {
     return new Promise((resolve, reject) => {
         let mkyReply = null;
         const maxIP = this.myPeers.length || 3;
-        let results = [];
+        let results = []; 
 
         // Set timeout to handle request failures
         const gtime = setTimeout(() => {
@@ -3010,12 +3036,14 @@ class ftreeFileMgrObj {
         }, 2.5 * 1000);
 
         // Prepare and broadcast request message
+        const reqId = crypto.randomUUID();
         const msg = {
-            to: 'ftreeCells',
-            req: 'sendMyFolderList',
+            to            : 'ftreeCells',
+            req           : 'sendMyFolderList',
+            reqId         : reqId,
             repoID_master : repoID_master,
-            limit: limit,
-            offset: offset
+            limit         : limit,
+            offset        : offset
         };
 
         console.log(msg);
@@ -3023,7 +3051,7 @@ class ftreeFileMgrObj {
 
         // Listen for remote responses
         this.net.on('mkyReply', mkyReply = (r) => {
-            if (r.req === 'sendMyFolderListResult') {
+            if (r.req === 'sendMyFolderListResult' && reqId == r.reqId) {
                 console.log('mkyReply Remote Folder List:', r.remIp);
                 if (results.length <= maxIP) {
                     results.push({ result: r.result, remIp: r.remIp });
@@ -3050,12 +3078,14 @@ class ftreeFileMgrObj {
         }, 2.5 * 1000);
 
         // Prepare and broadcast request message
+        const reqId = crypto.randomUUID();
         const msg = {
-            to: 'ftreeCells',
-            req: 'sendMyFileMgrList',
+            to            : 'ftreeCells',
+            req           : 'sendMyFileMgrList',
+            reqId         : reqId,
             repoID_master : repoID_master,
-            limit: limit,
-            offset: offset
+            limit         : limit,
+            offset        : offset
         };
 
         console.log(msg);
@@ -3063,7 +3093,7 @@ class ftreeFileMgrObj {
 
         // Listen for remote responses
         this.net.on('mkyReply', mkyReply = (r) => {
-            if (r.req === 'sendMyFileMgrListResult') {
+            if (r.req === 'sendMyFileMgrListResult' && reqId == r.reqId) {
                 console.log('mkyReply Remote FileMgr List:', r.remIp);
                 if (results.length <= maxIP) {
                     results.push({ result: r.result, remIp: r.remIp });
@@ -3088,9 +3118,11 @@ class ftreeFileMgrObj {
         resolve(IPs);
       },1.5*1000);
 
+      const reqId = crypto.randomUUID();
       var req = {
         to     : 'ftreeCells',
         req    : 'sendNodeList',
+        reqId  : reqId,
         nodes  : maxIP,
         xnodes : excludeIps,
         work   : crypto.randomBytes(20).toString('hex') 
@@ -3098,13 +3130,13 @@ class ftreeFileMgrObj {
 
       this.net.broadcast(req);
       this.net.on('mkyReply', mkyReply = (r)=>{
-        if (r.req == 'pNodeListGenIP'){
+        if (r.req == 'pNodeListGenIP' && reqId == r.reqId){
           console.log('mkyReply NodeGen is:',r.remIp);
           if (IPs.length <= maxIP){
             IPs.push(r.remIp);
           }
           else {
-            this.receptorReqStopIPGen(req.work);
+            this.receptorReqStopIPGen(req.work,req.reqId);
             clearTimeout(gtime);
             this.net.removeListener('mkyReply', mkyReply);
             resolve(IPs);
@@ -3113,14 +3145,14 @@ class ftreeFileMgrObj {
       });
     });
   }
-  doPowStop(remIp){
-    this.net.gpow.doStop(remIp);
+  doPowStop(remIp,reqId){
+    this.net.gpow.doStop(remIp,reqId);
   }
   doPow(j,remIp){
     if (j.xnodes.includes(this.net.nIp)){
       return;
     }
-    this.net.gpow.doPow(2,j.work,remIp);
+    this.net.gpow.doPow(2,j.work,remIp,j.reqId);
   }
   doReplyHelloBack(remIp){
     var reply = {
@@ -3171,15 +3203,18 @@ class ftreeFileMgrObj {
         this.net.removeListener('mkyReply', mkyReply);
         resolve(null);
       },5000);
+
       console.log('Store Repo To: ',toIp);
+      const reqId = crypto.randomUUID();
       var req = {
-        req : 'updateRepoInsertFile',
-        repo : j.repo
+        req   : 'updateRepoInsertFile',
+        reqId : reqId,
+        repo  : j.repo
       }
 
       this.net.sendMsg(toIp,req);
       this.net.on('mkyReply',mkyReply = (r) =>{
-        if (r.req == 'updateRepoInsertFileResult' && r.remIp == toIp){
+        if (r.req == 'updateRepoInsertFileResult' && r.remIp == toIp && reqId == r.reqId){
           clearTimeout(gtime);
           this.net.removeListener('mkyReply', mkyReply);
           resolve(r);
@@ -3197,14 +3232,17 @@ class ftreeFileMgrObj {
         resolve(null);
       },5000);
       console.log('Delete Repo File On: ',toIp);
+
+      const reqId = crypto.randomUUID();
       var req = {
-        req : 'updateRepoDeleteFile',
-        repo : j.repo
+        req   : 'updateRepoDeleteFile',
+        reqId : reqId,
+        repo  : j.repo
       }
 
       this.net.sendMsg(toIp,req);
       this.net.on('mkyReply',mkyReply = (r) =>{
-        if (r.req == 'updateRepoDeleteFileResult' && r.remIp == toIp){
+        if (r.req == 'updateRepoDeleteFileResult' && r.remIp == toIp && reqId == r.reqId){
           clearTimeout(gtime);
           this.net.removeListener('mkyReply', mkyReply);
           resolve(r);
@@ -3223,14 +3261,17 @@ class ftreeFileMgrObj {
       },5000);  
       console.log('Store Repo To: ',toIp);
       //j.repo.signature = this.composeRepoSig(j.repo.data);
+
+      const reqId = crypto.randomUUID();
       var req = {
-        req : 'storeRepo',
-	repo : j.repo
+        req   : 'storeRepo',
+        reqId : reqId,
+	repo  : j.repo
       }
 
       this.net.sendMsg(toIp,req);
       this.net.on('mkyReply',mkyReply = (r) =>{
-        if (r.reply == 'repoStoreRes' && r.remIp == toIp){ 
+        if (r.reply == 'repoStoreRes' && r.remIp == toIp && reqId == r.reqId){ 
           clearTimeout(gtime);   
           this.net.removeListener('mkyReply', mkyReply);
 	  resolve(r);
@@ -3249,14 +3290,17 @@ class ftreeFileMgrObj {
       },5000);
       console.log('Store Repo To: ',toIp);
       //j.repo.signature = this.composeRepoSig(j.repo.data);
+
+      const reqId = crypto.randomUUID();
       var req = {
-        req : 'storeRepoFolder',
-        repo : j.repo
+        req   : 'storeRepoFolder',
+        reqId : reqId,
+        repo  : j.repo
       }
 
       this.net.sendMsg(toIp,req);
       this.net.on('mkyReply',mkyReply = (r) =>{
-        if (r.reply == 'repoStoreFolderRes' && r.remIp == toIp){
+        if (r.reply == 'repoStoreFolderRes' && r.remIp == toIp && reqId == r.reqId){
           clearTimeout(gtime);
           this.net.removeListener('mkyReply', mkyReply);
           resolve(r);
@@ -3274,14 +3318,17 @@ class ftreeFileMgrObj {
       }, 5000);
 
       console.log('Store File To:', toIp);
+
+      const reqId = crypto.randomUUID();
       const req = {
-        req: 'storeRepoFile', 
-        repo: j.repo
+        req   : 'storeRepoFile', 
+        reqId : reqId,
+        repo  : j.repo
       };
 
       this.net.sendMsg(toIp, req);
       this.net.on('mkyReply', mkyReply = (r) => {
-        if (r.reply === 'repoStoreFileRes' && r.remIp === toIp) {  
+        if (r.reply === 'repoStoreFileRes' && r.remIp === toIp && reqId == r.reqId) {  
           clearTimeout(gtime);
           this.net.removeListener('mkyReply', mkyReply);
           resolve(r);
@@ -3299,14 +3346,17 @@ class ftreeFileMgrObj {
       }, 5000);
 
       console.log('Store Shard To:', toIp);
+
+      const reqId = crypto.randomUUID();
       const req = {
-        req: 'storeRepoShard',
-        repo: j.repo
+        req   : 'storeRepoShard',
+        reqId : reqId,
+        repo  : j.repo
       };
 
       this.net.sendMsg(toIp, req);
       this.net.on('mkyReply', mkyReply = (r) => {
-        if (r.reply === 'repoStoreShardRes' && r.remIp === toIp) {
+        if (r.reply === 'repoStoreShardRes' && r.remIp === toIp && reqId == r.reqId) {
           clearTimeout(gtime);
           this.net.removeListener('mkyReply', mkyReply);
           resolve(r);

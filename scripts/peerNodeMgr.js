@@ -12,7 +12,7 @@ const crypto       = require('crypto');
 const port   = 1555;
 const wfile  = 'keys/myBMGPWallet.key';
 
-const apps = ['mkyNetMain30','peerMemoryCell','shardTreeCell'];
+const apps = ['cronoTreeCell','mkyNetMain30','peerMemoryCell','shardTreeCell','mailTreeCell','ftreeFileMgrCell','peerPaysCell','fstreamTreeCell'];
 
 const options = {
   key: fs.readFileSync('keys/privkey.pem'),
@@ -60,7 +60,7 @@ class bitMonkyWSrv {
       }
     });
     this.srv.listen(port);
-    console.log('bitMonky Wallet Server running at http://localhost:'+port);
+    console.log('bitMonky Wallet Server running at http://127.0.0.1:'+port);
   }
 };
 
@@ -150,11 +150,7 @@ class bitMonkyWallet{
      }  
      if (j.req == 'startApp'){
        if (apps.includes(j.app)){
-	 var rootMode = '';
-         if (j.rootIp !== undefined){
-           rootMode = ' -- "'+j.rootIp+'" "root"';
-         }
-         let cmd = 'pm2 start '+j.app+'.js'+rootMode;
+         let cmd = 'pm2 start '+j.app+'.js';
          res.end(await this.runCmd(cmd));
          return;
        }
@@ -174,6 +170,7 @@ class bitMonkyWallet{
      else if (j.req == 'getNodeList'){
        let list = this.sendNodeList(j);
        res.end(list);
+       return;
      }
      res.end('Handler Not Found: req '+j.req);
    }

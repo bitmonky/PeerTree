@@ -3,6 +3,8 @@ ftreeFileMgr App - ftreeFileMgrCell
 Create Public Code Repos distibuted randomly accross the internet;
 Status 2024-0131 - Incomplete
 */
+process.title = 'ftreeFileMgrCell';
+
 const fs = require('fs');
 
 const options = {
@@ -12,18 +14,6 @@ const options = {
 //const {MkyNetNode,MkyNetObj,MkyNetTab}   = require('./peerTree');
 const {PeerTreeNet}     = require('./peerTree');
 const {ftreeFileMgrObj,ftreeFileMgrCellReceptor} = require('./ftreeFileMgrObj.js');
-
-process.on('uncaughtException', (err) => {
-    console.error('Unhandled Exception:', err);
-    if (err.code === 'EADDRINUSE') {
-      console.error(`Port is already in use. Exiting...`);
-      process.exit(1);
-    } 
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('Unhandled Promise Rejection:', reason);
-});
 
 
 /*******************
@@ -61,13 +51,14 @@ Create PeerTree Network Peer
     
 main();
 async function main(){
+  const scell = new ftreeFileMgrObj(peerNet,reset);
   await peerNet.netStarted();
   peerNet.updatePortalsFile(borg);
-  startFtreeCell();
+  startFtreeCell(scell);
 }
 var rBranch = null;
-function startFtreeCell(){
-    var scell = new ftreeFileMgrObj(peerNet,reset);
+function startFtreeCell(scell){
+    scell.startCell();
     const scellReceptor = new ftreeFileMgrCellReceptor(scell,borg.recpPort);
     scell.attachReceptor(scellReceptor);
     if (rBranch){

@@ -520,6 +520,8 @@ class peerMemoryObj {
     this.net      = peerTree;
     this.receptor = null;
     this.wcon     = new MkyWebConsole(this.net,con,this,'peerMemoryCell');
+  }
+  startCell(){
     this.init();
     this.setNetErrHandle();
     this.sayHelloPeerGroup();

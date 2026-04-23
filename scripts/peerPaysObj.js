@@ -424,6 +424,8 @@ class peerPaysObj {
     this.net        = peerTree;
     this.receptor   = null;
     this.wcon       = new MkyWebConsole(this.net,con,this,'peerPaysCell');
+  }
+  startCell(){
     this.myPeers    = [];
     this.init();
   
@@ -567,14 +569,14 @@ class peerPaysObj {
         }
         if (j.msg.req == 'sendNodeList'){
           console.log('DOPOW xxxx',j.remIp);
-          this.doPow(j.msg,j.remIp);
+          this.doPow(j.msg,j.remIp,j.msg.reqId);
         }
         if (j.msg.req == 'hello'){
           this.doReplyHelloBack(j.remIp);
         }
         if (j.msg.req == 'stopNodeGenIP'){
           console.log('DOPOW stopNodeGenIP-XX Received:',j.remIp);
-          this.doPowStop(j.remIp);
+          this.doPowStop(j.remIp,j.msg.reqId);
         }
       }
     } 
@@ -834,10 +836,11 @@ class peerPaysObj {
   Local Node BroadCasts:
   =======================================================================
   */
-  receptorReqStopIPGen(work){
+  receptorReqStopIPGen(work,reqId){
     var req = {
-      to : 'peerPayCells',
-      req : 'stopNodeGenIP',
+      to    : 'peerPayCells',
+      req   : 'stopNodeGenIP',
+      reqId : reqId,
       work  : work
     }
     this.net.broadcast(req);
@@ -899,22 +902,24 @@ class peerPaysObj {
         resolve(IPs);
       },17*1000);
 
+      const reqId = crypto.randomUUID();
       var req = {
         to    : 'peerPayCells',
         req   : 'sendNodeList',
+        reqId : reqId,
         nodes : maxIP,
         work  : crypto.randomBytes(20).toString('hex') 
       }
 
       this.net.broadcast(req);
       this.net.on('mkyReply', mkyReply = (r)=>{
-        if (r.req == 'pNodeListGenIP'){
+        if (r.req == 'pNodeListGenIP' && r.reqId == reqId){
           console.log('mkyReply NodeGen is:',r);
           if (IPs.length < maxIP){
             IPs.push(r.remIp);
           }
           else {
-            this.receptorReqStopIPGen(req.work);
+            this.receptorReqStopIPGen(req.work,reqId);
             clearTimeout(gtime);
             this.net.removeListener('mkyReply', mkyReply);
             resolve(IPs);

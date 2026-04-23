@@ -37,12 +37,13 @@ const {FstreamTreeObj,FstreamTreeReceptor} = require('./fstreamTreeObj.js');
   main();
 
 async function main(){
+    const cell = new FstreamTreeObj(mkyNet,reset);
     await mkyNet.netStarted();
     mkyNet.updatePortalsFile(borg);
-    startFstreamCell();
+    startFstreamCell(cell);
 }
-function startFstreamCell(rBranch){
-    var cell = new FstreamTreeObj(mkyNet,reset);
+function startFstreamCell(cell){
+    cell.startCell();
     const cellReceptor = new FstreamTreeReceptor(cell,borg.recpPort);
     cell.attachReceptor(cellReceptor);
 

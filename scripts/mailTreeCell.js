@@ -1,3 +1,4 @@
+process.title = 'mailTreeCell'
 const fs = require('fs');
 
 const options = {
@@ -7,18 +8,6 @@ const options = {
 //const {MkyNetNode,MkyNetObj,MkyNetTab}   = require('./peerTree');
 const {PeerTreeNet}     = require('./peerTree');
 const {mailTreeObj,mailTreeCellReceptor} = require('./mailTreeObj.js');
-
-process.on('uncaughtException', (err) => {
-    console.error('Unhandled Exception:', err);
-    if (err.code === 'EADDRINUSE') {
-      console.error(`Port is already in use. Exiting...`);
-      process.exit(1);
-    }
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('Unhandled Promise Rejection:', reason);
-});
 
 /*******************
 Create PeerTree Network Peer
@@ -46,12 +35,13 @@ Create PeerTree Network Peer
   main();
 
 async function main(){
+    const cell = new mailTreeObj(mkyNet,reset);
     await mkyNet.netStarted();
     mkyNet.updatePortalsFile(borg);
-    startMailCell();
+    startMailCell(cell);
 }
-function startMailCell(){
-    var mcell = new mailTreeObj(mkyNet,reset);
+function startMailCell(mcell){
+    mcell.startCell();
     const mcellReceptor = new mailTreeCellReceptor(mcell,borg.recpPort);
     mcell.attachReceptor(mcellReceptor);
 

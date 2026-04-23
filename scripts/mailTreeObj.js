@@ -471,6 +471,8 @@ class mailTreeObj {
     this.net        = peerTree;
     this.receptor   = null;
     this.wcon       = new MkyWebConsole(this.net,con,this,'mailTreeCell');
+  }
+  startCell(){
     this.init();
     this.setNetErrHandle();
     this.sayHelloPeerGroup();
@@ -639,8 +641,8 @@ class mailTreeObj {
     const msg = j.msg;
     if (msg.req == 'sendStatus'){
       var node = {
-        ip : j.toHost,
-        status : 'offline',
+        ip      : j.toHost,
+        status  : 'offline',
         lastMsg : null
       }
       this.group.updateGroup(node);

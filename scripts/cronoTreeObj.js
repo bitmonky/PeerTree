@@ -44,6 +44,8 @@ class CronoTreeObj {
     this.net          = peerTree;
     this.receptor     = null;
     this.wcon         = new MkyWebConsole(this.net,null,this,'borgAgentCell');
+  }
+  startCell(){ 
     this.init();
     this.setNetErrHandle();
     this.sayHelloPeerGroup();

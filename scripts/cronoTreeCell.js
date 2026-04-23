@@ -1,19 +1,24 @@
+// Declair A Unique Tree Type/Name  
 process.title = 'cronoTreeCell';
 
 const fs = require('fs');
 
+// Link your self signed certs 
 const options = {
   key: fs.readFileSync('keys/privkey.pem'),
   cert: fs.readFileSync('keys/fullchain.pem')
 };
-//const {MkyNetNode,MkyNetObj,MkyNetTab}   = require('./peerTree');
+
+// Require the PeerTree Base Class
 const {PeerTreeNet}     = require('./peerTree');
+
+// Import The Application Code For Your Tree Type
 const {CronoTreeObj,CronoTreeReceptor} = require('./cronoTreeObj.js');
 
 
-/*******************
-Create PeerTree Network Peer
-*******************
+/*
+ * Configure cronoTreeCell Communcation Ports
+ *
 */
 
   var parm = process.argv[2];
@@ -26,22 +31,27 @@ Create PeerTree Network Peer
     netPort  : 13396,
     recpPort : 13397,
     monPort  : 13398,
-    maxChildren : 25,
+    maxChildren : 3,
     netName  : process.title
   }
  
   const mkyNet = new PeerTreeNet(options,borg.netName,borg.netPort,borg.monPort,borg.maxChildren);
   mkyNet.nodeType = borg.netName;
 
+  //Start The Cell.
   main();
 
 async function main(){
+    const cell = new CronoTreeObj(mkyNet,reset);
     await mkyNet.netStarted();
     mkyNet.updatePortalsFile(borg);
-    startCronoCell();
+    startCronoCell(cell);
 }
-function startCronoCell(rBranch){
-    var cell = new CronoTreeObj(mkyNet,reset);
+
+// Initialize Network Event Handlers
+
+function startCronoCell(cell){
+    cell.startCell();
     const cellReceptor = new CronoTreeReceptor(cell,borg.recpPort);
     cell.attachReceptor(cellReceptor);
 
@@ -55,7 +65,6 @@ function startCronoCell(rBranch){
       cell.handleReply(j);
     });
     cell.net.on('xhrFail', j =>{
-      console.error('xhrFail is->',j);
       cell.handleXhrError(j);
     });
 }

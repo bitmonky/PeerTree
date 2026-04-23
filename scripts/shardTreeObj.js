@@ -522,6 +522,8 @@ class shardTreeObj {
     this.net        = peerTree;
     this.receptor   = null;
     this.wcon       = new MkyWebConsole(this.net,con,this,'shardTreeCell');
+  }
+  startCell(){
     this.init();
     this.setNetErrHandle();
     this.sayHelloPeerGroup();

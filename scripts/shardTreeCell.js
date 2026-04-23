@@ -2,6 +2,7 @@
 PeerTree App - ShardTreeCell
 stores shards of files randomly accross the internet;
 */
+process.title =  'shardTreeCell';
 
 const fs = require('fs');
 
@@ -12,19 +13,6 @@ const options = {
 //const {MkyNetNode,MkyNetObj,MkyNetTab}   = require('./peerTree');
 const {PeerTreeNet}     = require('./peerTree');
 const {shardTreeObj,shardTreeCellReceptor} = require('./shardTreeObj.js');
-
-process.on('uncaughtException', (err) => {
-    console.error('Unhandled Exception:', err);
-    if (err.code === 'EADDRINUSE') {
-      console.error(`Port is already in use. Exiting...`);
-      process.exit(1);
-    }
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('Unhandled Promise Rejection:', reason);
-});
-
 
 /*******************
 Create PeerTree Network Peer
@@ -61,11 +49,11 @@ Create PeerTree Network Peer
     
 main();
 async function main(){
+  const cell = new shardTreeObj(peerNet,reset);
   await peerNet.netStarted();
   peerNet.updatePortalsFile(borg);
-  var rootBranch = false;
   if (!isRoot){
-    startShardCell(rootBranch);
+    startShardCell(cell);
   }
   else {
     rootBranch = true;
@@ -73,14 +61,11 @@ async function main(){
   }
 }
 var rBranch = null;
-function startShardCell(){
-    var scell = new shardTreeObj(peerNet,reset);
+function startShardCell(scell){
+    scell.startCell();
     const scellReceptor = new shardTreeCellReceptor(scell,borg.recpPort);
     scell.attachReceptor(scellReceptor);
-    if (rBranch){
-      console.log('\nNEW>>>SETTING shardCell TO ROOT');
-      scell.isRoot = true;
-    }
+
     scell.net.on('mkyReq',(res,j)=>{
       scell.handleReq(res,j);
     });
