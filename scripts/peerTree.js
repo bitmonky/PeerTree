@@ -1131,9 +1131,13 @@ class MkyRouting {
      },verifyRootTimer);
    }
    myTreeIsStronger(ri){
+     let nMyNodes = this.r.lnode + this.joinQue.size;
+     if (this.joinTicket !== null ) {
+       nMyNodes++;
+     }
      if ( ri === null 
        || this.r.rootNodeIp === ri.jroot.rip
-       || this.r.lnode >= ri.jroot.rtab.lnode
+       || nMyNodes >= ri.jroot.rtab.lnode
      ){
        return true;
      }  
@@ -3086,6 +3090,7 @@ class MkyRouting {
      } finally {
        console.error(`MkyRouting.handleJoins():: finally!`, this.joinTicket);
        this.joinTicket = null;
+       this.startJoin  = null;
        this.r.rootLock = false;
      }
    }
