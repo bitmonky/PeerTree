@@ -1116,7 +1116,7 @@ class MkyRouting {
        if (rmap.size){
          const rInfo = this.getMaxRoot();
          console.error('MkyRouting.verifyRoot():: VERIFIED best root to follow is:',rInfo);  
-         if (rInfo === null || this.r.rootNodeIp === rInfo.jroot.rip){
+         if (this.myTreeIsStronger(rInfo)) { 
            console.error('MkyRouting.verifyRoot():: OK I am still Root:',this.myIp,rInfo);
          }
          else {
@@ -1129,6 +1129,15 @@ class MkyRouting {
      this._verifyRootTimer = setTimeout(() => {
         this.verifyRoot();
      },verifyRootTimer);
+   }
+   myTreeIsStronger(ri){
+     if ( ri === null 
+       || this.r.rootNodeIp === ri.jroot.rip
+       || this.r.lnode >= ri.jroot.rtab.lnode
+     ){
+       return true;
+     }  
+     return false;
    }
    // ********************************************************************
    // Search any previously known nodes and request the whoIsRoot response.
@@ -2149,8 +2158,8 @@ class MkyRouting {
        return;
      }
 
-     let reply = {resultFromJoin : 'FAILED',reqId : reqId};
-     this.net.endResCX(rip,JSON.stringify(reply));
+     //let reply = {resultFromJoin : 'FAILED',reqId : reqId};
+     //this.net.endResCX(rip,JSON.stringify(reply));
 
      console.error('MkyRouting.doMakeJoinRequest():: FAILED Join', joinRes);
      this.net.setNodeBackToStartup(`Init join request Failed with: ${joinRes}`);
@@ -2207,14 +2216,14 @@ class MkyRouting {
            let reply = await this.net.reqReplyObj.waitForReply(ip, msg); 
            console.error(`resultFromJoinReq():: wait reply: `,JSON.stringify(reply));
            if (reply?.result?.status !== 'keepWaiting') {
-             if (this.status === 'online' && reply?.result?.status === 'STOP') {
+             if (this.status === 'online')  {
                finish('joinSuccess');
                return;
              }
              else {
                let waitTry = 0;
                let maxTrys = 15;
-               while (waitTry < maxTrys && this.status !== 'online' && reply?.result?.status === 'STOP'){
+               while (waitTry < maxTrys && this.status !== 'online'){
                  waitTry++;
                  await sleep(250);
                }
@@ -2480,7 +2489,7 @@ class MkyRouting {
          else {
            console.error('MkyRouting.lnodeReplaceRoot():: Popping newRTab',this.r.rootRTab.myNodes);
            if (Array.isArray(this.r.rootRTab)){
-             this.r.rootRTab.pop(); 
+
            }
          }
        }
@@ -5371,6 +5380,7 @@ class PeerTreeNet extends  EventEmitter {
   }
   async setNodeBackToStartup(msg='noMsg',bestNewRootIp=null){
     
+    console.log(`setNodeBackToStartup():: status: ${this.status} `);
     this.rnet.status = 'shutdown';
 
     // If migrating to the same root that just died, wait a random time
