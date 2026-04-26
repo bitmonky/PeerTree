@@ -2717,13 +2717,15 @@ class MkyRouting {
            success = true;
            break;
          }
-
+         if (reply?.result?.status === 'RTAB_NA') {
+           break;
+         }
          await sleep(1000);
          attempt++;
        }
        if (!success){
          console.error('MkyRouting.sendMoveRequestToLastNode():: Case 5 failed lastNodeBecome() ',holdLastNodeIp,dropRTab,ip);
-         this.net.setNodeBackToStartup(`Root Attempt To Drop Child Node Failed on Case 5 : ${this.r.lastNode}`);
+         this.net.setNodeBackToStartup(`Root Attempt To Drop Child Node Failed on Case 5 : reply: ${$reply} ${this.r.lastNode}`);
          resolve('Case5Fail');
          return;
        }
@@ -2834,12 +2836,22 @@ class MkyRouting {
    // ******************************************************
    // last node moves position to replace the dropped  node
    // ******************************************************
-   async lastNodeMoveTo(j){
+   lastNodeMoveTo(j){
      console.error('MkyRouting.lastNodeMoveTo():: J',j);
 
-     if (this.r == 'na'){
+     // Check if the incoming routing table is usable.
+
+     if (j.newRTab == 'na'){
        console.error('MkyRouting.lastNodeMoveTo():: CRITICALL:: this.r is na!',);
-       this.net.setNodeBackToStartup(`LastNode routing table not useable : ${this.r}`);
+       var reply = {
+         response : 'lastNodeMoveToReply',
+         result   : {
+           targetIP : j.dropIp,
+           time     : Date.now(),
+           status   : 'RTAB_NA'
+         }
+       };
+       this.net.sendReplyCX(j.remIp,reply);
        return;
      }
 
@@ -2859,6 +2871,7 @@ class MkyRouting {
      
      this.r.lnStatus = 'moving';
 
+     try {
      // Notify Parent This Node Is Moving and needs to be dropped.
      if (j.remIp != this.r.myParent){
        if (this.r.myParent != j.dropIp){
@@ -2899,9 +2912,8 @@ class MkyRouting {
      }
  
      console.error('MkyRouting.lastNodeMoveTo():: I am Now:',this.r);
-     if (this.r !== 'na'){
-       this.r.lnStatus = 'OK';
-     }
+     this.r.lnStatus = 'OK';
+     
      var reply = {
        response : 'lastNodeMoveToReply',
        result   : {
@@ -2913,6 +2925,9 @@ class MkyRouting {
      }
 
      this.net.sendReplyCX(j.remIp,reply);
+     } finally {
+       this.r.lnStatus = 'OK'
+     }
      return;
    }
    // ************************************************
