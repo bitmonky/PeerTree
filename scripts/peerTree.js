@@ -1131,7 +1131,7 @@ class MkyRouting {
      },verifyRootTimer);
    }
    myTreeIsStronger(ri){
-     let nMyNodes = this.r.lnode + this.joinQue.size;
+     let nMyNodes = this.r.lnode + this.joinQue.size + this.joinChildren.length;
      if (this.joinTicket !== null ) {
        nMyNodes++;
      }
