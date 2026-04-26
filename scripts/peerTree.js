@@ -1115,9 +1115,9 @@ class MkyRouting {
        const rmap = await this.findWhoIsRoot();
        if (rmap.size){
          const rInfo = this.getMaxRoot();
-         console.error('MkyRouting.verifyRoot():: VERIFIED best root to follow is:',rInfo);  
+         console.error('MkyRouting.verifyRoot():: VERIFIED best root to follow is:',rInfo.jroot.rip);  
          if (this.myTreeIsStronger(rInfo)) { 
-           console.error('MkyRouting.verifyRoot():: OK I am still Root:',this.myIp,rInfo);
+           console.error('MkyRouting.verifyRoot():: OK I am still Root:',this.myIp,rInfo.jroot.rip);
          }
          else {
            console.error('MkyRouting.verifyRoot():: Better Root Option Availble shutting down to join:',this.myIp,rInfo);
@@ -2017,6 +2017,13 @@ class MkyRouting {
      console.error(`MkyRouting.rootSaysAddChild():: sending reply `,j.remIp, reply);
      this.net.endResCX(j.remIp,JSON.stringify(reply));
    }
+   getParentNode(lnode) {
+     const maxPeers = this.net.maxPeers;
+
+     if (lnode === 1) return 0; // root has no parent
+
+     return Math.floor((lnode - 2) / maxPeers) + 1;
+   }
    getMyLayer(maxPeers, nodeNbr) {
      let layer = 1;
      let cumulative = 1; // end of layer 1
@@ -2025,6 +2032,18 @@ class MkyRouting {
        cumulative += Math.pow(maxPeers, layer - 1);
      }
      return layer;
+   }
+   countOpenParentSlots(lnode){
+     let maxPeers = this.net.maxPeers;
+
+     if (lnode === 1) return maxPeers; // root has maxPeers slots
+
+     const childIndex = (lnode - 1) % maxPeers;
+
+     // If childIndex is 0, the previous parent is full
+     if (childIndex === 0) return 0;
+
+     return maxPeers - childIndex;
    }
    // *************************************
    // Remove routing info for removed node
@@ -2221,6 +2240,11 @@ class MkyRouting {
            console.error(`resultFromJoinReq():: wait reply: `,JSON.stringify(reply));
            if (reply?.result?.status !== 'keepWaiting') {
              if (this.status === 'online')  {
+               finish('joinSuccess');
+               return;
+             }
+             if (reply?.result?.status === 'STOP'){
+               this.status = 'online'
                finish('joinSuccess');
                return;
              }
@@ -2980,6 +3004,250 @@ class MkyRouting {
    // =================================================================
    async procJoinQue() {
      if (this.status === 'root'){
+       // Clear previous timeout if it exists
+       if (this.procT) {
+         clearTimeout(this.procT);
+         this.procT = null;
+       }
+
+       let nloops = 0;
+       while (this.joinQue.size > 0) {
+         await this.getRootLock();
+         console.error(`procJoinQue():: Got Lock Startin batch. `);
+
+         try{
+         // 1. Compute how many slots are open in the current parent
+         const curLnode = this.r.lnode;
+
+         let open = this.countOpenParentSlots(curLnode);
+         console.error(`procJoinQue():: slots found`,open);
+
+         // 2. If parent is full, advance to next parent
+         if (open === 0 && nloops === 0) {
+           //  this.r.nextParent = await this.getNextParent(this.r.nextParent,this.r.nextPNbr,this.r.nextPNbr+1) ;
+           open = this.net.maxPeers;                 // new parent is empty
+           console.error(`procJoinQue():: parent full next parent is `,this.r.nextParent);
+         }
+
+         // 3. Compute how many nodes we can gulp
+         const nToGulp = Math.min(open, this.joinQue.size);
+
+         console.error(`procJoinQue():: gulping `, nToGulp);
+
+         // 4. Gulp that many nodes from the queue
+         const batch = [];
+         for (let i = 0; i < nToGulp; i++) {
+           const [ip, req] = this.joinQue.entries().next().value;
+           this.joinQue.delete(ip);
+           batch.push({ ip, j: req.j });
+         }
+
+         // 5. Precompute routing table entries for this batch
+         const parent = {ip : this.r.nextParent, level : this.getMyLayer(this.r.nextPNbr)};
+         const children = [];
+
+         this.joinChildren = children;
+
+         const prevLast = this.r.lastNode;   // global last node before batch
+         const newLnode = curLnode + batch.length;
+         const newLast  = batch[batch.length - 1].ip;
+         const nextPNbr = this.getParentNode(curLnode);
+         const rootRTab = clone(this.r);
+
+         for (let i = 0; i < batch.length; i++) {
+           const entry = batch[i];
+
+           const left =
+           (i === 0)
+             ? prevLast                // attach batch to global chain
+             : batch[i - 1].ip;        // internal batch chain
+
+           const right =
+           (i === batch.length - 1)
+             ? null                    // last child becomes new global last
+             : batch[i + 1].ip;
+
+           children.push({
+             ip       : entry.ip,
+             parent   : parent.ip,
+             left     : left,
+             right    : right,
+             level    : parent.level + 1,
+             lastNode : newLast,
+             lnode    : newLnode,
+             reqId    : entry.j.reqId,
+             nextPNbr : nextPNbr,
+             nodeNbr  : curLnode + i +1,
+             joinPtreeId  : this.r.ptreeId,
+             nextParentIp : parent.ip,
+             rootRTab     : clone(this.net.dropChildRTabs(rootRTab)),
+           });
+         }
+         console.error(`procJoinQue():: batched joins `, children);
+
+         // 6. Send join results to all children in parallel
+         for (const child of children) {
+           this.net.endResCX(child.ip, JSON.stringify({
+               addResult: "BATCH_OK",
+               reqId    : child.reqId,
+               parent   : child.parent,
+               left     : child.left,
+               right    : child.right,
+               level    : child.level,
+               lastNode : child.lastNode,
+               lnode    : child.lnode,
+               layer    : child.level,
+               nodeNbr  : child.nodeNbr,
+               nextPNbr : child.nextPNbr,
+               nextParentIp : child.nextParentIp,
+               joinPtreeId  : child.joinPtreeId,
+               rootRTab     : child. rootRTab,
+           }));
+         }
+
+         if (await this.handleBatchJoin(children,batch) === 'OK'){
+           console.error(`MkyRouting.procJoinQue():: bcast: `,{lnodeNewLastNode : newLast, newLastNodeNbr: this.r.lnode});
+           this.bcast({lnodeNewLastNode : newLast, newLastNodeNbr: this.r.lnode});
+         }
+
+         // 8. Update lnode
+         this.r.lnode += batch.length;
+         this.r.lastNode =  newLast;
+
+         // 9. If parent is now full, advance to next parent
+         if (batch.length === open) {
+           this.r.nextPNbr++;
+
+           // Find Next Parents Ip
+           if (this.r.nextParent === this.myIp) {this.r.nextParent = this.r.rightNode;}
+           else {
+             // Check Roots Children
+             const index = children.findIndex(c => c.ip === this.r.nextParent);
+             if (index > -1) {
+               this.r.nextParent = this.r.myNodes[index+1].ip;
+             }
+             else { 
+               //Contact current node and ask for its next node right);
+               this.r.nextParent = await this.getNextParent(this.r.nextParent,this.r.nextPNbr -1,this.r.nextPNbr);
+             }
+           }    
+           console.error(`procJoinQue():: rootTab up is now : `,this.r);
+         }
+         else {console.error(`procJoinQue():: no changes to rootTab : `);}
+         
+         } finally {
+           this.joinChildren = [];
+           this.r.rootLock = false;
+         }
+         nloops++;
+         // Loop continues until joinQue is empty
+       }
+     }
+     this.procT = setTimeout(() => {
+       this.procJoinQue();
+     }, 250);
+   }
+   async handleBatchJoin(children,batch){
+     console.error(`handleBatchJoin():: starting`);
+     if ( await this.rootSaysPBatchNodes(children)){
+       if ( await this.rootSaysLnodeAddChain(children[0].ip)){
+         if ( await this.rootVerifyNewChain(children)){
+           return 'OK';
+         }
+       }   
+     }
+     return 'FAIL_BATCHJOIN';
+   }
+//X?Xnew
+   async rootVerifyNewChain(children){
+     return true;
+   }
+   async rootSaysLnodeAddChain(cip){
+      // try handle localy.
+      if (this.myIp === this.r.lastNode){
+        this.r.rightNode = cip;
+        console.error(`MkyRouting.rootSaysLnodeAddChain():: lnode chain added: `,cip);
+        return true;
+      }
+
+      const msg = {
+        req      : 'rootSaysAddChain',
+        response : 'rootSaysAddChainResult',
+        chainIp  : cip
+      };
+
+      let reply = await this.net.reqReplyObj.waitForReply(this.r.lastNode, msg);
+      console.error(`MkyRouting.rootSaysLnodeAddChain():: lnode reply:`,reply);
+
+      if ( reply?.result === 'OK') {
+        return true;
+      }
+      console.error(`MkyRouting.rootSaysLnodeAddChain():: failed:`,reply);
+      return false;
+   }
+   async rootSaysAddChain(j){
+      const reply = {
+        reqId    : j.reqId,
+        response : 'rootSaysAddChainResult',
+        result   : 'OK'
+      };
+
+      this.r.rightNode = j.chainIp;
+      console.error(`MkyRouting.rootSaysAddChain():: new chain starts at : `,j.chainIp);
+
+      console.error(`MkyRouting.rootSaysAddChain():: sending to:${j.remIp} `,reply);
+      this.net.sendReplyCX(j.remIp,reply);
+      return;
+   }
+   async rootSaysPBatchNodes(children){
+      if (this.myIp === this.r.nextParent){
+        //process local
+        for (const child of children) {
+          var node = {ip : child.ip,nbr : child.nodeNbr, pgroup : [],rtab : 'na'}
+          this.r.myNodes.push(node);
+          console.error(`MkyRouting.rootSaysPBatchNodes():: new local child: `,node);
+        }
+        return true;
+      }
+
+      const msg = {
+        req      : 'rootSaysDoPBatch',
+        response : 'rootSaysDoPBatchResult',
+        children : children
+      };
+
+      console.error(`MkyRouting.rootSaysPBatchNodes():: root sending to ${this.r.nextParent}:`,msg);
+
+      let reply = await this.net.reqReplyObj.waitForReply(this.r.nextParent, msg);
+      console.error(`MkyRouting.rootSaysPBatchNodes():: parent reply:`,reply);
+
+      if ( reply?.result === 'OK') {
+        return true;
+      }
+      console.error(`MkyRouting.rootSaysPBatchNodes():: failed:`,reply);
+      return false;
+   }
+   async rootSaysDoPBatch(j){
+      const reply = {
+        reqId    : j.reqId,
+        response : 'rootSaysDoPBatchResult',
+        result   : 'OK'
+      };
+
+      for (const child of j.children) {
+        var node = {ip : child.ip,nbr : child.nodeNbr, pgroup : [],rtab : 'na'}
+        this.r.myNodes.push(node);
+        console.error(`MkyRouting.rootSaysDoPBatchResult():: new child: `,node);
+      }
+
+      console.error(`MkyRouting.rootSaysDoPBatchResult():: sending to:${j.remIp} `,reply);
+      this.net.sendReplyCX(j.remIp,reply);
+      return;
+   }
+
+
+   async procJoinQueOld() {
+     if (this.status === 'root'){
      try {
        // Clear previous timeout if it exists
        if (this.procT) {
@@ -2998,7 +3266,7 @@ class MkyRouting {
            const now = Date.now();
            const elapsed = now - (jinfo.joinExcTime || 0);
 
-           if (elapsed > 18000) {   // 18 seconds, tune as needed
+           if (elapsed > 28000) {   // 18 seconds, tune as needed
              console.error("procJoinQue():: JOIN TIMEOUT — forcing root restart", elapsed);
              this.forceRootRestart("Join timeout");
              return;
@@ -3130,14 +3398,14 @@ class MkyRouting {
 
          this.newNode = null;
 
-         let addRes = await this.resultFromJoiningNode(j.remIp);
-         if (addRes){
+         let addResIN = await this.resultFromJoiningNode(j.remIp);
+         if (addResIN){
            j.joinStatus  = 'joined';
            j.joinFinishT = Date.now();
          }
 
          console.error(`MkyRouting.handleJoins():: addNewNODE joinTime: ${(j.joinFinishT -j.joinExcTime)} Result;`,addRes);
-         if (addRes){
+         if (addResIN){
            rollbck = await this.notifyNetWorkNewNode(j.remIp,this.r.rootNodeIp,reqId,this.r.nextParent,this.r.nextPNbr);
            console.error('MkyRouting.handleJoins():: notifyNetworkNewNode is: -> ',rollbck);
          }
@@ -3391,7 +3659,11 @@ class MkyRouting {
          if (this.joinTicket === j.ticketId && this.joinReqInfo?.joinStatus !== 'joined') {
            wait   = 'keepWaiting';
            status = this.joinReqInfo?.joinStatus ?? 'NULL';
-         } else {
+         } else if (this.joinChildren.length > 0 && this.joinChildren.some(c => c.ip === j.remIp)){
+           wait = 'keepWaiting';
+           status = 'batchJoin';
+         }
+         else {
            // 2. Check queued joins
            const entry = this.joinQue.get(j.remIp);
            status = 'MISSING';
@@ -3482,6 +3754,14 @@ class MkyRouting {
        else {
          this.net.endResCX(remIp,JSON.stringify({response:"myHealthCheckReply",status:{nodeStatus:this.status,errState:this.err},reqId:j.reqId}));
        }
+       return true;
+     }
+     if (j.req === 'rootSaysDoPBatch'){
+       await this.rootSaysDoPBatch(j);
+       return true;
+     }
+     if (j.req === 'rootSaysAddChain'){
+       await this.rootSaysAddChain(j);
        return true;
      }
      if (j.req === 'sendMeYourLastChildIp'){
@@ -3587,6 +3867,12 @@ class MkyRouting {
        console.error('MkyRouting.processMyJoinResponse():: Processing ',this.status, j.addResult,'\n');
        const reqId = j.reqId;
 
+       if (j.addResult === 'BATCH_OK'){
+         this.childProcBatchJoin(j); 
+         resolve('joinWait');
+         return;
+       }
+
        let addFails = ['Node Not Added','sorryTryNewRoot'];
        if ( addFails.includes(j.addResult)){
          console.error(`MkyRouting.processMyJoinResponse():: JOINREQFAILS on: ${j.addResult}`);
@@ -3636,6 +3922,27 @@ class MkyRouting {
   
        resolve('joinSuccess');
      });
+   }
+   childProcBatchJoin(j){
+     this.r.rootNodeIp = j.remIp;
+     this.r.myParent   = j.parent;
+     this.r.leftNode   = j.left;
+     this.r.rightNode  = j?.right ?? null;
+     this.r.lastNode   = j.lastNode;
+     this.r.lnode      = j.lnode;
+     this.r.myLayer    = j.layer;
+     this.r.nLayer     = j.layer;
+     this.r.nodeNbr    = j.nodeNbr;
+     this.r.nextPNbr   = j.nextPNbr;
+     this.r.nextParent = j.nextParentIp;
+     this.r.myNodes    = [];
+     this.r.lnStatus   = 'OK';
+     this.r.rootLock   = false;
+     this.r.pCount     = 0;
+     this.r.ptreeId    = j.joinPtreeId;
+     this.r.rootRTab   = j.rootRTab;
+     console.error(`childProcBatchJoin():: got batch join: my rtab is now: `, this.r);
+     return
    }
    async pushRTabToParent(){
       // Send my routing table to my parent node.
@@ -3714,7 +4021,9 @@ class MkyRouting {
      }
      if (j.msg.rootDeath) {
        console.error(`j.msg.rootDeath:: msg : `,j);
-       this.net.setNodeBackToStartup(`Heard Root Death - Migrating To new root: ${j.msg.bestRootIp}`,j.msg.bestRootIp);
+       //if (this.status !== 'root' && this.r.rootNodeIp === j.remIp){
+         this.net.setNodeBackToStartup(`Heard Root Death - Migrating To new root: ${j.msg.bestRootIp}`,j.msg.bestRootIp);
+       //} 
        return true;
      }
      if (j.msg.lnodeNewLastNode){
@@ -3724,7 +4033,7 @@ class MkyRouting {
          this.r.lnode     = j.msg.newLastNodeNbr;
          this.r.lnStatus  = 'OK';
          if (j.msg?.parentNodeUpdate !== false){
-           if (this.r.myParent === j.msg.parentNodeUpdate.oldParent){
+           if (this.r.myParent === j.msg?.parentNodeUpdate?.oldParent){
              this.r.myParent = j.msg.parentNodeUpdate.newParent;
            }
          }
@@ -3732,7 +4041,7 @@ class MkyRouting {
          return true;
        }
        if (j.msg?.parentNodeUpdate !== false){
-         if ( this.r.myParent === j.msg.parentNodeUpdate.oldParent){
+         if ( this.r.myParent === j.msg?.parentNodeUpdate?.oldParent){
            this.r.myParent = j.msg.parentNodeUpdate.newParent;
          }
        }
@@ -5358,7 +5667,7 @@ class PeerTreeNet extends  EventEmitter {
           else {
 	    hrtbeat.myStatus = 'Alone';
             this.rnet.r.status = 'root'
-            console.error('PeerTreeNet.heartBeat():: lowering pulse rate to 15000!');
+            //console.error('PeerTreeNet.heartBeat():: lowering pulse rate to 15000!');
             this.pulseRate = 500;
           }
         }
@@ -5875,7 +6184,7 @@ class PeerTreeNet extends  EventEmitter {
      return;
      fs.writeFile(this.nodesFile, JSON.stringify(myNodes), function (err) {
        if (err) throw err;
-       console.error('PeerTreeNet.removeNode():: node list saved to disk!');
+       //console.error('PeerTreeNet.removeNode():: node list saved to disk!');
      });
   }
   getNodesErrorCnt(ip){
@@ -6191,7 +6500,7 @@ class PeerTreeNet extends  EventEmitter {
        if (j.ping == 'hello'){
          //console.error('PINGTEST::',this.rnet.status);
          if (!(this.rnet.status == 'online' || this.rnet.status == 'root')){
-           console.error('PeerTreeNet.initHandlers():: rnet.status::',this.rnet.status,'rejecting ping from: ',j.remIp);
+           //console.error('PeerTreeNet.initHandlers():: rnet.status::',this.rnet.status,'rejecting ping from: ',j.remIp);
            return;
          }
          var result = 'OK';
