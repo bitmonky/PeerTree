@@ -276,11 +276,16 @@ const { MkyWebConsole } = require('./networkWebConsole.js');
 class YourOrganismObj {
   constructor(peerTree, reset) {
     this.isCoreNET = false;
-
-    // inherited: this.net is set by the parent class
-    this.reqReplyObj = new PtreeGenRequestHandler(this, this.isCoreNET);
+    this.reset        = reset;
+    this.isRoot       = null;
+    this.status       = 'starting';
+    this.net          = peerTree;
+    this.receptor     = null;
+    this.wcon         = new MkyWebConsole(this.net,null,this,process.title);
+}
+  attachReceptor(inReceptor){
+    this.receptor = inReceptor;
   }
-
   // --------------------------------------------------------------------
   // Create a work request method (RPC)
   // --------------------------------------------------------------------
@@ -291,7 +296,7 @@ class YourOrganismObj {
       data: jsonDataPkg
     };
 
-    let doTry = await this.net.reqReplyObj.waitForReply(toIp, msg);
+    let doTry = await this.net.reqReply.waitForReply(toIp, msg);
 
     if (doTry.result === "OK") {
       return doTry.jsonResData;
