@@ -4962,6 +4962,7 @@ class PeerTreeNet extends  EventEmitter {
    constructor (options,network=null,port=1336,wmon=1339,maxPeers=2,portals=[]){
       super(); 
       this.reqReplyObj  = new PtreeGenRequestHandler(this);
+      this.reqReply     = new PtreeGenRequestHandler(this,false);
       this.borgIOSkey='default';
       this.nodeType  = 'router';
       this.pulseRate = defPulse;	   
