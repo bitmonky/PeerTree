@@ -1,4 +1,5 @@
 # The PeerTree Project
+Collective compute that belongs to everyone and can be denied by nobody.
 
 ![main](images/main.png)
 
