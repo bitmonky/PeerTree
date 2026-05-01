@@ -90,9 +90,9 @@ Calling:
 
 Code
 ```JS
- curl -k -X POST https://localhost:13397/netREQ \
+ curl -k -X POST https://localhost:12397/netREQ \
   -H "Content-Type: application/json" \
-  -d '{"req":"echo"}' 
+  -d '{"msg":{"req":"echo"}}'
 ```
 
 Triggers:
@@ -354,7 +354,7 @@ class YourOrganismReceptor extends PtreeReceptor {
 
     // IMPORTANT:
     // receptor must know the organism instance
-    this.organism = peerTree.organismObj; 
+    this.net = peerTree; 
   }
 
   async handleReq(j, res) {
@@ -372,7 +372,7 @@ class YourOrganismReceptor extends PtreeReceptor {
     let toIp = '127.0.0.1';
 
     // call the organism RPC method
-    let response = await this.organism.doMakeSomeWorReq(toIp, { whoIs: 'peter' });
+    let response = await this.net.doMakeSomeWorkReq(toIp, { whoIs: 'peter' });
     console.log(response);
 
     res.writeHead(200);
