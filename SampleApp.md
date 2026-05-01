@@ -196,9 +196,9 @@ if (parm === 'rootReset') {
 // Select some unique ports for your organism
 // define the tree depth. (higher the maxChildren per peer the flatter the tree... less hops for broadcasts)  
 const borg = {
-  netPort: 13396,
-  recpPort: 13397,
-  monPort: 13398,
+  netPort: 12396,
+  recpPort: 12397,
+  monPort: 12398,
   maxChildren: 3,
   netName: process.title
 };
