@@ -282,7 +282,7 @@ class YourOrganismObj {
     this.net          = peerTree;
     this.receptor     = null;
     this.wcon         = new MkyWebConsole(this.net,null,this,process.title);
-}
+  }
   attachReceptor(inReceptor){
     this.receptor = inReceptor;
   }
