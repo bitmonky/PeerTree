@@ -376,7 +376,7 @@ class YourOrganismReceptor extends PtreeReceptor {
     console.log(response);
 
     res.writeHead(200);
-    res.end(JSON.stringify(response));
+    res.end(JSON.stringify(response)+'\n');
   }
 }
 
