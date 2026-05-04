@@ -59,14 +59,14 @@ function matchBuyAgainstBook(buy, sells) {
     remainingQuote -= quoteAmt;
 
     fills.push({
-      buyId: buy.id,
-      sellId: s.id,
-      token: buy.token,
-      price: s.price,
-      baseQty: U(buyBaseQty),
-      quoteAmt: U(quoteAmt),
-      buyerId: buy.userId,
-      sellerId: s.userId,
+      buyId    : buy.id,
+      sellId   : s.id,
+      token    : buy.token,
+      price    : s.price,
+      baseQty  : U(buyBaseQty),
+      quoteAmt : U(quoteAmt),
+      buyerId  : buy.userId,
+      sellerId : s.userId,
     });
   }
 
@@ -102,16 +102,10 @@ class BTraderOrganObj {
   // ---------------------------------------------------------
   // Broadcast handler (future: market events)
   // ---------------------------------------------------------
-  handleBCast(j) {
-    return false;
-  }
-
-  // ---------------------------------------------------------
-  // RPC handler
-  // ---------------------------------------------------------
-  async handleReq(remIp, j) {
+  async handleBCast(j) {
+    let remIp = j.remIp;
+ 
     switch (j.req) {
-
       case 'placeBuyOrder':
         return await this.handlePlaceBuy(remIp, j);
 
@@ -127,11 +121,20 @@ class BTraderOrganObj {
   }
 
   // ---------------------------------------------------------
+  // P2P RPC handler
+  // ---------------------------------------------------------
+  async handleReq(remIp, j) {
+    switch (j.req) {
+      default:
+        return false;
+    }
+  }
+
+  // ---------------------------------------------------------
   // BUY ORDER
   // ---------------------------------------------------------
-  async handlePlaceBuy(remIp, j) {
+  async doHandlePlaceBuy(j){
     const { userId, token, maxPrice, quoteAmt } = j.data;
-
     const order = {
       id: this.buys.length + 1,
       userId,
@@ -140,7 +143,23 @@ class BTraderOrganObj {
       remainingQuote: quoteAmt,
       filled: false
     };
-
+    let msg = {
+      req      : 'handlePlaceBuy',
+      response : 'handlePlaceBuyResult',
+      order    : order
+    }
+    let doTry = await this.bcastMgr.getReplies(msg);
+    if (doTry.result === 'OK') {
+      this.handlePlaceBuy('localhost',msg)
+      return true;
+    }
+    else {
+      // broadcast backout transaction... doTry.reqId;
+      return false;
+    }
+  }
+  async handlePlaceBuy(remIp, j) {
+    let order = j.order;
     this.buys.push(order);
 
     const reply = {
@@ -150,6 +169,10 @@ class BTraderOrganObj {
       jsonResData: { orderId: order.id }
     };
 
+    if (remIp === 'localhost'){
+      return 'OK';
+    }
+
     this.net.sendReply(remIp, reply);
     return true;
   }
@@ -157,7 +180,7 @@ class BTraderOrganObj {
   // ---------------------------------------------------------
   // SELL ORDER
   // ---------------------------------------------------------
-  async handlePlaceSell(remIp, j) {
+  async doHandlePlaceSell(j) {
     const { userId, token, minPrice, baseQty } = j.data;
 
     const order = {
@@ -170,6 +193,23 @@ class BTraderOrganObj {
       filled: false
     };
 
+    let msg = {
+      req      : 'handlePlaceSell',
+      response : 'handlePlaceSellResult',
+      order    : order
+    }
+    let doTry = await this.bcastMgr.getReplies(msg);
+    if (doTry.result === 'OK') {
+      this.handlePlaceBuy('localhost',msg)
+      return true;
+    }
+    else {
+      // broadcast backout transaction... doTry.reqId;
+      return false;
+    }
+  }
+  async handlePlaceSell(j) {
+    let order = j.order;
     this.sells.push(order);
 
     const reply = {
@@ -179,13 +219,32 @@ class BTraderOrganObj {
       jsonResData: { orderId: order.id }
     };
 
-    this.net.sendReply(remIp, reply);
-    return true;
+    if (j.remIp === 'localhost'){
+      return true;
+    } else {
+      this.net.sendReply(remIp, reply);
+      return true;
+    }
   }
 
   // ---------------------------------------------------------
   // MATCHING TRIGGER
   // ---------------------------------------------------------
+  async doHandleMatchNow(j) {
+    let msg = {
+      req      : 'handleMatchNow',
+      response : 'handleMatchNowResult',
+    }
+    let doTry = await this.bcastMgr.getReplies(msg);
+    if (doTry.result === 'OK') {
+      this.handleMatchNow('localhost',msg)
+      return true;
+    }
+    else {
+      // broadcast backout transaction... doTry.reqId;
+      return false;
+    }
+  }
   async handleMatchNow(remIp, j) {
     const fills = [];
 
@@ -206,9 +265,13 @@ class BTraderOrganObj {
       result: 'OK',
       jsonResData: { fills }
     };
-
-    this.net.sendReply(remIp, reply);
-    return true;
+    
+    if (remIp === 'localhost'){
+      return true;
+    } else {
+      this.net.sendReply(remIp, reply);
+      return true;
+    }
   }
 }
 
@@ -240,7 +303,7 @@ class BTraderReceptor extends PtreeReceptor {
   }
 
   handleBuy(data, res) {
-    this.organism.handlePlaceBuy("localhost", {
+    this.organism.doHandlePlaceBuy({
       req: 'placeBuyOrder',
       data
     });
@@ -250,7 +313,7 @@ class BTraderReceptor extends PtreeReceptor {
   }
 
   handleSell(data, res) {
-    this.organism.handlePlaceSell("localhost", {
+    this.organism.doHandlePlaceSell({
       req: 'placeSellOrder',
       data
     });
@@ -260,7 +323,7 @@ class BTraderReceptor extends PtreeReceptor {
   }
 
   handleMatch(res) {
-    this.organism.handleMatchNow("localhost", {
+    this.organism.doHandleMatchNow({
       req: 'matchNow',
       data: {}
     });
