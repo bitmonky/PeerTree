@@ -48,9 +48,9 @@ curl https://admin.bitmonky.com/bitMDis/bitWebMoniter.js     -o bitWebMoniter.js
 # ---------------------------------------------------------
 curl https://admin.bitmonky.com/bitMDis/btraderOrganObj.js   -o btraderOrganObj.js
 curl https://admin.bitmonky.com/bitMDis/btraderOrganCell.js  -o btraderOrganCell.js
-curl https://admin.bitmonky.com/bitMDis/pstartBTraderCell.sh -o pstartBTrader.sh
+curl https://admin.bitmonky.com/bitMDis/pstartBTraderCell.sh -o pstartBTraderCell.sh
 
-chmod 774 p*.sh
+chmod 774 pstartBTr*.sh
 
 # ---------------------------------------------------------
 # TLS Certificate Generation
