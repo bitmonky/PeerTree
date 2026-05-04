@@ -89,6 +89,8 @@ class BTraderOrganObj {
     this.status    = 'starting';
     this.net       = peerTree;
     this.receptor  = null;
+    this.ordBookStatus = 'startup';
+    this.ordBookStart();
 
     // TEMPORARY IN-MEMORY ORDER BOOK (SQL later)
     this.buys = [];
@@ -98,7 +100,29 @@ class BTraderOrganObj {
   attachReceptor(inReceptor) {
     this.receptor = inReceptor;
   }
+  async ordBookStart(){
+    console.log(`BTraderOrganObj.ordBookStart():: starting`);
+    if (this.net.rnet.r.lnode === 1){
+      this.ordBookStatus = 'ready';
+      return;
+    }
 
+    let doTry = await this.requestSnapshotFromPeer();
+    if (doTry.result === 'OK') {
+      this.applyOrderBookSnapshot(doTry.snapshot);
+    }
+  }
+  applyOrderBookSnapshot(snapshot) {
+
+    // Replace local state
+    this.buys        = snapshot.buys  || [];
+    this.sells       = snapshot.sells || [];
+    this.fills       = snapshot.fills || [];
+    this.lastMatchId = snapshot.lastMatchId || 0;
+
+    this.ordBookStatus = 'ready';   // safe to match again
+    return true;
+  }
   // ---------------------------------------------------------
   // Broadcast handler (future: market events)
   // ---------------------------------------------------------
@@ -125,11 +149,44 @@ class BTraderOrganObj {
   // ---------------------------------------------------------
   async handleReq(remIp, j) {
     switch (j.req) {
+      case 'getOrderBookSnapshot':
+        return this.getOrderBookSnapshot(remIp, j);
+
       default:
         return false;
     }
   }
 
+  async requestSnapshotFromPeer() {
+    const msg = {
+      req      : 'getOrderBookSnapshot',
+      response : 'getOrderBookSnapshotResult'
+    };
+
+    // Pick any healthy peer
+    const peerIp = this.net.getRandomPeerIp();
+
+    return await this.net.reqReply.waitForReply(peerIp, msg);
+  }
+  getOrderBookSnapshot(remIp,j) {
+
+    const snapshot = {
+      buys:  this.buys,
+      sells: this.sells,
+      fills: this.fills,                   
+      lastMatchId: this.lastMatchId || 0
+    };
+
+    const reply = {
+      reqId: j.reqId,
+      response: 'getOrderBookSnapshotResult',
+      result: 'OK',
+      snapshot
+    };
+
+    this.net.sendReply(remIp, reply);
+    return true;
+  }
   // ---------------------------------------------------------
   // BUY ORDER
   // ---------------------------------------------------------

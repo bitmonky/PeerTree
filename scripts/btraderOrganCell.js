@@ -29,14 +29,14 @@ const mkyNet = new PeerTreeNet(
 );
 
 async function main() {
+  // Start PeerTree networking
+  await mkyNet.netStarted();
+
   // Create the trading organism
   const cell = new BTraderOrganObj(mkyNet);
 
   // Attach organism to PeerTree network
   mkyNet.organismObj = cell;
-
-  // Start PeerTree networking
-  await mkyNet.netStarted();
 
   // Update portals.json for discovery
   mkyNet.updatePortalsFile(borg);
