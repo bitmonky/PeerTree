@@ -7,7 +7,7 @@ CREATE TABLE `tblmrkBuyOrder` (
   `mborFillPrice` decimal(29,9) DEFAULT NULL,
   `mborFillAmt` decimal(29,9) DEFAULT NULL,
   `mborFundsSecured` bigint(20) DEFAULT NULL,
-  `mborMax` double DEFAULT NULL,
+  `mborMax` decimal(29,9) DEFAULT NULL,
   `mborTradeCanceled` datetime DEFAULT NULL,
   `mborOrdTxnID` varchar(85) DEFAULT NULL,
   `mborCurrency` varchar(45) DEFAULT NULL,
