@@ -12,74 +12,119 @@ const db = require('./btraderDB');
 const D = (x) => BigInt(Math.round(Number(x) * 1e9));
 const U = (x) => (Number(x) / 1e9).toFixed(9);
 
+function toMySQLDate(ms) {
+  return new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+}
+
 // ---------------------------------------------------------
 // Matching Engine (pure, deterministic, no side effects)
 // ---------------------------------------------------------
+const Decimal = require('decimal.js');
+
 function matchBuyAgainstBook(buy, sells) {
+
+  // Convert buy fields to Decimal
+  const buyMaxPrice       = new Decimal(buy.maxPrice);
+  buy.origAmount          = new Decimal(buy.origAmount);
+  buy.remainingQuote      = new Decimal(buy.remainingQuote);
+  let   buyRemainingQuote = buy.origAmount.minus(buy.remainingQuote);
+  let   buyRemainingAmt   = buy.origAmount.minus(buy.remainingQuote);
+  let   buyFilledDate     = null;
+
+  const updatedSells = [];
   const fills = [];
-  const updatedSells = sells.map(s => ({ ...s }));
 
-  let remainingQuote = D(buy.remainingQuote);
-  const maxPrice = D(buy.maxPrice);
+  // Iterate through sells in price-time priority
+  for (const sell of sells) {
 
-  const eligible = updatedSells
-    .filter(s =>
-      s.token === buy.token &&
-      s.userId !== buy.userId &&
-      !s.filled &&
-      D(s.price) <= maxPrice &&
-      D(s.totalBase) > D(s.allocated)
-    )
-    .sort((a, b) => {
-      const pa = D(a.price), pb = D(b.price);
-      if (pa !== pb) return Number(pa - pb);
-      const aa = D(a.allocated), ab = D(b.allocated);
-      if (aa !== ab) return Number(ab - aa);
-      return a.id - b.id;
-    });
+    // Convert sell fields to Decimal
+    const sellMinPrice      = new Decimal(sell.minPrice);
+    const sellOrigAmt       = new Decimal(sell.origBase);
+    sell.remainingBase      = new Decimal(sell.remainingBase);
 
-  for (const s of eligible) {
-    if (remainingQuote <= 0n) break;
+    let   sellRemainingBase = sellOrigAmt.minus(sell.remainingBase);
 
-    const price = D(s.price);
-    const allocated = D(s.allocated);
-    const totalBase = D(s.totalBase);
+    console.log(`matchBuyAgainstBook():: buy vs sell:`,buy,sell);
+    console.log(`matchBuyAgainstBook():: remaining to buy:`,buyRemainingQuote, `of: ${buy.origAmount}`);
+    console.log(`matchBuyAgainstBook():: seller has : ${sellRemainingBase} to sell`);
+    // Stop if buy is fully consumed
+    if (buyRemainingQuote.lte(0)) {
+      console.log(`matchBuyAgainstBook():: remaining to buy:`,buyRemainingQuote, `of: ${buy.origAmount} BREAK`);      
+      break;
+    }
+    // Price check: buy must meet or exceed sell
+    console.log(`matchBuyAgainstBook():: buyMaxPrice: ${buyMaxPrice}, sellMinPrice: ${sellMinPrice}`);
+    if (buyMaxPrice.lt(sellMinPrice)) {
+      updatedSells.push(sell);
+      continue;
+    }
 
-    const remainingBase = totalBase - allocated;
-    if (remainingBase <= 0n) continue;
+    // Compute how much base the buy can afford at this price
+    const buyAffordableBase = buyRemainingQuote; //buyRemainingQuote.div(buyMaxPrice);
 
-    let buyBaseQty = remainingQuote / price;
-    if (buyBaseQty > remainingBase) buyBaseQty = remainingBase;
-    if (buyBaseQty <= 0n) continue;
+    console.log(`matchBuyAgainstBook():: can buy: ${buyRemainingQuote}/${buyMaxPrice} = `,buyAffordableBase);
+    
+    // Fill amount = min(sellRemainingBase, buyAffordableBase)
+    const fillBase = Decimal.min(sellRemainingBase, buyRemainingQuote);
 
-    const quoteAmt = buyBaseQty * price;
+    console.log(`matchBuyAgainstBook():: filledAmt is `,fillBase);
 
-    s.allocated = U(allocated + buyBaseQty);
-    if (allocated + buyBaseQty >= totalBase) s.filled = true;
+    // If no fill possible, continue
+    if (fillBase.lte(0)) {
+      updatedSells.push(sell);
+      continue;
+    }
 
-    remainingQuote -= quoteAmt;
+    // Quote spent = base * price
+    const fillQuote = fillBase.mul(buyMaxPrice);
+    
+    console.log(`matchBuyAgainstBook():: filledQuote is `,fillQuote);    
 
+    // Update remaining amounts
+    buyRemainingQuote  = buyRemainingQuote.minus(fillQuote);
+    buyRemainingAmt    = buyRemainingAmt.minus(fillBase);
+    sellRemainingBase  = sellRemainingBase.minus(fillBase);
+    let totalSold      = sellOrigAmt.plus(sell.remainingBase);
+    buyFilledDate      = buy.origAmount.minus(fillBase).lte(0) ? new Date(Date.now()) : null;
+
+    console.log(`buyRemainingQuote: ${buyRemainingQuote},sellRemainingBase: ${sellRemainingBase},totalSold: ${totalSold}, buyFilledDate: ${ buyFilledDate}`);  
+
+    // Record fill
     fills.push({
       buyId    : buy.id,
-      sellId   : s.id,
-      token    : buy.token,
-      price    : s.price,
-      baseQty  : U(buyBaseQty),
-      quoteAmt : U(quoteAmt),
-      buyerId  : buy.userId,
-      sellerId : s.userId,
+      sellId   : sell.id,
+      price    : buyMaxPrice.toString(),   // execution price
+      baseAmt  : fillBase.toString(),
+      quoteAmt : fillQuote.toString(),
+      newBuyRemaining  : buyRemainingAmt,
+      newSellRemaining : sellRemainingBase,
+      buyFilledAmt     : fillBase,
+      buyFilled        : buy.origAmount.minus(fillBase).lte(0) ? new Date(Date.now()) : null  ,
+      sellFilledAmt    : totalSold,
+      sellFilled       : totalSold.gte(sellOrigAmt) ? new Date(Date.now()) : null  
+    });
+
+    // Update sell object for return
+    updatedSells.push({
+      ...sell,
+      remainingBase : sellRemainingBase.toString(),
+      filledAmt     : totalSold.toString(),
+      filled        : totalSold.gte(sellOrigAmt) ? new Date(Date.now()) : null  
     });
   }
-
+  // Updated buy object
   const updatedBuy = {
     ...buy,
-    remainingQuote: U(remainingQuote),
-    filled: remainingQuote <= 0n
+    remainingQuote : buyRemainingAmt.toString(),
+    filled         : buyFilledDate
   };
 
-  return { updatedBuy, updatedSells, fills };
+  return {
+    updatedBuy,
+    updatedSells,
+    fills
+  };
 }
-
 // ---------------------------------------------------------
 // Organism Object
 // ---------------------------------------------------------
@@ -105,7 +150,7 @@ class BTraderOrganObj {
 
     this.db.query(`
       SELECT mborID AS id, mborUID AS userId, mborToken AS token,
-             mborMax AS maxPrice, mborAmt AS remainingQuote,
+             mborMax AS maxPrice, mborAmt AS origAmount, mborFillAmt AS remainingQuote,
              mborFilled AS filled
       FROM tblmrkBuyOrder
       WHERE mborFilled IS NULL AND mborTradeCanceled IS NULL
@@ -113,11 +158,12 @@ class BTraderOrganObj {
     `, (err, rows) => {
       if (err) return console.error("SQL load buys error:", err);
       this.buys = rows;
+      console.log(`loadOrderBookFromSQL():: buy orders `,this.buys);
     });
 
     this.db.query(`
       SELECT msorID AS id, msorUID AS userId, msorToken AS token,
-             msorMin AS minPrice, msorAmtGP AS remainingBase,
+             msorMin AS minPrice, msorAmtGP AS origBase, msorAllocated as remainingBase,
              msorFilled AS filled
       FROM tblmrkSellOrder
       WHERE msorFilled IS NULL AND msorTradeCanceled IS NULL
@@ -125,7 +171,9 @@ class BTraderOrganObj {
     `, (err, rows) => {
       if (err) return console.error("SQL load sells error:", err);
       this.sells = rows;
+      console.log(`loadOrderBookFromSQL():: sell orders `,this.sells);
     });
+   
   }
   async ordBookStart(){
     console.log(`BTraderOrganObj.ordBookStart():: starting`);
@@ -226,18 +274,20 @@ class BTraderOrganObj {
       id: this.buys.length + 1,
       userId,
       token,
-      maxPrice,
-      remainingQuote: quoteAmt,
-      filled: false
+      maxPrice : new Decimal(maxPrice),
+      remainingQuote: new Decimal(quoteAmt),
+      filled: 'null'
     };
     let msg = {
       req      : 'handlePlaceBuy',
       response : 'handlePlaceBuyResult',
       order    : order
     }
-    let doTry = await this.bcastMgr.getReplies(msg);
-    if (doTry.result === 'OK') {
-      await this.handlePlaceBuy('localhost',msg)
+    console.log(`doHandlePlaceBuy():: bcasting: `,msg);
+
+    let doTry = await this.net.bcastMgr.getReplies(msg);
+    if (doTry.result === 'OK' || doTry.result === 'NOBODY') {
+      await this.handlePlaceBuy('localhost',msg);
       await this.matchNow();
       return true;
     }
@@ -251,10 +301,10 @@ class BTraderOrganObj {
 
     // 1. Insert into SQL (with error handling)
     const sql = `
-      INSERT INTO tblmrkBuyOrder (mborUID, mborToken, mborMax, mborAmt) VALUES (?, ?, ?, ?)`;
+      INSERT INTO tblmrkBuyOrder (mborUID, mborToken, mborMax, mborAmt,mborDate) VALUES (?, ?, ?, ?, ?)`;
 
-    const params = [order.userId, order.token,order.maxPrice, order.remainingQuote ];
-
+    const params = [order.userId, order.token,order.maxPrice, order.remainingQuote,toMySQLDate(Date.now()) ];
+    console.log(`handlePlaceBuy():: `,sql,params);
     let insertId = null;
 
     try {
@@ -312,12 +362,12 @@ class BTraderOrganObj {
 
     const order = {
       id: this.sells.length + 1,
-      userId,
-      token,
-      price: minPrice,
-      totalBase: baseQty,
-      allocated: "0.000000000",
-      filled: false
+      userId    : userId,
+      token     : token,
+      minPrice  : minPrice,
+      totalBase : baseQty,
+      allocated : "0.000000000",
+      filled    : false
     };
 
     let msg = {
@@ -325,8 +375,8 @@ class BTraderOrganObj {
       response : 'handlePlaceSellResult',
       order    : order
     }
-    let doTry = await this.bcastMgr.getReplies(msg);
-    if (doTry.result === 'OK') {
+    let doTry = await this.net.bcastMgr.getReplies(msg);
+    if (doTry.result === 'OK' || doTry.result === 'NOBODY') {
       await this.handlePlaceSell('localhost',msg);
       return true;
     }
@@ -339,9 +389,9 @@ class BTraderOrganObj {
     const order = j.order;
 
     // 1. Insert into SQL (with error handling)
-    const sql = `INSERT INTO tblmrkSellOrder (msorUID, msorToken, msorMin, msorAmtGP) VALUES (?, ?, ?, ?)`;
+    const sql = `INSERT INTO tblmrkSellOrder (msorUID, msorToken, msorMin, msorAmtGP,msorAllocated,msorDate) VALUES (?, ?, ?, ?, ?, ?)`;
 
-    const params = [order.userId,order.token, order.minPrice,order.remainingBase];
+    const params = [order.userId,order.token, order.minPrice,order.totalBase,order.allocated,toMySQLDate(Date.now())];
 
     let insertId = null;
 
@@ -401,7 +451,7 @@ class BTraderOrganObj {
       response : 'handleMatchNowResult',
     }
     let doTry = await this.bcastMgr.getReplies(msg);
-    if (doTry.result === 'OK') {
+    if (doTry.result === 'OK' || doTry === 'NOBODY') {
       this.handleMatchNow('localhost',msg)
       return true;
     }
@@ -410,22 +460,28 @@ class BTraderOrganObj {
       return false;
     }
   }
-  async matchNow(remIp, j) {
-
+  async matchNow() {
+    console.log(`matchNow():: Begin `);
     // Prevent matching during rejoin
-    if (this.rejoinMode) {
-      this.log("Skipping match — node still synchronizing");
+    if (this.ordBookStatus !== 'ready') {
+      console.log("Skipping match — node still synchronizing");
       return false;
     }
 
+    console.log(`matchNow():: Buys `,this.buys);
     // Find next buy order to match
     const buy = this.buys.find(b => !b.filled);
     if (!buy) return false;
 
-    const sells = this.sells.filter(s => !s.filled);
+     console.log(`matchNow():: Sells `,this.sells);
+     const sells = this.sells.filter(s => !s.filled);
 
     // Run deterministic matching engine
-    const result = this.matchBuyAgainstBook(buy, sells);
+    const result = matchBuyAgainstBook(buy, sells);
+
+    console.log(`matchNow():: post match buy   `,buy);
+    console.log(`matchNow():: post match sells `,sells);
+    console.log(`matchNow():: post match result`,result);
 
     if (!result || result.fills.length === 0) {
       return true; // nothing to match
@@ -440,14 +496,14 @@ class BTraderOrganObj {
 
     // Broadcast results to other nodes
     const msg = {
-      req: 'applyMatchResults',
-      response: 'applyMatchResultsResult',
-      result
+      req      : 'applyMatchResults',
+      response : 'applyMatchResultsResult',
+      result   : result 
     };
 
     const doTry = await this.bcastMgr.getReplies(msg);
 
-    if (doTry.result === 'OK') {
+    if (doTry.result === 'OK' || doTry === 'NOBODY') {
       // Apply locally (initiator)
       this.applyMatchResultsLocal(result);
       return true;
@@ -455,6 +511,31 @@ class BTraderOrganObj {
 
     // TODO: rollback broadcast
     return false;
+  }
+  async handleApplyMatchResults(remIp, j) {
+    const result = j.result;
+
+    const reply = {
+      reqId: j.reqId,
+      response: 'applyMatchResultsResult',
+      result: 'OK'
+    };
+
+    // Apply to SQL
+    const ok = await this.applyMatchResultsSQL(result);
+    if (!ok) {
+      reply.result = 'FAIL_MATCH_SQL';
+    }
+    else {
+
+      // Apply to memory
+      this.applyMatchResultsLocal(result);
+
+      if (remIp === 'localhost') return 'OK';
+    }
+
+    this.net.sendReply(remIp, reply);
+    return true;
   }
   async handleMatchNow(remIp, j) {
     const fills = [];
@@ -486,37 +567,61 @@ class BTraderOrganObj {
   }
   async applyMatchResultsSQL(result) {
     const fills = result.fills;
+    console.log(`applyMatchResultsSQL():: Begin`, fills.length);
+    return new Promise((resolve) => {
 
-    try {
-      for (const f of fills) {
+      let conn = this.db;
+      conn.beginTransaction(async (err) => {
+          if (err) {
+            console.error("BEGIN error:", err);
+            conn.release();
+            return resolve(false);
+          }
+          try {
+            console.log(`applyMatchResultsSQL():: Bigin`, fills.length);
+            for (const f of fills) {
 
-        // Update BUY order
-        await new Promise((resolve, reject) => {
-          this.db.query(`UPDATE tblmrkBuyOrder SET mborAmt = ?, mborFilled = ? WHERE mborID = ?`,
-          [f.newBuyRemaining, f.buyFilled, f.buyId],
-          (err) => err ? reject(err) : resolve());
-        });
+              // BUY update
+              await new Promise((res, rej) => {
+                conn.query(`UPDATE tblmrkBuyOrder SET mborAmt = ?,mborFillAmt = ?, mborFilled = ? WHERE mborID = ?`,
+                [f.newBuyRemaining, f.buyFilledAmt,f.sellFilled, f.buyId ], (err) => err ? rej(err) : res());
+              });
 
-        // Update SELL order
-        await new Promise((resolve, reject) => {
-          this.db.query(`UPDATE tblmrkSellOrder SET msorAmt = ?, msorFilled = ? WHERE msorID = ?`,
-          [f.newSellRemaining, f.sellFilled, f.sellId],
-          (err) => err ? reject(err) : resolve());
-        });
+              // SELL update
+              await new Promise((res, rej) => {
+                conn.query(`UPDATE tblmrkSellOrder SET msorAmtGP = ?, msorFilled = ?, msorAllocated = ? WHERE msorID = ?`,
+                [f.newSellRemaining,f.sellFilled,f.sellFilledAmt, f.sellId], (err) => err ? rej(err) : res());
+              });
 
-        // Insert fill log
-        await new Promise((resolve, reject) => {
-          this.db.query(`INSERT INTO tblmrkFillsLog (mflBuyID, mflSellID, mflPrice, mflBaseAmt, mflQuoteAmt) VALUES (?, ?, ?, ?, ?)`,
-          [f.buyId,f.sellId,f.price, f.baseAmt,f.quoteAmt],
-          (err) => err ? reject(err) : resolve());
-        });
-      } 
-      return true;
-    } 
-    catch (err) {
-      console.error("SQL MATCH ERROR:", err);
-      return false;
-    }
+              // Fill log insert
+              await new Promise((res, rej) => {
+                conn.query(`INSERT INTO tblmrkFillsLog (mflgBID, mflgSID, mflgPrice, mflgAmtGP, mflgDate) VALUES (?, ?, ?, ?, ?)`,
+                [f.buyId, f.sellId, f.price,f.buyFilledAmt, new Date(Date.now())], (err) => err ? rej(err) : res());
+              });
+
+            } // end for each fill
+
+            // If we got here, everything succeeded
+            conn.commit((err) => {
+              conn.release();
+              if (err) {
+                console.error("COMMIT error:", err);
+                return resolve(false);
+              }
+              resolve(true);
+            });
+
+          } catch (err) {
+            console.error("MATCH SQL ERROR, ROLLBACK:", err);
+
+            conn.rollback(() => {
+              conn.release();
+              resolve(false);
+            });
+          }
+
+        }); // beginTransaction
+    }); // Promise
   }
   applyMatchResultsLocal(result) {
     const fills = result.fills;
@@ -562,6 +667,9 @@ class BTraderReceptor extends PtreeReceptor {
       case 'qryOrders':
         return this.handleQryOrders(res);
 
+      case 'match':
+        return this.handleMatch(res);
+
       default:
         res.writeHead(404);
         res.end(JSON.stringify({ error: 'Unknown request' }));
@@ -589,13 +697,10 @@ class BTraderReceptor extends PtreeReceptor {
   }
 
   handleMatch(res) {
-    this.organism.doHandleMatchNow({
-      req: 'matchNow',
-      data: {}
-    });
+    this.organism.matchNow();
 
     res.writeHead(200);
-    res.end(JSON.stringify({ ok: true }));
+    res.end(JSON.stringify({ ok: true,msg : 'matching complete' }));
   }
 }
 
