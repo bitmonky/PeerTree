@@ -34,7 +34,7 @@ CREATE TABLE `tblmrkSellOrder` (
   `msorDate` datetime DEFAULT NULL,
   `msorAlocByBID` bigint(20) DEFAULT NULL,
   `msorFilled` datetime DEFAULT NULL,
-  `msorAlocated` decimal(29,9) DEFAULT NULL,
+  `msorAllocated` decimal(29,9) DEFAULT NULL,
   `msorGoldSecured` bigint(20) DEFAULT NULL,
   `msorGoldReturned` datetime DEFAULT NULL,
   `msorTradeCanceled` datetime DEFAULT NULL,
