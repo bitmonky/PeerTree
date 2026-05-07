@@ -5,6 +5,7 @@
 
 const PtreeReceptor = require('./ptreeReceptorObj');
 const db = require('./btraderDB');
+const crypto = require('crypto');
 
 // ---------------------------------------------------------
 // Deterministic Decimal Math (9 decimal fixed precision)
@@ -14,6 +15,39 @@ const U = (x) => (Number(x) / 1e9).toFixed(9);
 
 function toMySQLDate(ms) {
   return new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+}
+
+/**
+ * Convert UUID string (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
+ * into a 16-byte Buffer for MySQL BINARY(16)
+ */
+
+function uuidToBin(uuid) {
+  const hex = uuid.replace(/-/g, '');
+  return Buffer.from(hex, 'hex');
+}
+
+/**
+ * Convert 16-byte Buffer from MySQL BINARY(16)
+ * back into canonical UUID string
+ */
+function binToUuid(buffer) {
+  const hex = buffer.toString('hex');
+
+  return (
+    hex.substring(0, 8) + '-' +
+    hex.substring(8, 12) + '-' +
+    hex.substring(12, 16) + '-' +
+    hex.substring(16, 20) + '-' +
+    hex.substring(20)
+  );
+}
+
+/**
+ * Generate a crypto-random UUID and return BINARY(16)
+ */
+function randomUuidBin() {
+  return uuidToBin(crypto.randomUUID());
 }
 
 // ---------------------------------------------------------
@@ -91,8 +125,8 @@ function matchBuyAgainstBook(buy, sells) {
 
     // Record fill
     fills.push({
-      buyId    : buy.id,
-      sellId   : sell.id,
+      buyId    : buy.tranId,
+      sellId   : sell.tranId,
       price    : buyMaxPrice.toString(),   // execution price
       baseAmt  : fillBase.toString(),
       quoteAmt : fillQuote.toString(),
@@ -149,7 +183,7 @@ class BTraderOrganObj {
   async loadOrderBookFromSQL() {
 
     this.db.query(`
-      SELECT mborID AS id, mborUID AS userId, mborToken AS token,
+      SELECT mborTranId as tranId,mborID AS id, mborUID AS userId, mborToken AS token,
              mborMax AS maxPrice, mborAmt AS origAmount, mborFillAmt AS remainingQuote,
              mborFilled AS filled
       FROM tblmrkBuyOrder
@@ -158,11 +192,12 @@ class BTraderOrganObj {
     `, (err, rows) => {
       if (err) return console.error("SQL load buys error:", err);
       this.buys = rows;
+      this.buys.forEach((buy) => {buy.tranId = binToUuid(buy.tranId);});
       console.log(`loadOrderBookFromSQL():: buy orders `,this.buys);
     });
 
     this.db.query(`
-      SELECT msorID AS id, msorUID AS userId, msorToken AS token,
+      SELECT msorTranId as tranId,msorID AS id, msorUID AS userId, msorToken AS token,
              msorMin AS minPrice, msorAmtGP AS origBase, msorAllocated as remainingBase,
              msorFilled AS filled
       FROM tblmrkSellOrder
@@ -171,6 +206,7 @@ class BTraderOrganObj {
     `, (err, rows) => {
       if (err) return console.error("SQL load sells error:", err);
       this.sells = rows;
+      this.sells.forEach((sell) => {sell.tranId = binToUuid(sell.tranId);});
       console.log(`loadOrderBookFromSQL():: sell orders `,this.sells);
     });
    
@@ -272,11 +308,14 @@ class BTraderOrganObj {
     const { userId, token, maxPrice, quoteAmt } = j.data;
     const order = {
       id: this.buys.length + 1,
-      userId,
-      token,
-      maxPrice : new Decimal(maxPrice),
-      remainingQuote: new Decimal(quoteAmt),
-      filled: 'null'
+      tranId         : crypto.randomUUID(), 
+      userId         : userId,
+      token          : token,
+      maxPrice       : new Decimal(maxPrice),
+      origAmount     : new Decimal(quoteAmt),
+      remainingQuote : new Decimal("0.000000000"),
+      filled         : null,
+      filledAmt      : "0.000000000"
     };
     let msg = {
       req      : 'handlePlaceBuy',
@@ -301,9 +340,9 @@ class BTraderOrganObj {
 
     // 1. Insert into SQL (with error handling)
     const sql = `
-      INSERT INTO tblmrkBuyOrder (mborUID, mborToken, mborMax, mborAmt,mborDate) VALUES (?, ?, ?, ?, ?)`;
+      INSERT INTO tblmrkBuyOrder (mborTranId,mborUID, mborToken, mborMax, mborAmt,mborDate,mborFillAmt) VALUES (?, ?, ?, ?, ?, ?, ?)`;
 
-    const params = [order.userId, order.token,order.maxPrice, order.remainingQuote,toMySQLDate(Date.now()) ];
+    const params = [uuidToBin(order.tranId),order.userId, order.token,order.maxPrice, order.origAmount,toMySQLDate(Date.now()),order.filledAmt ];
     console.log(`handlePlaceBuy():: `,sql,params);
     let insertId = null;
 
@@ -362,12 +401,13 @@ class BTraderOrganObj {
 
     const order = {
       id: this.sells.length + 1,
+      tranId    : crypto.randomUUID(),
       userId    : userId,
       token     : token,
       minPrice  : minPrice,
       totalBase : baseQty,
       allocated : "0.000000000",
-      filled    : false
+      filled    : null
     };
 
     let msg = {
@@ -389,9 +429,9 @@ class BTraderOrganObj {
     const order = j.order;
 
     // 1. Insert into SQL (with error handling)
-    const sql = `INSERT INTO tblmrkSellOrder (msorUID, msorToken, msorMin, msorAmtGP,msorAllocated,msorDate) VALUES (?, ?, ?, ?, ?, ?)`;
+    const sql = `INSERT INTO tblmrkSellOrder (msorTranId,msorUID, msorToken, msorMin, msorAmtGP,msorAllocated,msorDate) VALUES (?, ?, ?, ?, ?, ?, ?)`;
 
-    const params = [order.userId,order.token, order.minPrice,order.totalBase,order.allocated,toMySQLDate(Date.now())];
+    const params = [uuidToBin(order.tranId),order.userId,order.token, order.minPrice,order.totalBase,order.allocated,toMySQLDate(Date.now())];
 
     let insertId = null;
 
@@ -501,7 +541,7 @@ class BTraderOrganObj {
       result   : result 
     };
 
-    const doTry = await this.bcastMgr.getReplies(msg);
+    const doTry = await this.net.bcastMgr.getReplies(msg);
 
     if (doTry.result === 'OK' || doTry === 'NOBODY') {
       // Apply locally (initiator)
@@ -574,7 +614,6 @@ class BTraderOrganObj {
       conn.beginTransaction(async (err) => {
           if (err) {
             console.error("BEGIN error:", err);
-            conn.release();
             return resolve(false);
           }
           try {
@@ -595,15 +634,14 @@ class BTraderOrganObj {
 
               // Fill log insert
               await new Promise((res, rej) => {
-                conn.query(`INSERT INTO tblmrkFillsLog (mflgBID, mflgSID, mflgPrice, mflgAmtGP, mflgDate) VALUES (?, ?, ?, ?, ?)`,
-                [f.buyId, f.sellId, f.price,f.buyFilledAmt, new Date(Date.now())], (err) => err ? rej(err) : res());
+                conn.query(`INSERT INTO tblmrkFillsLog (mflgTranId,mflgBTranId, mflgSTranId, mflgPrice, mflgAmtGP, mflgDate) VALUES (?, ?, ?, ?, ?, ?)`,
+                [randomUuidBin(),uuidToBin(f.buyId), uuidToBin(f.sellId), f.price,f.buyFilledAmt, new Date(Date.now())], (err) => err ? rej(err) : res());
               });
 
             } // end for each fill
 
             // If we got here, everything succeeded
             conn.commit((err) => {
-              conn.release();
               if (err) {
                 console.error("COMMIT error:", err);
                 return resolve(false);
@@ -615,7 +653,6 @@ class BTraderOrganObj {
             console.error("MATCH SQL ERROR, ROLLBACK:", err);
 
             conn.rollback(() => {
-              conn.release();
               resolve(false);
             });
           }
