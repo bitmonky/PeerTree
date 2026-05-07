@@ -1,5 +1,6 @@
-CREATE TABLE `tblmrkBuyOrder` (
+tblmrkBuyOrder | CREATE TABLE `tblmrkBuyOrder` (
   `mborID` bigint(20) NOT NULL AUTO_INCREMENT,
+  `mborTranId` binary(16) DEFAULT NULL,
   `mborUID` bigint(20) DEFAULT NULL,
   `mborAmt` decimal(29,9) DEFAULT NULL,
   `mborDate` datetime DEFAULT NULL,
@@ -24,17 +25,19 @@ CREATE TABLE `tblmrkBuyOrder` (
   KEY `ndxMborTradeCanceled` (`mborTradeCanceled`),
   KEY `ndxMborOrdTxnID` (`mborOrdTxnID`),
   KEY `ndxMborCurrency` (`mborCurrency`),
-  KEY `ndxMborToken` (`mborToken`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  KEY `ndxMborToken` (`mborToken`),
+  KEY `idx_mborTranId` (`mborTranId`)
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
 
-CREATE TABLE `tblmrkSellOrder` (
+ tblmrkSellOrder | CREATE TABLE `tblmrkSellOrder` (
   `msorID` bigint(20) NOT NULL AUTO_INCREMENT,
+  `msorTranId` binary(16) DEFAULT NULL,
   `msorUID` bigint(20) DEFAULT NULL,
   `msorAmtGP` decimal(29,9) DEFAULT NULL,
   `msorDate` datetime DEFAULT NULL,
   `msorAlocByBID` bigint(20) DEFAULT NULL,
   `msorFilled` datetime DEFAULT NULL,
-  `msorAllocated` decimal(29,9) DEFAULT NULL,
+  `msorAllocated` decimal(29,9) DEFAULT 0.000000000,
   `msorGoldSecured` bigint(20) DEFAULT NULL,
   `msorGoldReturned` datetime DEFAULT NULL,
   `msorTradeCanceled` datetime DEFAULT NULL,
@@ -47,6 +50,7 @@ CREATE TABLE `tblmrkSellOrder` (
   `msorUseTradeWallet` int(11) DEFAULT NULL,
   `msorTokReturnQty` decimal(29,9) DEFAULT NULL,
   PRIMARY KEY (`msorID`),
+  UNIQUE KEY `uniq_msorTranId` (`msorTranId`),
   KEY `ndxMsorMin` (`msorMin`),
   KEY `ndxMsorUID` (`msorUID`),
   KEY `ndxMsorDate` (`msorDate`),
@@ -60,12 +64,13 @@ CREATE TABLE `tblmrkSellOrder` (
   KEY `ndxMsorCurrency` (`msorCurrency`),
   KEY `ndxMsorToken` (`msorToken`),
   KEY `ndxMsorNSF` (`msorNSF`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
 
-CREATE TABLE `tblmrkFillsLog` (
+ tblmrkFillsLog | CREATE TABLE `tblmrkFillsLog` (
   `mflgID` bigint(20) NOT NULL AUTO_INCREMENT,
-  `mflgBID` bigint(20) DEFAULT NULL,
-  `mflgSID` bigint(20) DEFAULT NULL,
+  `mflgTranId` binary(16) DEFAULT NULL,
+  `mflgBTranId` binary(16) DEFAULT NULL,
+  `mflgSTranId` binary(16) DEFAULT NULL,
   `mflgAmtGP` decimal(29,9) DEFAULT NULL,
   `mflgDate` datetime DEFAULT NULL,
   `mflgComplete` datetime DEFAULT NULL,
@@ -82,14 +87,14 @@ CREATE TABLE `tblmrkFillsLog` (
   PRIMARY KEY (`mflgID`),
   KEY `ndxMflgComplete` (`mflgComplete`),
   KEY `ndxMflgDate` (`mflgDate`),
-  KEY `ndxMflgBID` (`mflgBID`),
-  KEY `ndxMflgSID` (`mflgSID`),
+  KEY `ndxMflgBID` (`mflgBTranId`),
+  KEY `ndxMflgSID` (`mflgSTranId`),
   KEY `ndxMflgRedDate` (`mflgRedDate`),
   KEY `ndxMflgRedStatus` (`mflgRedStatus`),
   KEY `ndxMflgRedMethod` (`mflgRedMethod`),
   KEY `ndxMflgMVCompleted` (`mflgMVCompleted`),
   KEY `ndxMflgCurrency` (`mflgCurrency`),
   KEY `ndxMflgToken` (`mflgToken`),
-  KEY `ndxMflgNSF` (`mflgNSF`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
+  KEY `ndxMflgNSF` (`mflgNSF`),
+  KEY `idx_mflgTranId` (`mflgTranId`)
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
