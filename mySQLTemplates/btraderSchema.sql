@@ -1,4 +1,4 @@
-tblmrkBuyOrder | CREATE TABLE `tblmrkBuyOrder` (
+ tblmrkBuyOrder | CREATE TABLE `tblmrkBuyOrder` (
   `mborID` bigint(20) NOT NULL AUTO_INCREMENT,
   `mborTranId` binary(16) DEFAULT NULL,
   `mborUID` bigint(20) DEFAULT NULL,
@@ -7,7 +7,7 @@ tblmrkBuyOrder | CREATE TABLE `tblmrkBuyOrder` (
   `mborFilled` datetime DEFAULT NULL,
   `mborFillPrice` decimal(29,9) DEFAULT NULL,
   `mborFillAmt` decimal(29,9) DEFAULT NULL,
-  `mborFundsSecured` bigint(20) DEFAULT NULL,
+  `mborFundsSecured` decimal(29,9) DEFAULT NULL,
   `mborMax` decimal(29,9) DEFAULT NULL,
   `mborTradeCanceled` datetime DEFAULT NULL,
   `mborOrdTxnID` varchar(85) DEFAULT NULL,
@@ -27,7 +27,7 @@ tblmrkBuyOrder | CREATE TABLE `tblmrkBuyOrder` (
   KEY `ndxMborCurrency` (`mborCurrency`),
   KEY `ndxMborToken` (`mborToken`),
   KEY `idx_mborTranId` (`mborTranId`)
-) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
 
  tblmrkSellOrder | CREATE TABLE `tblmrkSellOrder` (
   `msorID` bigint(20) NOT NULL AUTO_INCREMENT,
