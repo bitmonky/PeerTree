@@ -599,11 +599,35 @@ class BTraderOrganObj {
             console.log(`applyMatchResultsSQL():: Bigin`, fills.length);
             for (const f of fills) {
 
+              // Fill log insert
+              await new Promise((res, rej) => {
+                conn.query(`INSERT INTO tblmrkFillsLog (mflgTranId,mflgBTranId, mflgSTranId, mflgPrice, mflgAmtGP, mflgDate) VALUES (?, ?, ?, ?, ?, ?)`,
+                [randomUuidBin(),uuidToBin(f.buyId), uuidToBin(f.sellId), f.price,f.buyFilledAmt, new Date(Date.now())], (err) => err ? rej(err) : res());
+              });
+
               // BUY update
               await new Promise((res, rej) => {
                 conn.query(`UPDATE tblmrkBuyOrder SET mborFillAmt = mborAmt - ?, mborFilled = ? WHERE mborTranId = ?`,
                 [f.newBuyRemaining, f.buyFilled, uuidToBin(f.buyId) ], (err) => err ? rej(err) : res());
               });
+
+              console.log(`applyMatchResultsSQL():: consolidate fill price for order `,f.buyFilled,f.buyId);
+
+              if (f.buyFilled !== null) {
+                console.log(`applyMatchResultsSQL():: consolidate fill price for order `,f.buyFilled,f.buyId);
+                await new Promise((res, rej) => {
+                  let SQL = `
+                  UPDATE tblmrkBuyOrder b
+                  JOIN (
+                    SELECT mflgBTranId AS buyId,SUM(mflgAmtGP * mflgPrice) / SUM(mflgAmtGP) AS actualPricePaid
+                    FROM tblmrkFillsLog
+                    WHERE mflgBTranId = ?
+                  ) x ON b.mborTranId = x.buyId
+                  SET b.mborFillPrice = x.actualPricePaid`;
+                  conn.query(SQL,[uuidToBin(f.buyId)], (err) => err ? rej(err) : res());
+                  console.log(SQL,f.buyId,uuidToBin(f.buyId));
+                });
+              }
 
               // SELL update
               await new Promise((res, rej) => {
@@ -611,11 +635,6 @@ class BTraderOrganObj {
                 [f.sellFilled, f.newSellRemaining, uuidToBin(f.sellId) ], (err) => err ? rej(err) : res());
               });
 
-              // Fill log insert
-              await new Promise((res, rej) => {
-                conn.query(`INSERT INTO tblmrkFillsLog (mflgTranId,mflgBTranId, mflgSTranId, mflgPrice, mflgAmtGP, mflgDate) VALUES (?, ?, ?, ?, ?, ?)`,
-                [randomUuidBin(),uuidToBin(f.buyId), uuidToBin(f.sellId), f.price,f.buyFilledAmt, new Date(Date.now())], (err) => err ? rej(err) : res());
-              });
 
             } // end for each fill
 
