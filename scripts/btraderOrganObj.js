@@ -58,11 +58,11 @@ const Decimal = require('decimal.js');
 function matchBuyAgainstBook(buy, sells) {
 
   // Convert buy fields to Decimal
-  const buyMaxPrice       = new Decimal(buy.maxPrice);
-  buy.origAmount          = new Decimal(buy.origAmount);
-  buy.remainingQuote      = new Decimal(buy.remainingQuote);
-  let   buyRemainingQuote = buy.origAmount.minus(buy.remainingQuote);
-  let   buyRemainingAmt   = buy.origAmount.minus(buy.remainingQuote);
+  const buyMaxPrice       = new Decimal(buy.mborMax);
+  buy.mborAmt             = new Decimal(buy.mborAmt);
+  buy.mborFillAmt         = new Decimal(buy.mborFillAmt);
+  let   buyFillAmt        = buy.mborAmt.minus(buy.mborFillAmt);
+  let   buyRemainingAmt   = buyFillAmt;
   let   buyFilledDate     = null;
 
   const updatedSells = [];
@@ -72,18 +72,18 @@ function matchBuyAgainstBook(buy, sells) {
   for (const sell of sells) {
 
     // Convert sell fields to Decimal
-    const sellMinPrice      = new Decimal(sell.minPrice);
-    const sellOrigAmt       = new Decimal(sell.origBase);
-    sell.remainingBase      = new Decimal(sell.remainingBase);
+    const sellMinPrice  = new Decimal(sell.msorMin);
+    const sellOrigAmt   = new Decimal(sell.msorAmtGP);
+    sell.msorAllocated  = new Decimal(sell.msorAllocated);
 
-    let   sellRemainingBase = sellOrigAmt.minus(sell.remainingBase);
+    let sellRemaining = sellOrigAmt.minus(sell.msorAllocated);
 
     console.log(`matchBuyAgainstBook():: buy vs sell:`,buy,sell);
-    console.log(`matchBuyAgainstBook():: remaining to buy:`,buyRemainingQuote, `of: ${buy.origAmount}`);
-    console.log(`matchBuyAgainstBook():: seller has : ${sellRemainingBase} to sell`);
+    console.log(`matchBuyAgainstBook():: remaining to buy:`,buyRemainingAmt, `of: ${buy.mborAmt}`);
+    console.log(`matchBuyAgainstBook():: seller has : ${sellRemaining} to sell`);
     // Stop if buy is fully consumed
-    if (buyRemainingQuote.lte(0)) {
-      console.log(`matchBuyAgainstBook():: remaining to buy:`,buyRemainingQuote, `of: ${buy.origAmount} BREAK`);      
+    if (buyRemainingAmt.lte(0)) {
+      console.log(`matchBuyAgainstBook():: remaining to buy:`,buyRemainingAmt, `of: ${buy.msorAmtGP} BREAK`);      
       break;
     }
     // Price check: buy must meet or exceed sell
@@ -94,63 +94,62 @@ function matchBuyAgainstBook(buy, sells) {
     }
 
     // Compute how much base the buy can afford at this price
-    const buyAffordableBase = buyRemainingQuote; //buyRemainingQuote.div(buyMaxPrice);
+    const buyAvailable = Decimal.min(sellRemaining,buyRemainingAmt); 
 
-    console.log(`matchBuyAgainstBook():: can buy: ${buyRemainingQuote}/${buyMaxPrice} = `,buyAffordableBase);
+    console.log(`matchBuyAgainstBook():: can buy: min(${sellRemaining},${buyRemainingAmt}) at price: ${buyMaxPrice} = `,buyAvailable);
     
     // Fill amount = min(sellRemainingBase, buyAffordableBase)
-    const fillBase = Decimal.min(sellRemainingBase, buyRemainingQuote);
+    const fillAmt  = Decimal.min(sellRemaining, buyRemainingAmt);
 
-    console.log(`matchBuyAgainstBook():: filledAmt is `,fillBase);
+    console.log(`matchBuyAgainstBook():: mborFillAmt is `,fillAmt);
 
     // If no fill possible, continue
-    if (fillBase.lte(0)) {
+    if (fillAmt.lte(0)) {
       updatedSells.push(sell);
       continue;
     }
 
     // Quote spent = base * price
-    const fillQuote = fillBase.mul(buyMaxPrice);
+    const fillPrice = buyMaxPrice;
     
-    console.log(`matchBuyAgainstBook():: filledQuote is `,fillQuote);    
+    console.log(`matchBuyAgainstBook():: filledAmt is `,fillAmt, `price:`,fillPrice);    
 
     // Update remaining amounts
-    buyRemainingQuote  = buyRemainingQuote.minus(fillQuote);
-    buyRemainingAmt    = buyRemainingAmt.minus(fillBase);
-    sellRemainingBase  = sellRemainingBase.minus(fillBase);
-    let totalSold      = sellOrigAmt.plus(sell.remainingBase);
-    buyFilledDate      = buy.origAmount.minus(fillBase).lte(0) ? new Date(Date.now()) : null;
+    buyRemainingAmt    = buyRemainingAmt.minus(fillAmt);
+    sellRemaining      = sellRemaining.minus(fillAmt);
+    let totalSold      = sellOrigAmt.minus(sellRemaining);
+    buyFilledDate      = buyRemainingAmt.lte(0) ? new Date(Date.now()) : null;
 
-    console.log(`buyRemainingQuote: ${buyRemainingQuote},sellRemainingBase: ${sellRemainingBase},totalSold: ${totalSold}, buyFilledDate: ${ buyFilledDate}`);  
+    console.log(`buyRemainingAmt: ${buyRemainingAmt},sellRemaining: ${sellRemaining},totalSold: ${totalSold}, buyFilledDate: ${ buyFilledDate}`);  
 
     // Record fill
     fills.push({
-      buyId    : buy.tranId,
-      sellId   : sell.tranId,
+      buyId    : buy.mborTranId,
+      sellId   : sell.msorTranId,
       price    : buyMaxPrice.toString(),   // execution price
-      baseAmt  : fillBase.toString(),
-      quoteAmt : fillQuote.toString(),
-      newBuyRemaining  : buyRemainingAmt,
-      newSellRemaining : sellRemainingBase,
-      buyFilledAmt     : fillBase,
-      buyFilled        : buy.origAmount.minus(fillBase).lte(0) ? new Date(Date.now()) : null  ,
-      sellFilledAmt    : totalSold,
+      baseAmt  : fillAmt.toString(),
+      quoteAmt : fillPrice.toString(),
+      newBuyRemaining  : buyRemainingAmt.toString(),
+      newSellRemaining : sellRemaining.toString(),
+      buyFilledAmt     : fillAmt.toString(),
+      buyFilled        : buyFilledDate,
+      sellFilledAmt    : totalSold.toString(),
       sellFilled       : totalSold.gte(sellOrigAmt) ? new Date(Date.now()) : null  
     });
 
     // Update sell object for return
     updatedSells.push({
       ...sell,
-      remainingBase : sellRemainingBase.toString(),
+      msorAllocated : sellRemaining.toString(),
       filledAmt     : totalSold.toString(),
-      filled        : totalSold.gte(sellOrigAmt) ? new Date(Date.now()) : null  
+      msorFilled    : totalSold.gte(sellOrigAmt) ? new Date(Date.now()) : null  
     });
   }
   // Updated buy object
   const updatedBuy = {
     ...buy,
-    remainingQuote : buyRemainingAmt.toString(),
-    filled         : buyFilledDate
+    mborFillAmt : buyRemainingAmt.toString(),
+    mborFilled  : buyFilledDate
   };
 
   return {
@@ -183,30 +182,24 @@ class BTraderOrganObj {
   async loadOrderBookFromSQL() {
 
     this.db.query(`
-      SELECT mborTranId as tranId,mborID AS id, mborUID AS userId, mborToken AS token,
-             mborMax AS maxPrice, mborAmt AS origAmount, mborFillAmt AS remainingQuote,
-             mborFilled AS filled
-      FROM tblmrkBuyOrder
+      SELECT mborID,mborTranId, mborUID, mborToken,mborMax, mborAmt, mborFillAmt, mborFilled FROM tblmrkBuyOrder
       WHERE mborFilled IS NULL AND mborTradeCanceled IS NULL
       ORDER BY mborID ASC
     `, (err, rows) => {
       if (err) return console.error("SQL load buys error:", err);
       this.buys = rows;
-      this.buys.forEach((buy) => {buy.tranId = binToUuid(buy.tranId);});
+      this.buys.forEach((buy) => {buy.mborTranId = binToUuid(buy.mborTranId);});
       console.log(`loadOrderBookFromSQL():: buy orders `,this.buys);
     });
 
     this.db.query(`
-      SELECT msorTranId as tranId,msorID AS id, msorUID AS userId, msorToken AS token,
-             msorMin AS minPrice, msorAmtGP AS origBase, msorAllocated as remainingBase,
-             msorFilled AS filled
-      FROM tblmrkSellOrder
+      SELECT msorID,msorTranId, msorUID, msorToken, msorMin, msorAmtGP, msorAllocated, msorFilled FROM tblmrkSellOrder
       WHERE msorFilled IS NULL AND msorTradeCanceled IS NULL
       ORDER BY msorID ASC
     `, (err, rows) => {
       if (err) return console.error("SQL load sells error:", err);
       this.sells = rows;
-      this.sells.forEach((sell) => {sell.tranId = binToUuid(sell.tranId);});
+      this.sells.forEach((sell) => {sell.msorTranId = binToUuid(sell.msorTranId);});
       console.log(`loadOrderBookFromSQL():: sell orders `,this.sells);
     });
    
@@ -307,15 +300,14 @@ class BTraderOrganObj {
   async doHandlePlaceBuy(j){
     const { userId, token, maxPrice, quoteAmt } = j.data;
     const order = {
-      id: this.buys.length + 1,
-      tranId         : crypto.randomUUID(), 
-      userId         : userId,
-      token          : token,
-      maxPrice       : new Decimal(maxPrice),
-      origAmount     : new Decimal(quoteAmt),
-      remainingQuote : new Decimal("0.000000000"),
-      filled         : null,
-      filledAmt      : "0.000000000"
+      mborID         : this.buys.length + 1,
+      mborTranId     : crypto.randomUUID(), 
+      mborUID        : userId,
+      mborToken      : token,
+      mborMax        : new Decimal(maxPrice),
+      mborAmt        : new Decimal(quoteAmt),
+      mborFillAmt    : new Decimal("0.000000000"),
+      mborFilled     : null,
     };
     let msg = {
       req      : 'handlePlaceBuy',
@@ -336,13 +328,13 @@ class BTraderOrganObj {
     }
   }
   async handlePlaceBuy(remIp, j) {
-    const order = j.order;
+    const o = j.order;
 
     // 1. Insert into SQL (with error handling)
     const sql = `
       INSERT INTO tblmrkBuyOrder (mborTranId,mborUID, mborToken, mborMax, mborAmt,mborDate,mborFillAmt) VALUES (?, ?, ?, ?, ?, ?, ?)`;
 
-    const params = [uuidToBin(order.tranId),order.userId, order.token,order.maxPrice, order.origAmount,toMySQLDate(Date.now()),order.filledAmt ];
+    const params = [uuidToBin(o.mborTranId),o.mborUID, o.mborToken,o.mborMax, o.mborAmt,toMySQLDate(Date.now()),o.mborFillAmt ];
     console.log(`handlePlaceBuy():: `,sql,params);
     let insertId = null;
 
@@ -371,10 +363,10 @@ class BTraderOrganObj {
     }
 
     // 2. SQL succeeded → update order ID
-    order.id = insertId;
+    o.msorID = insertId;
 
     // 3. Update in-memory order book
-    this.buys.push(order);
+    this.buys.push(o);
 
     // 4. Local initiator does not send reply
     if (remIp === 'localhost') {
@@ -386,7 +378,7 @@ class BTraderOrganObj {
       reqId: j.reqId,
       response: 'placeBuyOrderResult',
       result: 'OK',
-      jsonResData: { orderId: order.id }
+      jsonResData: { orderId: o.msorTranId }
     };
 
     this.net.sendReply(remIp, reply);
@@ -400,14 +392,14 @@ class BTraderOrganObj {
     const { userId, token, minPrice, baseQty } = j.data;
 
     const order = {
-      id: this.sells.length + 1,
-      tranId    : crypto.randomUUID(),
-      userId    : userId,
-      token     : token,
-      minPrice  : minPrice,
-      totalBase : baseQty,
-      allocated : "0.000000000",
-      filled    : null
+      msorID        : this.sells.length + 1,
+      msorTranId    : crypto.randomUUID(),
+      msorUID       : userId,
+      msorToken     : token,
+      msorMin       : minPrice,
+      msorAmtGP     : baseQty,
+      msorAllocated : "0.000000000",
+      msorFilled    : null
     };
 
     let msg = {
@@ -426,12 +418,14 @@ class BTraderOrganObj {
     }
   }
   async handlePlaceSell(remIp, j) {
-    const order = j.order;
+    const o = j.order;
 
     // 1. Insert into SQL (with error handling)
     const sql = `INSERT INTO tblmrkSellOrder (msorTranId,msorUID, msorToken, msorMin, msorAmtGP,msorAllocated,msorDate) VALUES (?, ?, ?, ?, ?, ?, ?)`;
 
-    const params = [uuidToBin(order.tranId),order.userId,order.token, order.minPrice,order.totalBase,order.allocated,toMySQLDate(Date.now())];
+    const params = [uuidToBin(o.msorTranId),o.msorUID,o.msorToken, o.msorMin,o.msorAmtGP,o.msorAllocated,toMySQLDate(Date.now())];
+
+    console.log(`handlePlaceSell():: `,sql,params);
 
     let insertId = null;
 
@@ -460,10 +454,10 @@ class BTraderOrganObj {
     }
 
     // 2. SQL succeeded → update order ID
-    order.id = insertId;
+    o.msorID = insertId;
 
     // 3. Update in-memory order book
-    this.sells.push(order);
+    this.sells.push(o);
 
     // 4. Local initiator does not send reply
     if (remIp === 'localhost') {
@@ -475,7 +469,7 @@ class BTraderOrganObj {
       reqId: j.reqId,
       response: 'placeSellOrderResult',
       result: 'OK',
-      jsonResData: { orderId: order.id }
+      jsonResData: { orderId: o.msorID }
     };
 
     this.net.sendReply(remIp, reply);
@@ -622,14 +616,14 @@ class BTraderOrganObj {
 
               // BUY update
               await new Promise((res, rej) => {
-                conn.query(`UPDATE tblmrkBuyOrder SET mborAmt = ?,mborFillAmt = ?, mborFilled = ? WHERE mborID = ?`,
-                [f.newBuyRemaining, f.buyFilledAmt,f.sellFilled, f.buyId ], (err) => err ? rej(err) : res());
+                conn.query(`UPDATE tblmrkBuyOrder SET mborFillAmt = mborAmt - ?, mborFilled = ? WHERE mborTranId = ?`,
+                [f.newBuyRemaining, f.buyFilled, uuidToBin(f.buyId) ], (err) => err ? rej(err) : res());
               });
 
               // SELL update
               await new Promise((res, rej) => {
-                conn.query(`UPDATE tblmrkSellOrder SET msorAmtGP = ?, msorFilled = ?, msorAllocated = ? WHERE msorID = ?`,
-                [f.newSellRemaining,f.sellFilled,f.sellFilledAmt, f.sellId], (err) => err ? rej(err) : res());
+                conn.query(`UPDATE tblmrkSellOrder SET msorFilled = ?, msorAllocated = msorAmtGP - ? WHERE msorTranId = ?`,
+                [f.sellFilled, f.newSellRemaining, uuidToBin(f.sellId) ], (err) => err ? rej(err) : res());
               });
 
               // Fill log insert
