@@ -124,11 +124,11 @@ function matchBuyAgainstBook(buy, sells) {
 
     // Record fill
     fills.push({
-      buyId    : buy.mborTranId,
-      sellId   : sell.msorTranId,
-      price    : buyMaxPrice.toString(),   // execution price
-      baseAmt  : fillAmt.toString(),
-      quoteAmt : fillPrice.toString(),
+      buyId            : buy.mborTranId,
+      sellId           : sell.msorTranId,
+      price            : buyMaxPrice.toString(),  
+      baseAmt          : fillAmt.toString(),
+      quoteAmt         : fillPrice.toString(),
       newBuyRemaining  : buyRemainingAmt.toString(),
       newSellRemaining : sellRemaining.toString(),
       buyFilledAmt     : fillAmt.toString(),
@@ -479,21 +479,6 @@ class BTraderOrganObj {
   // ---------------------------------------------------------
   // MATCHING TRIGGER
   // ---------------------------------------------------------
-  async doHandleMatchNow(j) {
-    let msg = {
-      req      : 'handleMatchNow',
-      response : 'handleMatchNowResult',
-    }
-    let doTry = await this.bcastMgr.getReplies(msg);
-    if (doTry.result === 'OK' || doTry === 'NOBODY') {
-      this.handleMatchNow('localhost',msg)
-      return true;
-    }
-    else {
-      // broadcast backout transaction... doTry.reqId;
-      return false;
-    }
-  }
   async matchNow() {
     console.log(`matchNow():: Begin `);
     // Prevent matching during rejoin
@@ -537,7 +522,7 @@ class BTraderOrganObj {
 
     const doTry = await this.net.bcastMgr.getReplies(msg);
 
-    if (doTry.result === 'OK' || doTry === 'NOBODY') {
+    if (doTry.result === 'OK' || doTry.result === 'NOBODY') {
       // Apply locally (initiator)
       this.applyMatchResultsLocal(result);
       return true;
@@ -659,22 +644,35 @@ class BTraderOrganObj {
 
     for (const f of fills) {
 
-      // Update BUY in memory
-      const buy = this.buys.find(b => b.id === f.buyId);
-      if (buy) {
-        buy.remainingQuote = f.newBuyRemaining;
-        buy.filled = f.buyFilled;
+      const buyIndex = this.buys.findIndex(b => b.mborTranId === f.buyId);
+      if (buyIndex !== -1) {
+        const buy = this.buys[buyIndex];
+
+        buy.mborFillAmt = f.buyFilledAmt;
+        buy.mborFilled  = f.buyFilled;
+
+        // REMOVE BUY IF FILLED
+        if (buy.mborFilled !== null) {
+          this.buys.splice(buyIndex, 1);
+        }
       }
 
-      // Update SELL in memory
-      const sell = this.sells.find(s => s.id === f.sellId);
-      if (sell) {
-        sell.remainingBase = f.newSellRemaining;
-        sell.filled = f.sellFilled;
+      const sellIndex = this.sells.findIndex(s => s.msorTranId === f.sellId);
+      if (sellIndex !== -1) {
+        const sell = this.sells[sellIndex];
+
+        sell.msorAllocated = f.sellFilledAmt;
+        sell.msorFilled    = f.sellFilled;
+
+        // REMOVE SELL IF FILLED
+        if (sell.msorFilled !== null) {
+          this.sells.splice(sellIndex, 1);
+        }
       }
     }
-  }
 
+    console.log(`applyMatchResultsLocal() updated order book`, this.buys, this.sells);
+  }
 }
 
 // ---------------------------------------------------------
