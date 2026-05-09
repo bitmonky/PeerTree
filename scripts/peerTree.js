@@ -372,7 +372,7 @@ class PtreeGenRequestHandler {
 
       // -------------------------
       // SEND THE REQUEST
-      // -------------------------
+      //-------------------------
       if(this.isCoreNET) {
         this.net.sendMsgCX(ip, req);
       } else {
@@ -386,8 +386,16 @@ class PtreeMultiReplyHandler {
     this.net = net;
   }
 
-  multiReply(req, maxGroups = 1, timeout = 5000) {
+  getReplies(req, maxGroups = 1, timeout = 5000) {
     return new Promise((resolve) => {
+
+
+      let net = this.net.rnet;
+      if (net.status === 'root' && net.r.lnode === 1){
+        console.log(`getReplies():: NOBODY `,req);
+        resolve ({result : "NOBODY"});
+        return;
+      }
 
       // Assign reqId if missing
       const reqId = req.reqId || crypto.randomUUID();
@@ -406,7 +414,8 @@ class PtreeMultiReplyHandler {
       // DELIVERY CONFIRMATION (xhrPostOK)
       // -----------------------------------------
       this.net.on('xhrPostOK', sendOKListener = (j) => {
-        if (j.reqId === reqId) {
+        console.log(`getReplies():: heard `,j);
+        if (j.msg.reqId === reqId) {
 
           this.net.removeListener('xhrPostOK', sendOKListener);
 
@@ -424,7 +433,8 @@ class PtreeMultiReplyHandler {
       // FAILURE PATH
       // -----------------------------------------
       this.net.on('xhrFail', failListener = (j) => {
-        if (j.req === action && j.reqId === reqId) {
+        console.log(`getReplies():: heard `,j);
+        if (j.msg.req === action && j.msg.reqId === reqId) {
 
           clearTimeout(timer);
 
@@ -479,10 +489,12 @@ class PtreeMultiReplyHandler {
       // -----------------------------------------
       // SEND BROADCAST REQUEST
       // -----------------------------------------
+      console.error('getReplies():: SEND BROADCAST REQUEST',req);
       this.net.broadcast(req);
     });
   }
 }
+
 // NodeHealthTracker.js
 
 class NodeHealthMgr {
@@ -1084,16 +1096,16 @@ class MkyRouting {
 
      // Run Self Diagnostics
      if ( this.status === 'online' || this.status === 'root'){
-       console.error(`Running Self Diagnostics::`);
+       //console.error(`Running Self Diagnostics::`);
        for (const msg of this.diagnoseRoutingTable()) {
-         console.error(msg);
+         //console.error(msg);
        }
      }
  
      if (this.status == 'root') {
        //console.error('MkyRouting.verifyRoot():: BorgUsage::',this.net.uStats);
        const rmap = await this.findWhoIsRoot();
-       console.error(`verifyRoot():: this.net.PTnodes: `);
+       //console.error(`verifyRoot():: this.net.PTnodes: `);
        this.net.PTnodes.forEach((node)=>{console.error(node.ip);});
        if (rmap.size){
          const rInfo = await this.getMaxRoot();
@@ -1157,7 +1169,7 @@ class MkyRouting {
        if (this.rootMap.size === 0) {
          //console.error('MkyRouting.findWhoIsRoot():: RootMap::',this.rootMap);
        }
-       console.error(`MkyRouting.findWhoIsRoot():: QryTime ${Date.now() - startQry} RootMap::`,this.rootMap);
+       //console.error(`MkyRouting.findWhoIsRoot():: QryTime ${Date.now() - startQry} RootMap::`,this.rootMap);
        
        resolve(this.rootMap); 
      });
@@ -4961,13 +4973,14 @@ class MkyMsgQMgr {
 class PeerTreeNet extends  EventEmitter {
    constructor (options,network=null,port=1336,wmon=1339,maxPeers=2,portals=[]){
       super(); 
-      this.reqReplyObj  = new PtreeGenRequestHandler(this);
-      this.reqReply     = new PtreeGenRequestHandler(this,false);
-      this.borgIOSkey='default';
-      this.nodeType  = 'router';
-      this.pulseRate = defPulse;	   
-      this.minPulse  = 350;    // fastest allowed heartbeat (ms)
-      this.maxPulse  = 5000;   // slowest allowed heartbeat (ms)
+      this.reqReplyObj = new PtreeGenRequestHandler(this);
+      this.reqReply    = new PtreeGenRequestHandler(this,false);
+      this.bcastMgr    = new PtreeMultiReplyHandler(this);
+      this.borgIOSkey  = 'default';
+      this.nodeType    = 'router';
+      this.pulseRate   = defPulse;	   
+      this.minPulse    = 350;    // fastest allowed heartbeat (ms)
+      this.maxPulse    = 5000;   // slowest allowed heartbeat (ms)
 
       this.maxPeers = maxPeers;
       this.rootIp   = null;
@@ -5274,6 +5287,49 @@ class PeerTreeNet extends  EventEmitter {
          res.setHeader('Content-Type', 'application/json');
          res.statusCode = 501;
          res.end('{"netPOST":"FAIL","type":"NotSet","Error":"simulation timeout"}');
+       }
+       else if (req.url.indexOf('/binShard') === 0) {
+         if (req.method === 'POST') {
+
+           const urlObj = new URL(req.url, `http://${req.headers.host}`);
+           const streamId = urlObj.searchParams.get('streamId');
+           const index    = parseInt(urlObj.searchParams.get('index'));
+
+           // Reject unknown streams
+           if (!this.isStreaming.has(streamId)) {
+             res.statusCode = 404;
+             return res.end('{"error":"unknown stream"}');
+           }
+
+           const hash = crypto.createHash('sha256');
+           const chunks = [];
+
+           req.on('data', chunk => {
+             chunks.push(chunk);
+             hash.update(chunk);
+           });
+
+           req.on('end', () => {
+             const shard = Buffer.concat(chunks);
+             const shardId = hash.digest('hex');
+
+             this.emit('binShard', {
+               streamId,
+               index,
+               shardId,
+               shard
+             });
+
+             res.statusCode = 200;
+             res.setHeader('Content-Type', 'application/json');
+             res.end('{"OK":true}');
+           });
+
+           req.on('error', err => {
+             res.statusCode = 500;
+             res.end('{"error":"stream error"}');
+           });
+         }
        }
        else if (req.url.indexOf('/netREQ') == 0){
            if (req.method == 'POST') {
