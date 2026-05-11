@@ -20,13 +20,8 @@ const borg = {
 };
 
 // Create PeerTree network instance
-const mkyNet = new PeerTreeNet(
-  options,
-  borg.netName,
-  borg.netPort,
-  borg.monPort,
-  borg.maxChildren
-);
+const mkyNet = new PeerTreeNet(options,borg.netName,borg.netPort,borg.monPort,borg.maxChildren);
+mkyNet.nodeType = borg.netName;
 
 async function main() {
   // Start PeerTree networking

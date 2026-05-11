@@ -126,7 +126,7 @@ function matchBuyAgainstBook(buy, sells) {
     fills.push({
       buyId            : buy.mborTranId,
       sellId           : sell.msorTranId,
-      price            : buyMaxPrice.toString(),  
+      price            : sellMinPrice.toString(),  
       baseAmt          : fillAmt.toString(),
       quoteAmt         : fillPrice.toString(),
       newBuyRemaining  : buyRemainingAmt.toString(),
@@ -167,11 +167,12 @@ class BTraderOrganObj {
     this.isRoot    = null;
     this.status    = 'starting';
     this.net       = peerTree;
+
     this.receptor  = null;
     this.db        = db.getConnection();
     this.ordBookStatus = 'startup';
     this.ordBookStart();
-
+    this.testSendFile();
     // GET ORDER BOOK
     this.loadOrderBookFromSQL();
   }
@@ -206,7 +207,7 @@ class BTraderOrganObj {
   }
   async ordBookStart(){
     console.log(`BTraderOrganObj.ordBookStart():: starting`);
-    if (this.net.rnet.r.lnode === 1){
+    if (this.net.rnet.r.lnode === 1 || 1==1){
       this.ordBookStatus = 'ready';
       return;
     }
@@ -259,12 +260,54 @@ class BTraderOrganObj {
       case 'getOrderBookSnapshot':
         return this.getOrderBookSnapshot(remIp, j);
 
+      case 'getFile':
+        return this.getFile(j);
+
+      case 'getFileFinal':
+        return this.getFileFinal(j);
+
       default:
         return false;
     }
   }
+  async testSendFile(){
+    console.log(`testSendFile():: start`);
+    if (this.net.rnet.myIp !== '23.92.26.62'){
+      return;
+    } 
+    console.log(`attaching DStreamMgr`);
+    this.net.DStream.attachCell(this);
+    const msg = {
+      req      : 'getFile',
+      response : 'getFileResult',
+      filename : '/mkyDoge/dogecoin-1.14.5-x86_64-linux-gnu.tar.gz'
+   } 
+   
+   let doSend = await this.net.DStream.sendMsg(msg,'172.105.106.134');
+   console.log(`File : ${msg.filename} sent`,doSend);
+   if (doSend.result === 'STREAM_META_ACK'){
+      console.log(`File : ${msg.filename} sent`);
+      return; 
+   }
+   console.log(`File : ${msg.filename} send FAILED`,doSend);
+  }
+  getFile(j){
+    this.net.DStream.doOpenStream(j);
+    return true;
+  }
+  getFileFinal(j){
+    const reply = {
+      response : 'getFileResult',
+      reqId    : j.reqId,
+      result   : 'OK',
+      status   : 'STREAM_OK'
+    }
+    this.net.sendReply(j.remIp, reply);
+    return true;    
+  }  
 
   async requestSnapshotFromPeer() {
+    return;
     const msg = {
       req      : 'getOrderBookSnapshot',
       response : 'getOrderBookSnapshotResult'
@@ -626,6 +669,11 @@ class BTraderOrganObj {
                   SET b.mborFillPrice = x.actualPricePaid`;
                   conn.query(SQL,[uuidToBin(f.buyId)], (err) => err ? rej(err) : res());
                   console.log(SQL,f.buyId,uuidToBin(f.buyId));
+                });
+
+                await new Promise((res, rej) => {
+                  conn.query(`UPDATE tblmrkFillsLog set mflgComplete = ? where mflgBTranId = ? `,
+                  [f.buyFilled,uuidToBin(f.buyId)], (err) => err ? rej(err) : res());
                 });
               }
 
