@@ -1,4 +1,4 @@
- tblmrkBuyOrder | CREATE TABLE `tblmrkBuyOrder` (
+ CREATE TABLE `tblmrkBuyOrder` (
   `mborID` bigint(20) NOT NULL AUTO_INCREMENT,
   `mborTranId` binary(16) DEFAULT NULL,
   `mborUID` bigint(20) DEFAULT NULL,
@@ -27,9 +27,9 @@
   KEY `ndxMborCurrency` (`mborCurrency`),
   KEY `ndxMborToken` (`mborToken`),
   KEY `idx_mborTranId` (`mborTranId`)
-) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
- tblmrkSellOrder | CREATE TABLE `tblmrkSellOrder` (
+CREATE TABLE `tblmrkSellOrder` (
   `msorID` bigint(20) NOT NULL AUTO_INCREMENT,
   `msorTranId` binary(16) DEFAULT NULL,
   `msorUID` bigint(20) DEFAULT NULL,
@@ -64,9 +64,9 @@
   KEY `ndxMsorCurrency` (`msorCurrency`),
   KEY `ndxMsorToken` (`msorToken`),
   KEY `ndxMsorNSF` (`msorNSF`)
-) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
- tblmrkFillsLog | CREATE TABLE `tblmrkFillsLog` (
+ CREATE TABLE `tblmrkFillsLog` (
   `mflgID` bigint(20) NOT NULL AUTO_INCREMENT,
   `mflgTranId` binary(16) DEFAULT NULL,
   `mflgBTranId` binary(16) DEFAULT NULL,
@@ -97,4 +97,4 @@
   KEY `ndxMflgToken` (`mflgToken`),
   KEY `ndxMflgNSF` (`mflgNSF`),
   KEY `idx_mflgTranId` (`mflgTranId`)
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
