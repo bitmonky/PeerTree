@@ -11,6 +11,8 @@ const EC = require('elliptic').ec;
 const ec = new EC('secp256k1');
 const bitcoin = require('bitcoinjs-lib');
 
+const {DStreamMgrObj} = require('./DStreamMgrObj.js');
+
 //console.error('running::',process.title);
 // Create a writable stream to your desired file
 const errorLog = fs.createWriteStream(process.title+'NodeErrors.log', { flags: 'a' });
@@ -3643,10 +3645,26 @@ class MkyRouting {
    // Handler for incoming http request
    // ================================   
    async handleReq(remIp,j){
-     ////console.error(`MkyRouting.handleReq():: got req `,j);
+     //console.log(`MkyRouting.handleReq():: got req `,j);
      var dropTimer = null;
      this.net.resetErrorsCnt(j.remIp);
-     if (j.req == 'joinReq'){
+     if (j.req === 'TRANSFER_OK'){
+       console.log(j);
+       this.net.DStream.doCloseStream(j);
+       return true;
+     }
+     if (j.req === 'getFile'){
+       console.log(`Heard getFILE`,j);
+       this.net.DStream.doOpenStream(j);
+       return true;
+     }
+     if (j.req === 'sendShard'){
+       console.log(`sendShard:: `,j);
+       this.net.DStream.sendStreamShard(j.remIp, j.streamId, j.shardIdx,j.shardId);
+       console.log(`shard sent`);
+       return true;
+     }
+     if (j.req === 'joinReq'){
        console.error ('MkyRouting.handleReq():: Starting:qued',remIp,j);
        if (this.dropWatcher.has(j.nodeIp) || await this.rootSaysWhoHasNodeIp(j.nodeIp) !== null){
          console.error(`handleReq():: req:joinReq Rejecting: `,j.nodeIp);
@@ -4976,6 +4994,8 @@ class PeerTreeNet extends  EventEmitter {
       this.reqReplyObj = new PtreeGenRequestHandler(this);
       this.reqReply    = new PtreeGenRequestHandler(this,false);
       this.bcastMgr    = new PtreeMultiReplyHandler(this);
+      this.DStream     = new DStreamMgrObj(this);
+
       this.borgIOSkey  = 'default';
       this.nodeType    = 'router';
       this.pulseRate   = defPulse;	   
@@ -4998,6 +5018,9 @@ class PeerTreeNet extends  EventEmitter {
       this.lastActive   = null;
       this.portals      = portals;
       this.loginsFile   = `keys/borg-${network}-ReceptorLog.json`;
+      this.tmpDir       = `DStream/${network}/`;
+      fs.mkdirSync(this.tmpDir, { recursive: true });
+
       this.logins       = this.loadLoginsFromFile();
       this.uStats = {
          requests : 0,
@@ -5005,6 +5028,7 @@ class PeerTreeNet extends  EventEmitter {
       }
    } 
    doHotStartInitialize(){
+      this.isStreaming = new Map;
       this.msgQue   = [];
       this.rQue     = [];
       this.msgMgr   = new MkyMsgQMgr();
@@ -5290,7 +5314,7 @@ class PeerTreeNet extends  EventEmitter {
        }
        else if (req.url.indexOf('/binShard') === 0) {
          if (req.method === 'POST') {
-
+           console.log(`bin/Shard heard: `,req.url);
            const urlObj = new URL(req.url, `http://${req.headers.host}`);
            const streamId = urlObj.searchParams.get('streamId');
            const index    = parseInt(urlObj.searchParams.get('index'));
@@ -5312,7 +5336,12 @@ class PeerTreeNet extends  EventEmitter {
            req.on('end', () => {
              const shard = Buffer.concat(chunks);
              const shardId = hash.digest('hex');
-
+             console.log('binShard', {
+               streamId,
+               index,
+               shardId,
+               shard
+             });
              this.emit('binShard', {
                streamId,
                index,
@@ -6270,6 +6299,71 @@ class PeerTreeNet extends  EventEmitter {
       this.sendPostRequest(toHost,msg,'/netREPLY');
       return;
   }
+  sendBinaryShardCX(toHost,shard){
+    const https = require('https');
+
+    shard.sentTime = Date.now();
+
+    let emitError = null;
+    console.log(shard);
+    const data = shard.shard;
+    const endPoint = `/binShard/?streamId=${shard.streamId}&index=${shard.shardIdx}&shardId=${shard.shardId}`;
+
+    const options = {
+       hostname : toHost,
+       port     : this.port,
+       path     : endPoint,
+       method: 'POST',
+       headers: {
+         'Connection': 'close',
+         'Content-Type': 'application/octet-stream',
+         'Content-Length': data.length
+       },
+       timeout: 3000
+     }
+
+     const req = https.request(options, res => {
+       shard.toHost = toHost;
+       if (res.statusCode !== 200) {
+         shard.toHost   = toHost;
+         shard.endpoint = options.path;
+         shard.xhrError = res.statusCode;
+         this.emit('xhrBinShardFailed',shard);
+       } else {
+         console.log('bin send good',shard);
+         this.emit('xhrBinShardOK',shard);
+         this.rnet.nodeHealthMgr.recordPostResult(shard.toHost, "success");
+       }
+
+     });
+     req.on("timeout", () => {
+       if (emitError === null){
+          emitError    = true;
+          msg.toHost   = toHost;
+          msg.endpoint = options.path;
+          msg.xhrError = 'xTime';
+          msg.errCount++;
+          this.emit('xhrBinFailed',shard);
+       }
+       req.destroy();
+     });
+
+     req.on('error', error => {
+        if (emitError !== null) return;
+
+        emitError       = true;
+        shard.toHost    = toHost;
+        shard.endpoint  = options.path;
+        shard.xhrError  = 'xError';
+        shard.xhrErCode = error.code;
+        if (error.code === 'ETIMEDOUT') {
+          shard.xhrError = 'xTime';
+        }
+        this.emit('xhrBinShardFailed',shard);
+     })
+     req.write(data);
+     req.end();
+  }
   sendPostRequest(toHost,msg,endPoint='/netREPLY'){
 
      //console.error(`sendPostRequest(toHost:${toHost}`,msg?.req,`endPoint='/netREPLY'`);
@@ -6655,11 +6749,11 @@ class PeerTreeNet extends  EventEmitter {
        }
      });
      this.on('peerTReq',async (remIp,j)=>{
-       ////console.error('PeerTreeNet.initHandlers():: peerTReq::::',j);
+       //console.error('PeerTreeNet.initHandlers():: peerTReq::::',j);
        var error = null;       
        if (!this.isValidSig(j)){
          error = '400';
-         //console.error('PeerTreeNet.initHandlers():: invalid signature message refused',j);
+         console.error('PeerTreeNet.initHandlers():: invalid signature message refused',j);
          this.endResCX(remIp,'{"response":"' + error +'"}');
          return;
        }
