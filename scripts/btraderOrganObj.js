@@ -168,6 +168,8 @@ class BTraderOrganObj {
     this.status    = 'starting';
     this.net       = peerTree;
 
+    this.net.DStream.attachCell(this);
+
     this.receptor  = null;
     this.db        = db.getConnection();
     this.ordBookStatus = 'startup';
@@ -284,7 +286,6 @@ class BTraderOrganObj {
    } 
    
    let doSend = await this.net.DStream.sendMsg(msg,'172.105.106.134');
-   console.log(`File : ${msg.filename} sent`,doSend);
    if (doSend.result === 'STREAM_META_ACK'){
       console.log(`File : ${msg.filename} sent`);
       return; 
@@ -292,20 +293,9 @@ class BTraderOrganObj {
    console.log(`File : ${msg.filename} send FAILED`,doSend);
   }
   getFile(j){
-    this.net.DStream.doOpenStream(j);
+    console.log(`btrader.getFile:: file retrieved thx:`,j);
     return true;
   }
-  getFileFinal(j){
-    const reply = {
-      response : 'getFileResult',
-      reqId    : j.reqId,
-      result   : 'OK',
-      status   : 'STREAM_OK'
-    }
-    this.net.sendReply(j.remIp, reply);
-    return true;    
-  }  
-
   async requestSnapshotFromPeer() {
     return;
     const msg = {

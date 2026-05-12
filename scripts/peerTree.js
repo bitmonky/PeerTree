@@ -3649,7 +3649,6 @@ class MkyRouting {
      var dropTimer = null;
      this.net.resetErrorsCnt(j.remIp);
      if (j.req === 'TRANSFER_OK'){
-       console.log(j);
        this.net.DStream.doCloseStream(j);
        return true;
      }
@@ -3659,9 +3658,7 @@ class MkyRouting {
        return true;
      }
      if (j.req === 'sendShard'){
-       console.log(`sendShard:: `,j);
        this.net.DStream.sendStreamShard(j.remIp, j.streamId, j.shardIdx,j.shardId);
-       console.log(`shard sent`);
        return true;
      }
      if (j.req === 'joinReq'){
@@ -5314,7 +5311,6 @@ class PeerTreeNet extends  EventEmitter {
        }
        else if (req.url.indexOf('/binShard') === 0) {
          if (req.method === 'POST') {
-           console.log(`bin/Shard heard: `,req.url);
            const urlObj = new URL(req.url, `http://${req.headers.host}`);
            const streamId = urlObj.searchParams.get('streamId');
            const index    = parseInt(urlObj.searchParams.get('index'));
@@ -5336,12 +5332,7 @@ class PeerTreeNet extends  EventEmitter {
            req.on('end', () => {
              const shard = Buffer.concat(chunks);
              const shardId = hash.digest('hex');
-             console.log('binShard', {
-               streamId,
-               index,
-               shardId,
-               shard
-             });
+             console.log(index, shardId);
              this.emit('binShard', {
                streamId,
                index,
@@ -6305,7 +6296,6 @@ class PeerTreeNet extends  EventEmitter {
     shard.sentTime = Date.now();
 
     let emitError = null;
-    console.log(shard);
     const data = shard.shard;
     const endPoint = `/binShard/?streamId=${shard.streamId}&index=${shard.shardIdx}&shardId=${shard.shardId}`;
 
@@ -6330,7 +6320,7 @@ class PeerTreeNet extends  EventEmitter {
          shard.xhrError = res.statusCode;
          this.emit('xhrBinShardFailed',shard);
        } else {
-         console.log('bin send good',shard);
+         console.log('bin send good',shard.shardIdx,shard.shardId);
          this.emit('xhrBinShardOK',shard);
          this.rnet.nodeHealthMgr.recordPostResult(shard.toHost, "success");
        }
