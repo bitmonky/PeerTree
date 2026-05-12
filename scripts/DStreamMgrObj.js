@@ -31,30 +31,11 @@ class DStreamMgrObj {
 
     return file;
   }
-  validateShard(shard, index, shardSize, fileSize, expectedHash) {
-    const offset = index * shardSize;
-
-    // 1. Size validation
-    const isFinal = (offset + shardSize) >= fileSize;
-
-    if (!isFinal && shard.length !== shardSize) {
-        return { ok: false, reason: "BAD_SIZE" };
-    }
-
-    // 2. Hash validation
-    const hash = sha256(shard);
-    if (hash !== expectedHash) {
-        return { ok: false, reason: "BAD_HASH" };
-    }
-
-    return { ok: true };
-  }
   sha256(buf) {
     return crypto.createHash('sha256').update(buf).digest('hex');
   }
 
   async writeShardToFile(stream,shard) {
-    console.log(`writeShardToFile():: `,shard);
     const filePath  = stream.tempFilePath;
     const shardSize = stream.shardSize;
     const fileSize  = stream.totalSize;
@@ -65,18 +46,7 @@ class DStreamMgrObj {
     const remaining = fileSize - offset;
     const isFinal   = (index === stream.count - 1)
 
-    console.log(`filePath`, filePath );
-    console.log(`shardSize`, shardSize);
-    console.log(`fileSize `, fileSize );
-    console.log(`index`, index    );
-    console.log(`offset`, offset   );
-    console.log(`expectedShardId`, expectedShardId);
-
-    console.log(`remaining`, remaining);
-    console.log(`isFinal`, isFinal  );
-    // -----------------------------
     // 1. Size validation
-    // -----------------------------
     if (!isFinal) {
       // Non-final shard must match shardSize exactly
       if (shard.shard.length !== shardSize) {
@@ -88,17 +58,13 @@ class DStreamMgrObj {
         return { ok: false, reason: "BAD_SIZE_FINAL", index };
       }
     }
-    // -----------------------------
     // 2. Validate shard hash
-    // -----------------------------
     const actualHash = this.sha256(shard.shard);
     if (actualHash !== expectedShardId) {
       return { ok: false, reason: "BAD_HASH", index };
     }
 
-    // -----------------------------
     // 3. Random-access write
-    // -----------------------------
     const fh = await fs.promises.open(filePath, 'r+');
     try {
       await fh.write(shard.shard, 0, shard.length, offset);
@@ -107,26 +73,6 @@ class DStreamMgrObj {
     }
 
     return { ok: true, index };
-  }
-
-   makeTempFilePath(streamId) {
-    const dir = this.net.tmpDir || process.cwd();
-    if (!dir.endsWith("/")) dir += "/";
-
-    const file = `${dir}stream_${streamId}.bin`;
-
-    // Remove any previous failed-attempt file
-    try {
-      if (fs.existsSync(file)) {
-        fs.unlinkSync(file);
-      }
-    } catch (err) {
-      console.error("Failed to remove old temp file:", err);
-    }
-    return file;
-  }
-  appendShardToFile(filePath, shard) {
-    return fs.promises.appendFile(filePath, shard);
   }
   // ---------------------------------------------------------
   // Create a stream descriptor for outgoing messages
@@ -346,19 +292,6 @@ class DStreamMgrObj {
       fstream.on("error", reject);
     });
   } 
-  beginStreaming(streamId) {
-    const stream = this.net.isStreaming.get(streamId);
-    stream.shards.forEach((shard,index) => {
-      const request = {
-        req      : sendShard,
-        streamId : streamId,
-        shardId  : shard,
-        shardIdx : index,
-      }
-      this.net.sendMsgCX(stream.remIp,msg);
-      this.gatherShards(stream);
-    }); 
-  }
   gatherShards(stream) {
     const handler = async (data) => {
       // Only handle shards for this stream
@@ -381,40 +314,6 @@ class DStreamMgrObj {
     // Store handler so we can remove it later in closeIncomingStream()
     stream._shardHandler = handler;
   }
-/*
-  gatherShards(stream) {
-    const handler = async (data) => {
-      if (data.streamId !== stream.streamId){
-        return;
-      }
-      // verify hash
-      const expected = stream.shardHashes[data.index];
-      if (data.shardId !== expected) {
-        console.error("Shard hash mismatch");
-        return;
-      }
-
-      // write shard to file
-      await this.appendShardToFile(stream.tempFilePath, data.shard);
-
-      // update progress
-      stream.pendingShards.delete(data.index);
-      stream.shardsReceived++;
-
-      // check completion
-      if (stream.pendingShards.size === 0) {
-        this.net.removeListener('binShard', handler);
-        this.closeIncomingStream(stream);
-        return;
-      }
-
-      // request next shard (serialized or batched)
-      this.requestNextShard(stream.streamId);
-    };
-
-    this.net.on('binShard', handler);
-  }
-*/
   closeIncomingStream(stream) {
     // Remove shard event listener
     if (stream._shardHandler) {
@@ -453,37 +352,6 @@ class DStreamMgrObj {
     }
     this.cell.handleReq(buildLocalReq.remIp, buildLocalReq);
   }
-/*
-  closeIncomingStream(stream) {
-    stream.completed = true;
-    stream.status = "completed";
-
-    // Tell sender we are done
-    this.net.sendMsg(stream.remIp, {
-      req      : "TRANSFER_OK",
-      streamId : stream.streamId
-    });
-
-    this.net.isStreaming.delete(stream.streamId);
-
-    // Build local request for app layer
-    const buildLocalReq = {
-      req      : stream.request,
-      reqId    : stream.reqId,
-      remIp    : stream.remIp,
-      response : stream.response,
-      file     : stream.tempFilePath
-    };
-
-    // Deliver file to application handler
-    // Send File and Initial request to the req action handler
-    if (this.cell === null) {
-      console.error('closeInCommingStream():: cell is NOT attached can not call stream handler!');
-      return;
-    }
-    this.cell.handleReq(buildLocalReq.remIp, buildLocalReq);
-  }
-*/
   async doOpenStream(j) {
     console.log('fig',j);
     const fmap = {
@@ -508,7 +376,7 @@ class DStreamMgrObj {
       shardsReceived : 0,
       pendingShards  : new Set([...Array(j.stream.count).keys()]),
       inFlight: new Set(),     // shardIdx values currently requested but not yet received
-      windowSize     : 8 ,     // or 8, or dynamic later
+      windowSize     : 111 ,     // or 8, or dynamic later
       inProgress     : true,
 
       // Diagnostics
@@ -536,26 +404,6 @@ class DStreamMgrObj {
 
     // Kick off the first batch of shard requests
     this.requestShardBatch(fmap.streamId);
-    //this.requestNextShard(fmap.streamId);
-  }
-  requestNextShard(streamId) {
-    const stream = this.net.isStreaming.get(streamId);
-    if (!stream) return;
-
-    if (stream.pendingShards.size === 0) {
-      return this.closeIncomingStream(stream);
-    }
-
-    const shardIdx = stream.pendingShards.values().next().value;
-
-    const msg = {
-      req       : "sendShard",
-      streamId  : streamId,
-      shardIdx  : shardIdx,
-      shardId   : stream.shardHashes[shardIdx],
-      shardSize : stream.shardSize
-    };
-    this.net.sendMsgCX(stream.remIp, msg);
   }
   requestShardBatch(streamId) {
     const stream = this.net.isStreaming.get(streamId);
@@ -563,7 +411,7 @@ class DStreamMgrObj {
 
     // If nothing left, close stream
     if (stream.pendingShards.size === 0 && stream.inFlight.size === 0) {
-      return this.closeIncomingStream(stream);
+      return;
     }
 
     // Fill the window
@@ -590,16 +438,12 @@ class DStreamMgrObj {
   }
   async onShardReceived(j) {
     const { streamId, shard } = j;
-    console.log(`streamId ${streamId} shard:`,shard);
     const stream = this.net.isStreaming.get(streamId);
     if (!stream) return;
 
-    console.log(`onShardReceived():: `,shard,j);
     const idx = shard.shardIdx;
 
-    // -----------------------------------
     // 0. Ensure this shard was expected
-    // -----------------------------------
     if (!stream.inFlight.has(idx)) {
       // Unexpected shard — ignore or log
       console.warn(`Shard ${idx} for stream ${streamId} not in flight`);
@@ -609,18 +453,8 @@ class DStreamMgrObj {
     // Remove from inFlight
     stream.inFlight.delete(idx);
 
-    // -----------------------------------
     // 1. Validate + write shard
-    // -----------------------------------
     const result = await this.writeShardToFile(stream,shard);
-    /*{
-      filePath: stream.tempFilePath,
-      shardObj: shard,
-      shardSize: stream.shardSize,
-      fileSize: stream.totalSize,
-      shardCount: stream.count
-    });
-*/
     if (!result.ok) {
       console.warn(
         `Shard ${idx} rejected for stream ${streamId}: ${result.reason}`
@@ -634,25 +468,20 @@ class DStreamMgrObj {
       return;
     }
 
-    // -----------------------------------
     // 2. Mark shard as completed
-    // -----------------------------------
     stream.shardsReceived++;
 
-    // -----------------------------------
     // 3. If all shards done, close stream
-    // -----------------------------------
     if (
       stream.shardsReceived === stream.count &&
       stream.inFlight.size === 0 &&
       stream.pendingShards.size === 0
     ) {
+      console.log(`onShardReceived():: closeIncomingStream`);
       return this.closeIncomingStream(stream);
     }
 
-    // -----------------------------------
     // 4. Otherwise request more shards
-    // -----------------------------------
     this.requestShardBatch(streamId);
   }
 };
