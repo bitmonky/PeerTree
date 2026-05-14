@@ -107,7 +107,6 @@ class DStreamMgrObj {
       // Diagnostics
       sentAt      : Date.now()
     };
-    console.log(`createStreamMsg():: `,fmap);
     this.streams.set(streamId, fmap);
 
     return {
@@ -126,16 +125,16 @@ class DStreamMgrObj {
   // ---------------------------------------------------------
   sendMsg(msg, toIp) {
     return new Promise(async (resolve) => {
-      const reqId = msg.reqId = crypto.randomUUID();
-    
+      const reqId = crypto.randomUUID();
+      msg.reqId = reqId;
+
       // Create stream descriptor
       const stream = await this.createStreamMsg(msg, toIp);
       msg.stream = stream;
-
       let timer;
       let failListener, replyListener, sendOKListener;
 
-      console.log(`sendMsg():: `,msg,toIp);
+      //console.log(`sendMsg():: `,msg,toIp);
       // DELIVERED PATH
       this.net.on('xhrPostOK', sendOKListener = (j) => {
         if (j.reqId === reqId) {
@@ -165,7 +164,6 @@ class DStreamMgrObj {
 
       // SUCCESS PATH
       this.net.on('peerTReply', replyListener = (j) => {
-        console.log(`heard `,j);
         if (j.response === msg.response && j.reqId === reqId) {
           clearTimeout(timer);
 
@@ -173,7 +171,6 @@ class DStreamMgrObj {
           this.net.removeListener('peerTReply', replyListener);
           this.net.removeListener('xhrPostOK', sendOKListener);
           if (j.result === 'STREAM_META_ACK'){
-            console.log(`DStreamMgrObj.sendMsg():: open remote stream setting status to`,j.status);
             this.setStatus(stream.streamId, j.status);
           }
           else {
@@ -183,7 +180,6 @@ class DStreamMgrObj {
           resolve(j);
         }
       });
-
       this.net.sendMsgCX(toIp, msg);
     });
   }
@@ -376,7 +372,7 @@ class DStreamMgrObj {
       shardsReceived : 0,
       pendingShards  : new Set([...Array(j.stream.count).keys()]),
       inFlight: new Set(),     // shardIdx values currently requested but not yet received
-      windowSize     : 111 ,     // or 8, or dynamic later
+      windowSize     : 35 ,     // or 8, or dynamic later
       inProgress     : true,
 
       // Diagnostics
