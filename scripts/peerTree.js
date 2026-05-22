@@ -235,7 +235,11 @@ function makeErr(code, msg) {
   e.code = code;
   return e;
 }
-
+class MsgObj {
+  constructor(obj) {
+    Object.assign(this, obj);
+  }
+}
 /*
  * ======================================================================================
  * PtreeGenRequestHandler
@@ -416,7 +420,7 @@ class PtreeMultiReplyHandler {
       // DELIVERY CONFIRMATION (xhrPostOK)
       // -----------------------------------------
       this.net.on('xhrPostOK', sendOKListener = (j) => {
-        console.log(`getReplies():: heard `,j);
+        //console.log(`getReplies():: heard `,j);
         if (j.msg.reqId === reqId) {
 
           this.net.removeListener('xhrPostOK', sendOKListener);
@@ -1108,7 +1112,7 @@ class MkyRouting {
        //console.error('MkyRouting.verifyRoot():: BorgUsage::',this.net.uStats);
        const rmap = await this.findWhoIsRoot();
        //console.error(`verifyRoot():: this.net.PTnodes: `);
-       this.net.PTnodes.forEach((node)=>{console.error(node.ip);});
+       //this.net.PTnodes.forEach((node)=>{console.error(node.ip);});
        if (rmap.size){
          const rInfo = await this.getMaxRoot();
          //console.error('MkyRouting.verifyRoot():: VERIFIED best root to follow is:',rInfo.bestIp,rInfo.treeSize);  
@@ -2286,18 +2290,18 @@ class MkyRouting {
     let bestTree = 0;
 
     for (const [ip, data] of this.rootMap.entries()) {
-      console.error(`getMaxRoot():: ip ${ip}  count: ${data.count}`);
+      //console.error(`getMaxRoot():: ip ${ip}  count: ${data.count}`);
 
       let treeSize = null;
       data.manifest.forEach((report,index)=>{
-        console.error('report:',index,report.reportBy,report.nodeType,report.jroot.rtab.lnode,report.pCount);
+        //console.error('report:',index,report.reportBy,report.nodeType,report.jroot.rtab.lnode,report.pCount);
         if (report.reportBy === ip){
           treeSize = report.pCount;
         }
       });
       if (treeSize === null) {
         treeSize = await this.askRootForTreeSize(ip); 
-        console.error(`getMaxRoot():: treeSize = `,treeSize);
+        //console.error(`getMaxRoot():: treeSize = `,treeSize);
       } 
       
       if (bestTree < treeSize){
@@ -2305,7 +2309,7 @@ class MkyRouting {
         bestIp   = ip;
       } 
     }
-    console.error(`getMaxRoot():: bestTree ${bestIp} size: ${bestTree}`);
+    //console.error(`getMaxRoot():: bestTree ${bestIp} size: ${bestTree}`);
     if (bestIp === null){
       return null;
     } 

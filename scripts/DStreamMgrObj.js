@@ -5,7 +5,8 @@ class DStreamMgrObj {
   constructor(net) {
     this.net = net;
     this.cell = null;
-    this.streams = new Map(); // streamId → streamMeta / conversation
+    this.streams  = new Map();   // streamId → streamMeta / conversation
+    this.memFiles = new Map();   // streamId → Buffer ( in memory file system);
   }
   attachCell(cell){
    this.cell = cell;
@@ -31,12 +32,26 @@ class DStreamMgrObj {
 
     return file;
   }
+  prepareBlobMemFile(streamId, fileSize) {
+
+    // Remove any stale buffer
+    if (this.memFiles.has(streamId)) {
+      this.memFiles.delete(streamId);
+    }
+
+    // Allocate full-size buffer in RAM
+    const buffer = Buffer.alloc(fileSize);
+
+    // Store it in the memFile map
+    this.memFiles.set(streamId, buffer);
+
+    return buffer;
+  }
   sha256(buf) {
     return crypto.createHash('sha256').update(buf).digest('hex');
   }
 
   async writeShardToFile(stream,shard) {
-    const filePath  = stream.tempFilePath;
     const shardSize = stream.shardSize;
     const fileSize  = stream.totalSize;
     const index     = shard.shardIdx;
@@ -65,11 +80,16 @@ class DStreamMgrObj {
     }
 
     // 3. Random-access write
-    const fh = await fs.promises.open(filePath, 'r+');
-    try {
-      await fh.write(shard.shard, 0, shard.length, offset);
-    } finally {
-      await fh.close();
+    if (stream.type === 'memFile' || stream.type === 'dsBuffer') {
+      shard.shard.copy(stream.buffer, offset);
+    }
+    else {
+      const fh = await fs.promises.open(stream.tempFilePath, 'r+');
+      try {
+        await fh.write(shard.shard, 0, shard.shard.length, offset);
+      } finally {
+        await fh.close();
+      }
     }
 
     return { ok: true, index };
@@ -77,11 +97,28 @@ class DStreamMgrObj {
   // ---------------------------------------------------------
   // Create a stream descriptor for outgoing messages
   // ---------------------------------------------------------
-  async createStreamMsg(msg, toIp) {
+  async createStreamMsg(msg, toIp,type,winSize,blob=null) {
     const filename = msg.filename;
-    const streamId = await this.getHash(filename);
+    let streamId;
+    let shards;
+    console.log(type,blob);
+    // CASE 1: File-based stream (deterministic)
+    if (type === 'file') {
+      streamId = await this.getHash(msg.filename);
+      shards   = await this.getShardMap(msg.filename);
+    }
 
-    const shards = await this.getShardMap(filename); // { shardSize, shardHashes[], count }
+    // CASE 2: Blob-based stream (content-addressed)
+    else if (blob) {
+      streamId = this.sha256(blob);                     // deterministic for memFile/dsBuffer
+      shards   = this.getBlobShardMap(blob);
+    }
+
+    // CASE 3: Memory stream without blob (rare)
+    else {
+      streamId = await this.getHash(msg.filename);      // small file direct to memory buffer
+      shards   = await this.getShardMap(msg.filename);
+    }
 
     const fmap = {
       toIp,
@@ -92,7 +129,8 @@ class DStreamMgrObj {
       shardHashes : shards.shardHashes,
       count       : shards.count,
       totalSize   : shards.totalSize,
-      type        : "file",
+      type        : type,
+      winSize     : winSize,
 
       // State machine
       status      : "metaDataSent",   // metaDataSent → metaDataACK → transferring → completed
@@ -107,6 +145,12 @@ class DStreamMgrObj {
       // Diagnostics
       sentAt      : Date.now()
     };
+
+    if (blob) {
+      fmap.buffer = streamId;
+      this.memFiles.set(streamId,blob);
+    }
+ 
     this.streams.set(streamId, fmap);
 
     return {
@@ -115,7 +159,8 @@ class DStreamMgrObj {
       shardHashes : fmap.shardHashes,
       count       : fmap.count,
       totalSize   : fmap.totalSize,
-      type        : "file",
+      type        : type,
+      winSize     : winSize,
       filename
     };
   }
@@ -123,13 +168,13 @@ class DStreamMgrObj {
   // ---------------------------------------------------------
   // Send a normal PeerTree message that includes a stream descriptor
   // ---------------------------------------------------------
-  sendMsg(msg, toIp) {
+  sendMsg(msg, toIp,type = 'file',winSize = 35,blob=null) {
     return new Promise(async (resolve) => {
       const reqId = crypto.randomUUID();
       msg.reqId = reqId;
 
       // Create stream descriptor
-      const stream = await this.createStreamMsg(msg, toIp);
+      const stream = await this.createStreamMsg(msg, toIp,type,winSize,blob);
       msg.stream = stream;
       let timer;
       let failListener, replyListener, sendOKListener;
@@ -210,6 +255,7 @@ class DStreamMgrObj {
   // Remove stream metadata
   // ---------------------------------------------------------
   removeStream(streamId) {
+    this.memFiles.delete(streamId);
     this.streams.delete(streamId);
   }
   getHash(filePath) {
@@ -221,6 +267,33 @@ class DStreamMgrObj {
       stream.on("end", () => resolve(hash.digest("hex")));
       stream.on("error", reject);
     });
+  }
+  getBlobShardMap(blob, shardSize = 256 * 1024) {
+
+    const shardHashes = [];
+    const totalSize   = blob.length;
+
+    let offset = 0;
+
+    while (offset < totalSize) {
+      const end = Math.min(offset + shardSize, totalSize);
+      const shard = blob.slice(offset, end);
+
+      const hash = crypto.createHash("sha256")
+                       .update(shard)
+                       .digest("hex");
+
+      shardHashes.push(hash);
+
+      offset = end;
+    }
+
+    return {
+      shardSize,
+      shardHashes,
+      count: shardHashes.length,
+      totalSize
+    };
   }
   getShardMap(filePath, shardSize = 256 * 1024) {
     return new Promise((resolve, reject) => {
@@ -271,23 +344,39 @@ class DStreamMgrObj {
     });
   }
   getShardData(streamId, shardIdx) {
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
+
       const stream = this.streams.get(streamId);
+      stream.buffer = this.memFiles.get(streamId);
+
       if (!stream) return reject(new Error("Unknown streamId"));
 
       const start = shardIdx * stream.shardSize;
+      const end   = Math.min(start + stream.shardSize, stream.totalSize);
 
-      // IMPORTANT: last shard may be smaller
-      const end = Math.min(start + stream.shardSize - 1, stream.totalSize - 1);
+      // CASE 1: memFile / dsBuffer (RAM)
+      console.log(`getShardData::() stream is `,stream);
+      if (stream.hasOwnProperty('buffer') && stream.buffer !== null && (stream.type === 'memFile' || stream.type === 'dsBuffer')) {
+        try {
+          const slice = stream.buffer.slice(start, end);
+          return resolve(slice);
+        } catch (err) {
+          return reject(err);
+        }
+      }
 
+      // CASE 2: file (disk)
       const chunks = [];
-      const fstream = fs.createReadStream(stream.filename, { start, end });
+      const fstream = fs.createReadStream(stream.filename, {
+        start,
+        end: end - 1   // inclusive
+      });
 
       fstream.on("data", chunk => chunks.push(chunk));
       fstream.on("end", () => resolve(Buffer.concat(chunks)));
       fstream.on("error", reject);
     });
-  } 
+  }
   gatherShards(stream) {
     const handler = async (data) => {
       // Only handle shards for this stream
@@ -325,23 +414,24 @@ class DStreamMgrObj {
     // Diagnostics
     stream.timeElapsed = Date.now() - stream.startAt;
 
-    // Remove from active streams
-    this.net.isStreaming.delete(stream.streamId);
-
-    console.log(`Stream ${stream.streamId} completed in ${stream.timeElapsed}ms`);
-    this.net.isStreaming.delete(stream.streamId);
-
     // Build local request for app layer
     const buildLocalReq = {
       req      : stream.request,
       reqId    : stream.reqId,
       remIp    : stream.remIp,
       response : stream.response,
-      file     : stream.tempFilePath
+      fileInfo : stream.filename,
+      file     : stream.tempFilePath,   // for file streams
+      buffer   : stream.buffer          // for memFile/dsBuffer streams
     };
 
-    // Deliver file to application handler
+    // Remove from active streams
+    console.log(`Stream ${stream.streamId} completed in ${stream.timeElapsed}ms`);
+    this.net.isStreaming.delete(stream.streamId);
+
+    // Deliver file or Buffer to application handler
     // Send File and Initial request to the req action handler
+
     if (this.cell === null) {
       console.error('closeInCommingStream():: cell is NOT attached can not call stream handler!');
       return;
@@ -361,7 +451,7 @@ class DStreamMgrObj {
       shardHashes : j.stream.shardHashes,
       count       : j.stream.count,
       totalSize   : j.stream.totalSize,
-      type        : "file",
+      type        : j.stream.type,
 
       // State machine
       status      : "readyForShards",
@@ -371,17 +461,22 @@ class DStreamMgrObj {
       // Progress
       shardsReceived : 0,
       pendingShards  : new Set([...Array(j.stream.count).keys()]),
-      inFlight: new Set(),     // shardIdx values currently requested but not yet received
-      windowSize     : 35 ,     // or 8, or dynamic later
+      inFlight: new Set(),                    // shardIdx values currently requested but not yet received
+      windowSize     : j.stream.winSize ,     // or 8, or dynamic later
       inProgress     : true,
 
       // Diagnostics
       startAt       : Date.now(),
       timeElapsed   : 0,
-
-      // Storage
-      tempFilePath  : await this.prepareTempFile(j.stream.streamId, j.stream.totalSize)
     };
+
+    // Storage
+    if (fmap.type === 'memFile' || fmap.type === 'dsBuffer') {
+      fmap.buffer = this.prepareBlobMemFile(fmap.streamId, fmap.totalSize);
+    }
+    else {
+      fmap.tempFilePath = await this.prepareTempFile(fmap.streamId, fmap.totalSize);
+    }
 
     this.net.isStreaming.set(fmap.streamId, fmap);
 
