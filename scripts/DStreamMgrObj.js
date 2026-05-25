@@ -10,7 +10,7 @@ class DStreamMgrObj {
   }
   attachCell(cell){
    this.cell = cell;
-   console.log('hello');
+   //console.log('hello');
   }
   prepareTempFile(streamId, fileSize) {
     let dir = this.net.tmpDir || process.cwd();
@@ -101,7 +101,7 @@ class DStreamMgrObj {
     const filename = msg.filename;
     let streamId;
     let shards;
-    console.log(type,blob);
+    //console.log(type,blob);
     // CASE 1: File-based stream (deterministic)
     if (type === 'file') {
       streamId = await this.getHash(msg.filename);
@@ -150,7 +150,7 @@ class DStreamMgrObj {
       fmap.buffer = streamId;
       this.memFiles.set(streamId,blob);
     }
- 
+    //console.log(fmap); 
     this.streams.set(streamId, fmap);
 
     return {
@@ -355,13 +355,13 @@ class DStreamMgrObj {
       const end   = Math.min(start + stream.shardSize, stream.totalSize);
 
       // CASE 1: memFile / dsBuffer (RAM)
-      console.log(`getShardData::() stream is `,stream);
-      if (stream.hasOwnProperty('buffer') && stream.buffer !== null && (stream.type === 'memFile' || stream.type === 'dsBuffer')) {
+      //console.log(`getShardData::() stream is `,stream);
+      if (stream.hasOwnProperty('buffer') && stream.buffer != null && (stream.type === 'memFile' || stream.type === 'dsBuffer')) {
         try {
           const slice = stream.buffer.slice(start, end);
           return resolve(slice);
         } catch (err) {
-          return reject(err);
+          //return reject(err);
         }
       }
 
@@ -426,7 +426,7 @@ class DStreamMgrObj {
     };
 
     // Remove from active streams
-    console.log(`Stream ${stream.streamId} completed in ${stream.timeElapsed}ms`);
+    //console.log(`Stream ${stream.streamId} completed in ${stream.timeElapsed}ms`);
     this.net.isStreaming.delete(stream.streamId);
 
     // Deliver file or Buffer to application handler
@@ -439,7 +439,6 @@ class DStreamMgrObj {
     this.cell.handleReq(buildLocalReq.remIp, buildLocalReq);
   }
   async doOpenStream(j) {
-    console.log('fig',j);
     const fmap = {
       remIp       : j.remIp,
       streamId    : j.stream.streamId,

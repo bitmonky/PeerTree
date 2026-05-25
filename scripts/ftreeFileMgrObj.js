@@ -977,7 +977,7 @@ class ftreeFileMgrCellReceptor{
         "inner join `ftreeFileMgr`.`tblShardFileMgr` on  `tblRepo`.`repoID_master` = `tblShardFileMgr`.`repoID_master` " +
         "inner join `ftreeFileMgr`.`tblShardFiles` on sfilFileMgrID = smgrID_master " +
         "where `tblRepo`.`repoID_master` = '"+repoID_master+"' and smgrFileName = '"+j.repo.file+"' and smgrFilePath = '"+outpath+"' " +
-        "order by smgrID";
+        "order by fposition";
       con.query(SQL , (err, result,fields)=>{
         if (err){
           console.log(err);
@@ -998,7 +998,7 @@ class ftreeFileMgrCellReceptor{
       fpath = "= '"+fpath+"'";
     }
     return new Promise((resolve,reject)=>{
-      var SQL = "select smgrCheckSum,smgrFileType FROM `ftreeFileMgr`.`tblRepo` "+
+      var SQL = "select smgrCheckSum,smgrFileType,smgrFileSize,smgrShardSize FROM `ftreeFileMgr`.`tblRepo` "+
          "inner join `ftreeFileMgr`.`tblShardFileMgr` on `tblRepo`.`repoID_master` = `tblShardFileMgr`.`repoID_master` "+
          "where repoName = '"+rname+"' and repoOwner = '"+owner+"' and smgrFileName = '"+filename+"' and smgrFilePath "+fpath;
       con.query(SQL , (err, result,fields)=>{
@@ -1009,7 +1009,7 @@ class ftreeFileMgrCellReceptor{
         }
         console.log(SQL,result);
         if (result.length > 0){
-          resolve({checkSum:result[0].smgrCheckSum,fileType:result[0].smgrFileType});
+          resolve({checkSum:result[0].smgrCheckSum,fileType:result[0].smgrFileType,fileSize:result[0].smgrFileSize,shardSize:result[0].smgrShardSize});
           return;
         }
         console.log(SQL+' No Results Returned');
@@ -1382,10 +1382,10 @@ class ftreeFileMgrCellReceptor{
       }
 
     var SQL = `INSERT INTO ftreeFileMgr.tblShardFileMgr 
-      (repoID_master, smgrID_master, smgrRepoID, smgrFileName, smgrCheckSum, smgrDate, smgrExpires, smgrEncrypted, smgrFileType, smgrFileSize, 
+      (repoID_master, smgrID_master, smgrRepoID, smgrFileName, smgrCheckSum, smgrDate, smgrExpires, smgrEncrypted, smgrFileType, smgrFileSize,smgrShardSize, 
       smgrFVersionNbr, smgrSignature, smgrShardList, smgrFileFolderID, smgrFilePath) 
       VALUES ('${rec.repoID_master}', ${rec.smgrID_master}, ${rec.smgrRepoID}, '${rec.smgrFileName}', '${rec.smgrCheckSum}',${rec.smgrDate ? `'${rec.smgrDate}'` : 'NULL'}, 
-      ${rec.smgrExpires ? `'${rec.smgrExpires}'` : 'NULL'}, ${rec.smgrEncrypted}, '${rec.smgrFileType}', ${rec.smgrFileSize}, ${rec.smgrFVersionNbr}, '${rec.smgrSignature}', 
+      ${rec.smgrExpires ? `'${rec.smgrExpires}'` : 'NULL'}, ${rec.smgrEncrypted}, '${rec.smgrFileType}', ${rec.smgrFileSize},${rec.smgrShardSize}, ${rec.smgrFVersionNbr}, '${rec.smgrSignature}', 
       '${rec.smgrShardList}', ${rec.smgrFileFolderID}, '${rec.smgrFilePath}');`;
       console.log(SQL);
       con.query(SQL, (err, result, fields) => {
@@ -1543,9 +1543,11 @@ class ftreeFileMgrCellReceptor{
     return new Promise(async (resolve,reject)=>{
       console.log('InsertLocalFileShard::',s);
       s.startPos = s.startPos ?? 0;
+      const curDate = new Date().toISOString().slice(0, 19).replace('T', ' ');
+
       var SQL = "INSERT INTO `ftreeFileMgr`.`tblShardFiles` (`repoID_master`,`sfilFileMgrID`,`sfilCheckSum`,`sfilShardHash`,`sfilNCopies`,`sfilDate`,"+
         "`sfilExpires`, `sfilEncrypted`,`sfilShardID`) VALUES "+
-        "('"+repoID_master+"',"+fileID+",'"+s.startPos+"','"+s.shardID+"',"+s.nStored+",now(),now(),0,'"+s.shardHID+"')";
+        "('"+repoID_master+"',"+fileID+","+s.startPos+",'"+s.shardID+"',"+s.nStored+",'"+curDate+"','"+curDate+"',0,'"+s.shardHID+"')";
       con.query(SQL , async (err, result,fields)=>{
         if (err){
           console.log(err);
@@ -1668,18 +1670,22 @@ class ftreeFileMgrCellReceptor{
       
       const SQL = `INSERT INTO tblShardFileMgr 
         (repoID_master, smgrFileName, smgrCheckSum, smgrDate, smgrExpires, smgrEncrypted, 
-        smgrFileType, smgrFileSize, smgrFVersionNbr, smgrSignature, smgrShardList, smgrFileFolderID, smgrFilePath) 
-        VALUES (?, ?, ?, NOW(), NOW(), ?, ?, ?, 0, 'NA', 'NA', ?, ?);
+        smgrFileType, smgrFileSize,smgrShardSize, smgrFVersionNbr, smgrSignature, smgrShardList, smgrFileFolderID, smgrFilePath) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'NA', 'NA', ?, ?);
       `;
 
       // Parameters to safely pass values
+      let ptDate = new Date(Date.now());
       const params = [
         repoID_master,
         f.filename,
         f.checksum,
+        ptDate,
+        ptDate,
         f.encrypt,
         f.ftype,
-        f.chunksize,
+        f.fileSize,
+        f.shardSize,
         repo.folderID === 'null' || repo.folderID === undefined ? null : repo.folderID,
         repo.path
       ];
@@ -2711,7 +2717,7 @@ class ftreeFileMgrObj {
     const fileSQL = `
       INSERT INTO tblShardFileMgr (
         repoID_master, smgrID_master, smgrFileName, 
-        smgrFilePath, smgrCheckSum, smgrFileSize,
+        smgrFilePath, smgrCheckSum, smgrFileSize,smgrShardSize,
         smgrFileFolderID, smgrFileType, smgrFVersionNbr
       ) VALUES (
         '${repoData.repoID_master}',
@@ -2720,6 +2726,7 @@ class ftreeFileMgrObj {
         '${repoData.file.data.smgrFilePath}',
         '${repoData.file.data.smgrCheckSum}',
         ${repoData.file.data.smgrFileSize},
+        ${repoData.file.data.smgrShardSize},
         ${repoData.file.data.smgrFileFolderID || 'NULL'},
         '${repoData.file.data.smgrFileType}',
         ${repoData.file.data.smgrFVersionNbr}
