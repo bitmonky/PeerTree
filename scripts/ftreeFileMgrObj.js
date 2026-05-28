@@ -553,7 +553,7 @@ class ftreeFileMgrCellReceptor{
       if (IPs.length == 0){
         console.log('{"result":"folderOK","nCloned":0,"folder":"'+j.repo.folder.name+' No Nodes Available"}');
       var fid = null;
-      if (j.repo.parentID === null){
+      if (j.repo.parentID === null || j.repo.parentID == 0){
         fid = " and rfoldParentID is null ";
       }
       else {
@@ -885,7 +885,7 @@ class ftreeFileMgrCellReceptor{
   doReadMyRepoFolders(j){
     return new Promise((resolve,reject)=>{
       var fid = null;
-      if (j.repo.parentID === null){
+      if (j.repo.parentID === null || j.repo.parentID == 0){
         fid = " and rfoldParentID is null ";
       }
       else {
@@ -928,7 +928,7 @@ class ftreeFileMgrCellReceptor{
   doReadMyRepoFiles(j){
     return new Promise((resolve,reject)=>{
       var fld = ' and smgrFileFolderID is null';      
-      if(j.repo.parentID !== null){
+      if(j.repo.parentID !== null && j.repo.parentID != 0){
         fld = ' and smgrFileFolderID = '+j.repo.parentID;
       }
       var SQL = "select tblShardFileMgr.* FROM `ftreeFileMgr`.`tblRepo` "+
