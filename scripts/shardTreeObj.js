@@ -140,23 +140,27 @@ class shardTreeCellReceptor{
       }
       else if (req.url.indexOf('/storeShard') === 0) {
         if (req.method === 'POST') {
-
+          console.log(`url`,req.url);
+          console.log(`host`,req.headers.host);
           const urlObj = new URL(req.url, `http://${req.headers.host}`);
+          console.log(urlObj);
 
           const meta = {
-            hash:    urlObj.searchParams.get('hash'),
-            hashID:  urlObj.searchParams.get('hashID'),
-            encrypt: urlObj.searchParams.get('encrypt') === '1',
-            expires: parseInt(urlObj.searchParams.get('expires')),
-            nCopys:  parseInt(urlObj.searchParams.get('nCopys')),
-            pass:    urlObj.searchParams.get('pass'),
-            fptr:    parseInt(urlObj.searchParams.get('fptr')),
-            index:   parseInt(urlObj.searchParams.get('index')),
-            from:    urlObj.searchParams.get('from'),
-            xIP:     urlObj.searchParams.getAll('xIP') // optional
+            hash    : urlObj.searchParams.get('hash'),
+            hashID  : urlObj.searchParams.get('hashID'),
+            hashSig : urlObj.searchParams.get('hashSig'),
+            opKey   : urlObj.searchParams.get('opKey'),
+            encrypt : urlObj.searchParams.get('encrypt') === '1',
+            expires : parseInt(urlObj.searchParams.get('expires')),
+            nCopys  : parseInt(urlObj.searchParams.get('nCopys')),
+            pass    : urlObj.searchParams.get('pass'),
+            fptr    : parseInt(urlObj.searchParams.get('fptr')),
+            index   : parseInt(urlObj.searchParams.get('index')),
+            from    : urlObj.searchParams.get('from'),
+            xIP     : urlObj.searchParams.getAll('xIP') // optional
           };
 
-         //console.log(`/storeShard:: req`,meta);
+          console.log(`/storeShard:: req`,meta);
           // Validate required fields
           if (!meta.hashID || isNaN(meta.index)) {
             res.statusCode = 400;
@@ -177,24 +181,27 @@ class shardTreeCellReceptor{
           req.on('end', () => {
             const shardBuf = Buffer.concat(chunks);
             const shardId  = hash.digest('hex');
-           //console.log(`shardBuffer:: `,shardId,shardBuf);      
+            console.log(`shardBuffer:: `,shardId,shardBuf);      
             if (meta.hash !== shardId) {
-              res.statusCode = 400;
+              res.statusCode = 401;
               return res.end('{"error":"data hash NOT matching hashID or index"}');
             }
             const reqObj = {
               sIndex : meta.index,
               shard  : {
-                from    : meta.from,
-                hash    : shardId,      // recomputed from binary
-                hashID  : meta.hashID,  // provided by sender
-                data    : shardBuf,     // raw binary
-                encrypt : meta.encrypt,
-                expires : meta.expires,
-                nCopys  : meta.nCopys,
-                pass    : meta.pass,
-                fptr    : meta.fptr,
-                xIP     : meta.xIP
+                from      : meta.from,
+                hash      : shardId,      // recomputed from binary
+                hashID    : meta.hashID,  // provided by sender
+                data      : shardBuf,     // raw binary
+                signature : meta.hashSig,
+                token     : meta.hashID,
+                opKey     : meta.opKey,
+                encrypt   : meta.encrypt,
+                expires   : meta.expires,
+                nCopys    : meta.nCopys,
+                pass      : meta.pass,
+                fptr      : meta.fptr,
+                xIP       : meta.xIP
               }
             };
 
@@ -418,7 +425,20 @@ class shardTreeCellReceptor{
 
 
   async reqStoreShard(j,res){
-   //console.log(`reqStoreShard():: `,j);
+    //console.log(`reqStoreShard():: `,j);
+
+    const sig = {
+      ownMUID   : j.shard.from,
+      token     : j.shard.token,
+      pubKey    : j.shard.opKey,
+      signature : j.shard.signature
+    }
+    if (!this.peer.isValidSig(sig)){
+      res.end('{"result":"FAILED","nStored":0,"shardID":"'+j.shard.hash+'","hosts":[],"msg":"signature not valid"}');
+      return;
+    }
+    j.shard.signature = sig;
+
     if (!j.shard.xIP) j.shard.xIP = [];
     if (!j.shard.pass) j.shard.pass = 1;
     if (!j.shard.maxn) j.shard.maxn = 3;
@@ -437,15 +457,13 @@ class shardTreeCellReceptor{
     }
 
     const startT = Date.now();
-   //console.log('reqStoreShard::begin:',startT);
+    //console.log('reqStoreShard::begin:',startT);
     var IPs = await this.peer.receptorReqNodeList(j,j.shard.xIP);
-   //console.log('XXRANDNODES:',IPs,'CompleteTime::',startT - Date.now());
+    //console.log('XXRANDNODES:',IPs,'CompleteTime::',startT - Date.now());
     if(j.shard.encrypt == 1){
       j.shard.data = encrypt(j.shard.data,this.shardToken.shardCipher);
       //j.shard.data = j.shard.data.toString('base64');
     }
-    j.shard.token = this.openShardKeyFile(j);
-    j.shard.signature = this.signRequest(j);
 
     if (IPs.length == 0){
       res.end('{"result":"shardOK","nRecs":0,"shard":"No Nodes Available"}');
@@ -1018,7 +1036,7 @@ class shardTreeObj {
         if (r.req == 'pShardDeleteResult' && r.hash == j.shard.hash){
           n += 1;
           hosts.push({host:r.hostname,ip:r.ip});
-         //console.log('shardDelete responses:',n);
+          //console.log('shardDelete responses:',n);
           if (n >= j.shard.nCopys){
             clearTimeout(gtime);
             this.net.removeListener('mkyReply', mkyReply);
