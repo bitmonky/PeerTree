@@ -1,6 +1,30 @@
 const crypto = require("crypto");
 const fs = require("fs");
 
+class Mutex {
+  constructor() {
+    this._locked = false;
+    this._waiters = [];
+  }
+
+  async lock() {
+    if (!this._locked) {
+      this._locked = true;
+      return;
+    }
+    return new Promise(resolve => this._waiters.push(resolve));
+  }
+
+  unlock() {
+    if (this._waiters.length > 0) {
+      const next = this._waiters.shift();
+      next();
+    } else {
+      this._locked = false;
+    }
+  }
+}
+
 class DStreamMgrObj {
   constructor(net) {
     this.net = net;
@@ -22,7 +46,7 @@ class DStreamMgrObj {
     try {
       if (fs.existsSync(file)) fs.unlinkSync(file);
     } catch (err) {
-      console.error("Failed to remove old temp file:", err);
+     //console.error("Failed to remove old temp file:", err);
     }
 
     // Pre-allocate the file to full size
@@ -219,7 +243,7 @@ class DStreamMgrObj {
             this.setStatus(stream.streamId, j.status);
           }
           else {
-            console.error(`DStreamMgrObj.sendMsg():: failed to open remote stream`,j);
+           //console.error(`DStreamMgrObj.sendMsg():: failed to open remote stream`,j);
             this.removeStream(stream.streamId);
           } 
           resolve(j);
@@ -413,6 +437,7 @@ class DStreamMgrObj {
 
     // Diagnostics
     stream.timeElapsed = Date.now() - stream.startAt;
+   //console.log(`closeIncomingStream():: transfer time: `,stream.timeElapsed);
 
     // Build local request for app layer
     const buildLocalReq = {
@@ -433,7 +458,7 @@ class DStreamMgrObj {
     // Send File and Initial request to the req action handler
 
     if (this.cell === null) {
-      console.error('closeInCommingStream():: cell is NOT attached can not call stream handler!');
+     //console.error('closeInCommingStream():: cell is NOT attached can not call stream handler!');
       return;
     }
     this.cell.handleReq(buildLocalReq.remIp, buildLocalReq);
@@ -453,6 +478,7 @@ class DStreamMgrObj {
       type        : j.stream.type,
 
       // State machine
+      requestMutex: new Mutex(),
       status      : "readyForShards",
       acked       : true,
       completed   : false,
@@ -495,7 +521,7 @@ class DStreamMgrObj {
     // Kick off the first batch of shard requests
     this.requestShardBatch(fmap.streamId);
   }
-  requestShardBatch(streamId) {
+  async requestShardBatch(streamId) {
     const stream = this.net.isStreaming.get(streamId);
     if (!stream) return;
 
@@ -503,27 +529,32 @@ class DStreamMgrObj {
     if (stream.pendingShards.size === 0 && stream.inFlight.size === 0) {
       return;
     }
+    const mutex = stream.requestMutex;
+    await mutex.lock();
+    try {
+      // Fill the window
+      while (
+        stream.inFlight.size < stream.windowSize &&
+        stream.pendingShards.size > 0
+      ) {
+        const shardIdx = stream.pendingShards.values().next().value;
 
-    // Fill the window
-    while (
-      stream.inFlight.size < stream.windowSize &&
-      stream.pendingShards.size > 0
-    ) {
-      const shardIdx = stream.pendingShards.values().next().value;
+        // Move shard from pending → inFlight
+        stream.pendingShards.delete(shardIdx);
+        stream.inFlight.add(shardIdx);
 
-      // Move shard from pending → inFlight
-      stream.pendingShards.delete(shardIdx);
-      stream.inFlight.add(shardIdx);
+        const msg = {
+          req       : "sendShard",
+          streamId  : streamId,
+          shardIdx  : shardIdx,
+          shardId   : stream.shardHashes[shardIdx],
+          shardSize : stream.shardSize
+        };
 
-      const msg = {
-        req       : "sendShard",
-        streamId  : streamId,
-        shardIdx  : shardIdx,
-        shardId   : stream.shardHashes[shardIdx],
-        shardSize : stream.shardSize
-      };
-
-      this.net.sendMsgCX(stream.remIp, msg);
+        this.net.sendMsgCX(stream.remIp, msg);
+      }
+    } finally {
+      mutex.unlock();
     }
   }
   async onShardReceived(j) {
@@ -536,7 +567,7 @@ class DStreamMgrObj {
     // 0. Ensure this shard was expected
     if (!stream.inFlight.has(idx)) {
       // Unexpected shard — ignore or log
-      console.warn(`Shard ${idx} for stream ${streamId} not in flight`);
+     //console.warn(`Shard ${idx} for stream ${streamId} not in flight`);
       return;
     }
 
@@ -546,9 +577,7 @@ class DStreamMgrObj {
     // 1. Validate + write shard
     const result = await this.writeShardToFile(stream,shard);
     if (!result.ok) {
-      console.warn(
-        `Shard ${idx} rejected for stream ${streamId}: ${result.reason}`
-      );
+     //console.warn(`Shard ${idx} rejected for stream ${streamId}: ${result.reason}` );
 
       // Re-request this shard
       stream.pendingShards.add(idx);
@@ -567,7 +596,7 @@ class DStreamMgrObj {
       stream.inFlight.size === 0 &&
       stream.pendingShards.size === 0
     ) {
-      console.log(`onShardReceived():: closeIncomingStream`);
+     //console.log(`onShardReceived():: closeIncomingStream`);
       return this.closeIncomingStream(stream);
     }
 

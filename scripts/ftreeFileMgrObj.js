@@ -22,7 +22,7 @@ addslashes  = require ('./addslashes');
 
 const algorithm = 'aes256';
 const maxTranCopies = 10;
-const repoHealthCheckInterval = 5*60;
+const repoHealthCheckInterval = 15*60;
 var   availTranNodes = 3; 
 
 
@@ -707,6 +707,7 @@ class ftreeFileMgrCellReceptor{
         console.log('getActiveRepoShardList::result:', IPs);
         const cloned = await this.hckReqCloneRepoShard(j, IPs);
       }
+      await sleep(1500);
     }
   } 
   hckReqCloneRepoShard(j, excludeIps) {
@@ -927,7 +928,7 @@ class ftreeFileMgrCellReceptor{
   }
   doReadMyRepoFiles(j){
     return new Promise((resolve,reject)=>{
-      var fld = ' and smgrFileFolderID is null';      
+      var fld = ' and (smgrFileFolderID is null or smgrFileFolderID = 0) ';      
       if(j.repo.parentID !== null && j.repo.parentID != 0){
         fld = ' and smgrFileFolderID = '+j.repo.parentID;
       }
