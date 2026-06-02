@@ -12,7 +12,6 @@ const EC           = require('elliptic').ec;
 const ec           = new EC('secp256k1');
 const bitcoin      = require('bitcoinjs-lib');
 const crypto       = require('crypto');
-const base58       = require('bs58');
 const mysql        = require('mysql');
 const schedule     = require('node-schedule');
 const {MkyWebConsole} = require('./networkWebConsole.js');
@@ -27,8 +26,10 @@ var   availTranNodes = 3;
 
 
 function hashToBase58(input) {
-  const sha256Hash = crypto.createHash('sha256').update(input).digest(); // Binary (Buffer)
-  return base58.encode(sha256Hash);
+  // Note - changed from Base58 (one less dependency)
+
+  const hash = crypto.createHash('sha256').update(input).digest('hex');
+  return hash.slice(0, 24); // 8 bytes = 64 bits
 }
 function encrypt(buffer,pword){
   pword = pword.substr(0,31);
@@ -96,20 +97,20 @@ class peerShardToken{
         this.publicKey = key.getPublic('hex');
         this.privateKey = key.getPrivate('hex');
 
-        console.log('Generate a new wallet key pair and convert them to hex-strings');
+       //console.log('Generate a new wallet key pair and convert them to hex-strings');
         var mkybc = bitcoin.payments.p2pkh({ pubkey: new Buffer.from(''+this.publicKey, 'hex') });
         this.branchMUID = mkybc.address;
 
         const pmc = ec.genKeyPair();
         this.pmCipherKey  = pmc.getPublic('hex');
 
-        console.log('Generate a new wallet cipher key');
+       //console.log('Generate a new wallet cipher key');
         mkybc = bitcoin.payments.p2pkh({ pubkey: new Buffer.from(''+this.pmCipherKey, 'hex') });
         this.shardCipher = mkybc.address;
 
         var wallet = '{"shardOwnMUID":"'+ this.branchMUID+'","publicKey":"' + this.publicKey + '","privateKey":"' + this.privateKey + '",';
         wallet += '"shardCipher":"'+this.shardCipher+'"}';
-        console.log(wallet);
+       //console.log(wallet);
 	fs.writeFile('keys/peerShardToken.key', wallet, function (err) {
           if (err) throw err;
          //console.log('Wallet Created And Saved!');
@@ -124,8 +125,8 @@ class ftreeFileMgrCellReceptor{
     this.port = recPort;
     this.allow = ["127.0.0.1"];
     this.readConfigFile();
-    console.log('ATTACHING - cellReceptor on port'+recPort);
-    console.log('GRANTING cellRecptor access to :',this.allow);
+   //console.log('ATTACHING - cellReceptor on port'+recPort);
+   //console.log('GRANTING cellRecptor access to :',this.allow);
     this.results = ['empty'];
     const options = {
       key: fs.readFileSync('keys/privkey.pem'),
@@ -133,7 +134,7 @@ class ftreeFileMgrCellReceptor{
     };
     this.shardToken = new peerShardToken();
     var bserver = https.createServer(options, async (req, res) => {
-      console.log('Receptor::->Check dbCon.state::',con.state);
+     //console.log('Receptor::->Check dbCon.state::',con.state);
       if (con.state === 'disconnected') {
         await con.connect();
       }      
@@ -142,21 +143,22 @@ class ftreeFileMgrCellReceptor{
         const key = ec.genKeyPair();
         const publicKey = key.getPublic('hex');
         const privateKey = key.getPrivate('hex');
-        console.log('pub key length' + publicKey.length,publicKey);
-        console.log('priv key length' + privateKey.length,publicKey);
+       //console.log('pub key length' + publicKey.length,publicKey);
+       //console.log('priv key length' + privateKey.length,publicKey);
         res.writeHead(200);
         res.end('{"publicKey":"' + publicKey + '","privateKey":"' + privateKey + '"}');
       }
       else {
         if (req.url.indexOf('/netREQ') == 0){
 	  if (req.method == 'POST') {
+            try {
             var body = '';
             req.on('data', (data)=>{
               body += data;
               // Too much POST data, kill the connection!
               //console.log('body.length',body.length);
               if (body.length > 300000000){
-                console.log('max datazize exceeded');
+               //console.log('max datazize exceeded');
                 req.connection.destroy();
               }
             });
@@ -174,6 +176,14 @@ class ftreeFileMgrCellReceptor{
 	      }	 
 	      this.processRequest(j,res);
             });
+            } catch(e) {
+                res.setHeader('Content-Type', 'application/json');
+                res.writeHead(200);
+                res.end('{"result":"unknown error:","data","'+req.url+'"}');
+               //console.log('unknown error : ',req.url,e);
+                return;
+            }
+ 
           }
 	}	
         else {
@@ -188,7 +198,7 @@ class ftreeFileMgrCellReceptor{
       } 
     });
     bserver.listen(this.port);
-    console.log('ftreeFileMgr fMgr Receptor running on port:'+this.port);
+   //console.log('ftreeFileMgr fMgr Receptor running on port:'+this.port);
     //this.doLocalHealthCheck();
     //this.doBeginLocalFolderHealthCheck();
     //this.doBeginLocalFileMgrHealthCheck();
@@ -246,10 +256,10 @@ class ftreeFileMgrCellReceptor{
   locateMyRepoLocal(muid){
     return new Promise((resolve,reject)=>{
       var SQL = `select count(*)as nRes FROM ftreeFileMgr.tblRepo where repoOwner = '${muid}' and repoType = 'Master' `;
-      console.log('locateMyRepoLocal .: ',SQL);
+     //console.log('locateMyRepoLocal .: ',SQL);
       con.query(SQL , (err, result,fields)=>{
         if (err){
-          console.log(err);
+         //console.log(err);
           resolve(null);
           return;
         }
@@ -258,11 +268,11 @@ class ftreeFileMgrCellReceptor{
     });
   }
   async doRepoHealthCheck(){
-    console.log('Starting Repo Health Checks .:');
+   //console.log('Starting Repo Health Checks .:');
     var myRepos = await this.doReadMyRepoList();
     if (myRepos) {
       for (const rec of myRepos) {
-        console.log('repoHealthCkc .:', rec.repoName);
+       //console.log('repoHealthCkc .:', rec.repoName);
         const j = {
           repo: {
             data   : { repoCopies: availTranNodes },
@@ -273,7 +283,7 @@ class ftreeFileMgrCellReceptor{
         };
 
         const IPs = await this.peer.getActiveRepoList(j);
-        console.log('getActiveRepoList::result .:', IPs);
+       //console.log('getActiveRepoList::result .:', IPs);
         const cloned  = await this.hckReqCloneRepo(j,IPs);
         const folders = await this.doFolderHealthCheck(j);
         const files   = await this.doFileHealthCheck(j);
@@ -297,13 +307,13 @@ class ftreeFileMgrCellReceptor{
     return [];
   }
   async doLocalHealthCheck(){
-    console.log('Starting Repo Local Health Checks .:');
+   //console.log('Starting Repo Local Health Checks .:');
     var offset = 0;
     var limit  = 50;
     var results = await this.peer.receptorReqReadMyRemoteRepos(this.shardToken.shardOwnMUID,limit,offset);
-    console.log('nonmerg',results);
+   //console.log('nonmerg',results);
     results = this.mergRepo(results);
-    console.log('MERGEDG',results);
+   //console.log('MERGEDG',results);
     while (results.length > 0){
       offset = offset + limit;
       this.doReBuildLocalRepo(results);
@@ -318,7 +328,7 @@ class ftreeFileMgrCellReceptor{
     var myRepos  = await this.doReadMyRepoList();
     if (myRepos) {
       for (const rec of myRepos) {
-        console.log('repoHealthCkc .:', rec.repoName);
+       //console.log('repoHealthCkc .:', rec.repoName);
         const j = {
           repo: {
             data   : { repoCopies: availTranNodes },
@@ -329,7 +339,7 @@ class ftreeFileMgrCellReceptor{
         };
 
         const IPs = await this.peer.getActiveRepoList(j);
-        console.log('getActiveRepoList::result .:', IPs);
+       //console.log('getActiveRepoList::result .:', IPs);
         const cloned  = await this.hckReqCloneRepo(j,IPs);
         const folders = await this.doFolderHealthCheck(j);
         const files   = await this.doFileHealthCheck(j);
@@ -366,7 +376,7 @@ class ftreeFileMgrCellReceptor{
   }
   doLocalFolderHealthCheck(repoID_master) {
     return new Promise(async(resolve,reject) => {
-      console.log('Starting Repo Folder Local Health Checks .:');
+     //console.log('Starting Repo Folder Local Health Checks .:');
 
       let offset = 0;
       const limit = 50;
@@ -414,7 +424,7 @@ class ftreeFileMgrCellReceptor{
   }
   doLocalFileMgrHealthCheck(repoID_master) {
     return new Promise(async(resolve,reject) => {
-      console.log('Starting Repo FileMgr Local Health Checks .:');
+     //console.log('Starting Repo FileMgr Local Health Checks .:');
 
       let offset = 0;
       const limit = 50;
@@ -443,7 +453,7 @@ class ftreeFileMgrCellReceptor{
         maxClones = availTranNodes;
       }
       if ((maxClones - excludeIps.length) < 1){
-        console.log('Repo '+j.repo.name+' Status .: healthy!');
+       //console.log('Repo '+j.repo.name+' Status .: healthy!');
         resolve(null);
         return;
       } 
@@ -453,12 +463,12 @@ class ftreeFileMgrCellReceptor{
       j.repo.data = await this.getLocalRepoRec(repoID_master);
       j.repo.data.repoCopies = maxClones - excludeIps.length;
       j.repo.nCopys = j.repo.data.repoCopies; 
-      console.log('cloning Repo .: ',j.repo);
+     //console.log('cloning Repo .: ',j.repo);
 
       var IPs = await this.peer.receptorReqNodeList(j,excludeIps);
-      console.log('XXRANDNODES:',IPs);
+     //console.log('XXRANDNODES:',IPs);
       if (IPs.length == 0){
-        console.log('{"result":"repoOK","nRecs":0,"repo":"No Nodes Available"}');
+       //console.log('{"result":"repoOK","nRecs":0,"repo":"No Nodes Available"}');
         resolve(null);
         return;
       }
@@ -474,10 +484,10 @@ class ftreeFileMgrCellReceptor{
           }
         }
         catch(err) {
-          console.log('repo storage failed on:',IP);
+         //console.log('repo storage failed on:',IP);
         }
         if (n==IPs.length -1){
-          console.log('{"result":"repoOK","nStored":'+nStored+',"repo":'+JSON.stringify(j)+',"hosts":'+JSON.stringify(hosts)+'}');
+         //console.log('{"result":"repoOK","nStored":'+nStored+',"repo":'+JSON.stringify(j)+',"hosts":'+JSON.stringify(hosts)+'}');
           resolve('OK');
           return;
         }
@@ -487,12 +497,12 @@ class ftreeFileMgrCellReceptor{
     });
   }
   async doFolderHealthCheck(r){
-    console.log('Starting Repo Folder Health Checks .:');
+   //console.log('Starting Repo Folder Health Checks .:');
     var myRepoFolders = await this.hckReadMyRepoFolders(r);
-    console.log('myRepoFolders .: ',myRepoFolders);
+   //console.log('myRepoFolders .: ',myRepoFolders);
     if (myRepoFolders) {
       for (const rec of myRepoFolders) {
-        console.log('repoHealthCkcFolders .:', r.repo.name,rec.rfoldName);
+       //console.log('repoHealthCkcFolders .:', r.repo.name,rec.rfoldName);
         const j = {
           repo: {
             data   : { repoCopies: availTranNodes },
@@ -509,7 +519,7 @@ class ftreeFileMgrCellReceptor{
         };
 
         const IPs    = await this.peer.getActiveRepoFolder(j);
-        console.log('getActiveRepoFolderList::result .:', IPs);
+       //console.log('getActiveRepoFolderList::result .:', IPs);
         const cloned = await this.hckReqCloneRepoFolder(j,IPs);
       }
     }
@@ -518,10 +528,10 @@ class ftreeFileMgrCellReceptor{
     return new Promise((resolve,reject)=>{
       var SQL = "select tblRepoFolder.* FROM `ftreeFileMgr`.`tblRepoFolder` "+
         "where repoID_master = '"+j.repo.repoID_master+"'";
-      console.log('hckReadMyRepoFolders .: ',SQL,j);
+     //console.log('hckReadMyRepoFolders .: ',SQL,j);
       con.query(SQL , (err, result,fields)=>{
         if (err){
-          console.log(err);
+         //console.log(err);
           resolve(null);
           return;
         }
@@ -536,7 +546,7 @@ class ftreeFileMgrCellReceptor{
         maxClones = availTranNodes;
       }
       if ((maxClones - excludeIps.length) < 1){
-        console.log('Folder Check: '+j.repo.name+' .: '+j.repo.folder.name+'  Status .: healthy!');
+       //console.log('Folder Check: '+j.repo.name+' .: '+j.repo.folder.name+'  Status .: healthy!');
         resolve(null);
         return;
       }
@@ -546,12 +556,12 @@ class ftreeFileMgrCellReceptor{
       j.repo.data = await this.getLocalRepoRec(repoID_master);
       j.repo.data.repoCopies = maxClones - excludeIps.length;
       j.repo.nCopys = j.repo.data.repoCopies;
-      console.log('cloning Repo Folder .: ',j.repo);
+     //console.log('cloning Repo Folder .: ',j.repo);
 
       var IPs = await this.peer.receptorReqNodeList(j,excludeIps);
-      console.log('XXRANDNODES:',IPs);
+     //console.log('XXRANDNODES:',IPs);
       if (IPs.length == 0){
-        console.log('{"result":"folderOK","nCloned":0,"folder":"'+j.repo.folder.name+' No Nodes Available"}');
+       //console.log('{"result":"folderOK","nCloned":0,"folder":"'+j.repo.folder.name+' No Nodes Available"}');
       var fid = null;
       if (j.repo.parentID === null || j.repo.parentID == 0){
         fid = " and rfoldParentID is null ";
@@ -574,10 +584,10 @@ class ftreeFileMgrCellReceptor{
           }
         }
         catch(err) {
-          console.log('repoFolder cloning failed on:',IP,err);
+         //console.log('repoFolder cloning failed on:',IP,err);
         }
         if (n==IPs.length -1){
-          console.log('{"result":"folderOK","nCloned":'+nStored+',"folder":'+JSON.stringify(j)+',"hosts":'+JSON.stringify(hosts)+'}');
+         //console.log('{"result":"folderOK","nCloned":'+nStored+',"folder":'+JSON.stringify(j)+',"hosts":'+JSON.stringify(hosts)+'}');
           resolve('OK');
           return;
         }
@@ -592,7 +602,7 @@ class ftreeFileMgrCellReceptor{
       const adjustedClones = availTranNodes < maxTranCopies ? availTranNodes : maxTranCopies;
     
       if ((adjustedClones - excludeIps.length) < 1) {
-        console.log(`Repo ${j.repo.name} .: ${j.repo.file.name} Status .: healthy!`);
+       //console.log(`Repo ${j.repo.name} .: ${j.repo.file.name} Status .: healthy!`);
         resolve(null);
         return;
       }
@@ -601,13 +611,13 @@ class ftreeFileMgrCellReceptor{
       j.repo.data = await this.getLocalRepoRec(repoID_master);
       j.repo.data.repoCopies = adjustedClones - excludeIps.length;
       j.repo.nCopys = j.repo.data.repoCopies;
-      console.log('Cloning Repo File .:', j.repo);
+     //console.log('Cloning Repo File .:', j.repo);
 
       const IPs = await this.peer.receptorReqNodeList(j, excludeIps);
-      console.log('XXRANDNODES:', IPs);
+     //console.log('XXRANDNODES:', IPs);
     
       if (IPs.length === 0) {
-        console.log(`{"result":"fileOK","nCloned":0,"file":"${j.repo.file.name} No Nodes Available"}`);
+       //console.log(`{"result":"fileOK","nCloned":0,"file":"${j.repo.file.name} No Nodes Available"}`);
         resolve(null);
         return;
       }
@@ -623,16 +633,11 @@ class ftreeFileMgrCellReceptor{
             hosts.push({ host: qres.remMUID, ip: qres.remIp });
           }
         } catch (err) {
-          console.log('repoFile cloning failed on:', IP, err);
+         //console.log('repoFile cloning failed on:', IP, err);
         }
       
         if (index === IPs.length - 1) {
-          console.log(JSON.stringify({
-            result: "fileOK",
-            nCloned: nStored,
-            file: j.repo.file,
-            hosts: hosts
-          }));
+          //console.log(JSON.stringify({ result: "fileOK", nCloned: nStored, file: j.repo.file, hosts: hosts}));
           resolve('OK');
           return;
         }
@@ -640,12 +645,12 @@ class ftreeFileMgrCellReceptor{
     });
   }
   async doFileHealthCheck(r) {
-    console.log('Starting Repo File Health Checks:');
+   //console.log('Starting Repo File Health Checks:');
     const myRepoFiles = await this.hckReadMyRepoFiles(r);
   
     if (myRepoFiles) {
       for (const rec of myRepoFiles) {
-        console.log('repoHealthCkcFiles:', r.repo.name, rec.smgrFileName);
+       //console.log('repoHealthCkcFiles:', r.repo.name, rec.smgrFileName);
         if (rec.smgrID_master !== null) {
           const j = {
             repo: {
@@ -661,7 +666,7 @@ class ftreeFileMgrCellReceptor{
             }
           };
           const IPs = await this.peer.getActiveRepoFile(j);
-          console.log('getActiveRepoFileList::result:', IPs);
+         //console.log('getActiveRepoFileList::result:', IPs);
           const cloned = await this.hckReqCloneRepoFile(j, IPs);
         }
       }
@@ -671,10 +676,10 @@ class ftreeFileMgrCellReceptor{
     return new Promise((resolve,reject)=>{
       var SQL = "select tblShardFileMgr.* FROM `ftreeFileMgr`.`tblShardFileMgr` "+
         "where repoID_master = '"+j.repo.repoID_master+"'";
-      console.log('hckReadMyRepoFiles .: ',SQL,j);
+     //console.log('hckReadMyRepoFiles .: ',SQL,j);
       con.query(SQL , (err, result,fields)=>{
         if (err){
-          console.log(err);
+         //console.log(err);
           resolve(null);
           return;
         }
@@ -683,12 +688,12 @@ class ftreeFileMgrCellReceptor{
     });
   }
   async doShardHealthCheck(r) {
-    console.log('Starting Repo Shard Health Checks:');
+   //console.log('Starting Repo Shard Health Checks:');
     const myRepoShards = await this.hckReadMyRepoShards(r);
 
     if (myRepoShards) {
       for (const rec of myRepoShards) {
-        console.log('repoHealthCkcShards:', r.repo.name, rec.sfilShardHash);
+       //console.log('repoHealthCkcShards:', r.repo.name, rec.sfilShardHash);
 
         const j = {
           repo: {
@@ -704,7 +709,7 @@ class ftreeFileMgrCellReceptor{
           }
         };
         const IPs = await this.peer.getActiveRepoShard(j);
-        console.log('getActiveRepoShardList::result:', IPs);
+       //console.log('getActiveRepoShardList::result:', IPs);
         const cloned = await this.hckReqCloneRepoShard(j, IPs);
       }
       await sleep(1500);
@@ -716,7 +721,7 @@ class ftreeFileMgrCellReceptor{
       const adjustedClones = availTranNodes < maxTranCopies ? availTranNodes : maxTranCopies;
 
       if ((adjustedClones - excludeIps.length) < 1) {
-        console.log(`Repo ${j.repo.name} .: ${j.repo.shard.sfilShardHash} Status .: healthy!`);
+       //console.log(`Repo ${j.repo.name} .: ${j.repo.shard.sfilShardHash} Status .: healthy!`);
         resolve(null);
         return;
       }
@@ -725,13 +730,13 @@ class ftreeFileMgrCellReceptor{
       j.repo.data = await this.getLocalRepoRec(repoID_master);
       j.repo.data.repoCopies = adjustedClones - excludeIps.length;
       j.repo.nCopys = j.repo.data.repoCopies;
-      console.log('Cloning Repo Shard .:', j.repo);
+     //console.log('Cloning Repo Shard .:', j.repo);
 
       const IPs = await this.peer.receptorReqNodeList(j, excludeIps);
-      console.log('XXRANDNODES:', IPs);
+     //console.log('XXRANDNODES:', IPs);
 
       if (IPs.length === 0) {
-        console.log(`{"result":"shardOK","nCloned":0,"shard":"${j.repo.shard.sfilShardHash} No Nodes Available"}`);
+       //console.log(`{"result":"shardOK","nCloned":0,"shard":"${j.repo.shard.sfilShardHash} No Nodes Available"}`);
         resolve(null);
         return;
       }
@@ -747,16 +752,11 @@ class ftreeFileMgrCellReceptor{
             hosts.push({ host: qres.remMUID, ip: qres.remIp });
           }
         } catch (err) {
-          console.log('repoShard cloning failed on:', IP, err);
+         //console.log('repoShard cloning failed on:', IP, err);
         }
 
         if (index === IPs.length - 1) {
-          console.log(JSON.stringify({
-            result: "shardOK",
-            nCloned: nStored,
-            shard: j.repo.shard,
-            hosts: hosts
-          }));
+          //console.log(JSON.stringify({ result: "shardOK", nCloned: nStored, shard: j.repo.shard, hosts: hosts}));
           resolve('OK');
           return;
         }
@@ -767,10 +767,10 @@ class ftreeFileMgrCellReceptor{
     return new Promise((resolve,reject)=>{
       var SQL = "select * FROM `ftreeFileMgr`.`tblShardFiles` "+
         "where repoID_master = '"+j.repo.repoID_master+"'";
-      console.log('hckReadMyRepoShards .: ',SQL,j);
+     //console.log('hckReadMyRepoShards .: ',SQL,j);
       con.query(SQL , (err, result,fields)=>{
         if (err){
-          console.log(err);
+         //console.log(err);
           resolve(null);
           return;
         }
@@ -790,7 +790,7 @@ class ftreeFileMgrCellReceptor{
          this.allow  = j.receptor.allow;
        }
        catch(err) {
-         console.log('conf file not valid', err);
+        //console.log('conf file not valid', err);
        }
      }
   }
@@ -831,8 +831,8 @@ class ftreeFileMgrCellReceptor{
     return sig;
   }
   async reqCreateRepo(j,res){
-    console.log('CreateRepoReq:',j);
-    var newRepoID = null;
+   //console.log('CreateRepoReq:',j);
+    let newRepoID = null;
     if(await this.repoExists(j.repo.name,j.repo.from) > 0){
       res.end('{"result":"repoFail","nRecs":0,"repo":"Repo Already Exists"}');
       return;
@@ -844,12 +844,12 @@ class ftreeFileMgrCellReceptor{
       return;
     }
     newRepoID = pj.value;
-
+    console.log(`reqCreateRepo():: newRepoID`,newRepoID);
     j.repo.data = await this.getLocalRepoRec(newRepoID);
-    console.log(JSON.stringify(j.repo));
+    console.log(`reqCreateRepo():: j.repo`,j.repo);
 
     var IPs = await this.peer.receptorReqNodeList(j);
-    console.log('XXRANDNODES:',IPs);
+    //console.log('XXRANDNODES:',IPs);
     if (IPs.length == 0){
       res.end('{"result":"repoOK","nRecs":0,"repo":"No Nodes Available"}');
       return;
@@ -866,7 +866,7 @@ class ftreeFileMgrCellReceptor{
         }
       }
       catch(err) {
-        console.log('repo storage failed on:',IP);
+       //console.log('repo storage failed on:',IP);
       }
       if (n==IPs.length -1){
         res.end('{"result":"repoOK","nStored":'+nStored+',"repo":'+JSON.stringify(j)+',"hosts":'+JSON.stringify(hosts)+'}');
@@ -897,7 +897,7 @@ class ftreeFileMgrCellReceptor{
         "where repoName = '"+j.repo.name+"' and repoOwner = '"+j.repo.from+"' "+fid;
       con.query(SQL , (err, result,fields)=>{
         if (err){
-          console.log(err);
+         //console.log(err);
           resolve(null);
           return;
         }
@@ -910,7 +910,7 @@ class ftreeFileMgrCellReceptor{
       var SQL = "select * FROM `ftreeFileMgr`.`tblRepo` where NOT repoType = 'Public'";
       con.query(SQL , (err, result,fields)=>{
         if (err){
-          console.log(err);
+         //console.log(err);
           resolve(null);
           return;
         }
@@ -937,7 +937,7 @@ class ftreeFileMgrCellReceptor{
         "where repoName = '"+j.repo.name+"' and repoOwner = '"+j.repo.from+"' "+fld;
       con.query(SQL , (err, result,fields)=>{
         if (err){
-          console.log(err);
+         //console.log(err);
           resolve(null);
           return;
         }
@@ -966,7 +966,7 @@ class ftreeFileMgrCellReceptor{
         resolve(null);
         return;
       }
-      console.log(j);
+     //console.log(j);
       var fileInfo = await this.getFileCheckSum(j.repo.file,j.repo.path,j.repo.name,j.repo.from);
       if (!fileInfo){
         resolve(null);
@@ -981,11 +981,11 @@ class ftreeFileMgrCellReceptor{
         "order by fposition";
       con.query(SQL , (err, result,fields)=>{
         if (err){
-          console.log(err);
+         //console.log(err);
           resolve(null);
           return;
         }
-        console.log(SQL,result);
+       //console.log(SQL,result);
         resolve({owner:j.repo.from,filename:outpath+'/'+j.repo.file,shards:result,fileInfo:fileInfo});
       });
     });
@@ -1004,16 +1004,16 @@ class ftreeFileMgrCellReceptor{
          "where repoName = '"+rname+"' and repoOwner = '"+owner+"' and smgrFileName = '"+filename+"' and smgrFilePath "+fpath;
       con.query(SQL , (err, result,fields)=>{
         if (err){
-          console.log(err);
+         //console.log(err);
           resolve(null);
           return;
         }
-        console.log(SQL,result);
+       //console.log(SQL,result);
         if (result.length > 0){
           resolve({checkSum:result[0].smgrCheckSum,fileType:result[0].smgrFileType,fileSize:result[0].smgrFileSize,shardSize:result[0].smgrShardSize});
           return;
         }
-        console.log(SQL+' No Results Returned');
+       //console.log(SQL+' No Results Returned');
         resolve(null);
       });
     });
@@ -1024,7 +1024,7 @@ class ftreeFileMgrCellReceptor{
         "where repoName = '"+name+"' and repoOwner = '"+owner+"' and repoType = 'Master'";
       con.query(SQL , (err, result,fields)=>{
         if (err){
-          console.log(err);
+         //console.log(err);
           resolve(null);
           return;
         }
@@ -1041,7 +1041,7 @@ class ftreeFileMgrCellReceptor{
       var SQL = "select count(*)nRec FROM `ftreeFileMgr`.`tblRepo` where repoName = '"+name+"' and repoOwner = '"+owner+"'";
       con.query(SQL , (err, result,fields)=>{
         if (err){
-          console.log(err);
+         //console.log(err);
           resolve(null);
           return;
         }
@@ -1052,10 +1052,10 @@ class ftreeFileMgrCellReceptor{
   repoFolderExists(masterID,rfoldMasterID){
     return new Promise((resolve,reject)=>{
       var SQL = "select count(*)nRec FROM `ftreeFileMgr`.`tblRepoFolder` where repoID_master  = '"+masterID+"' and rfoldID_master = '"+rfoldMasterID+"'";
-      console.log('repoFOLDEREXISTS',SQL);
+     //console.log('repoFOLDEREXISTS',SQL);
       con.query(SQL , (err, result,fields)=>{
         if (err){
-          console.log(err);
+         //console.log(err);
           resolve(null);
           return;
         }
@@ -1066,10 +1066,10 @@ class ftreeFileMgrCellReceptor{
   repoFileMgrExists(masterID,rfileMgrMasterID){
     return new Promise((resolve,reject)=>{
       var SQL = "select count(*)nRec FROM `ftreeFileMgr`.`tblShardFileMgr` where repoID_master  = '"+masterID+"' and smgrID_master = '"+rfileMgrMasterID+"'";
-      console.log('repoFILEMGREXISTS',SQL);
+     //console.log('repoFILEMGREXISTS',SQL);
       con.query(SQL , (err, result,fields)=>{
         if (err){
-          console.log(err);
+         //console.log(err);
           resolve(null);
           return;
         }
@@ -1084,7 +1084,7 @@ class ftreeFileMgrCellReceptor{
          "where repoName = '"+rname+"' and repoOwner = '"+owner+"' and smgrFileName = '"+filename+"' and smgrFilePath='"+path+"'";
       con.query(SQL , (err, result,fields)=>{
         if (err){
-          console.log(err);
+         //console.log(err);
           resolve(null);
           return;
         }
@@ -1103,7 +1103,7 @@ class ftreeFileMgrCellReceptor{
           "where smgrRepoID = '"+repoID_master+"'";
       con.query(SQL , (err, result,fields)=>{
         if (err){
-          console.log(err);
+         //console.log(err);
           resolve(null);
         }
         else {
@@ -1134,16 +1134,16 @@ class ftreeFileMgrCellReceptor{
     res.end(JSON.stringify(tryRes));
 
     const newFolderID = tryRes.result;
-    console.log(`reqCreateRepoFolder():: result was : `,tryRes);
+   //console.log(`reqCreateRepoFolder():: result was : `,tryRes);
 
     j.repo.folder = await this.getLocalRepoFolderRec(newFolderID);
     j.repo.data   =  {repoID_master : j.repo.folder.repoID_master};
-    console.log(j.repo);
+   //console.log(j.repo);
     
     var IPs = await this.peer.receptorReqNodeList(j);
-    console.log('Folder::XXRANDNODES:',IPs);
+   //console.log('Folder::XXRANDNODES:',IPs);
     if (IPs.length == 0){
-      console.log(`reqCreateRepoFolder():: request backup nodes failed no other nodes found : `);
+     //console.log(`reqCreateRepoFolder():: request backup nodes failed no other nodes found : `);
       return;
     }
     var n = 0;
@@ -1158,10 +1158,10 @@ class ftreeFileMgrCellReceptor{
         }
       }
       catch(err) {
-        console.log('repo folder storage failed on:',IP);
+       //console.log('repo folder storage failed on:',IP);
       }
       if (n==IPs.length -1){
-        console.log(`reqCreateRepoFolder():: backup copies of new repo folder created : `,nStored,hosts,j);
+       //console.log(`reqCreateRepoFolder():: backup copies of new repo folder created : `,nStored,hosts,j);
         return;
       }
       n = n + 1;
@@ -1176,10 +1176,10 @@ class ftreeFileMgrCellReceptor{
     const remFolderID = result.result;
 
     j.repo.folderData = await this.getLocalRepoFolderRec(newFolderID);
-    console.log(JSON.stringify(j.repo));
+   //console.log(JSON.stringify(j.repo));
 
     var IPs = await this.peer.receptorReqNodeList(j);
-    console.log('removeFolder::XXRANDNODES:',IPs);
+   //console.log('removeFolder::XXRANDNODES:',IPs);
     if (IPs.length == 0){
       res.end('{"result":"repoOK","nRecs":0,"repoFolder":"No Nodes Available"}');
       return;
@@ -1196,7 +1196,7 @@ class ftreeFileMgrCellReceptor{
         }
       }
       catch(err) {
-        console.log('repo folder removale failed on:',IP);
+       //console.log('repo folder removale failed on:',IP);
       }
       if (n==IPs.length -1){
         res.end('{"result":"repoOK","nRemoved":'+nRemoved+',"repo":'+JSON.stringify(j)+',"hosts":'+JSON.stringify(hosts)+'}');
@@ -1249,14 +1249,14 @@ class ftreeFileMgrCellReceptor{
       ") AS SubR " +
       "ON SubR.rfoldID_master = R.rfoldParentID " +
       "WHERE R.rfoldID_master = "+folderID;
-      console.log(SQL);
+     //console.log(SQL);
       con.query(SQL , async (err, result,fields)=>{
         if (err){
-          console.log(err);
+         //console.log(err);
           resolve(null);
         }
         else {
-          console.log(result);
+         //console.log(result);
           if (result.length === 0){
             resolve ({name: null,parentID:null});      
           }
@@ -1280,11 +1280,11 @@ class ftreeFileMgrCellReceptor{
       var newFolderID = null;
       con.query(SQL , async (err, result,fields)=>{
         if (err){
-          console.log(err);
+         //console.log(err);
           resolve(false);
         }
         else {
-          console.log(result);
+         //console.log(result);
           result.forEach((rec,index)=>{
             if(index === 1){
               newFolderID = rec[0].newFolderID;
@@ -1303,7 +1303,7 @@ class ftreeFileMgrCellReceptor{
       const SQL = "update "+table+" set "+key+"_master = '"+newKeyID+"' where "+key+" = '"+newKeyID+"'";
       con.query(SQL , (err, result,fields)=>{
         if (err){
-          console.log(err);
+         //console.log(err);
           resolve(null);
         }
         else {
@@ -1327,7 +1327,7 @@ class ftreeFileMgrCellReceptor{
       VALUES ('${rec.repoID_master}','${rec.repoName}','${rec.repoPubKey}','${rec.repoOwner}','${rec.repoLastUpdate}','${rec.repoSignature}','${rec.repoHash}',${rec.repoCopies},'Master');`;
     con.query(SQL , (err, result,fields)=>{
       if (err){
-        console.log(err);
+       //console.log(err);
         return null;
       }
       else {
@@ -1344,7 +1344,7 @@ class ftreeFileMgrCellReceptor{
   doInsertRepoFolders(rec) {
     return new Promise(async (resolve,reject) => {
       const folderExists = await this.repoFolderExists(rec.repoID_master,rec.rfoldID_master);
-      console.log('folderExists',folderExists);
+     //console.log('folderExists',folderExists);
       if (folderExists) {
         resolve(null);
         return;
@@ -1353,10 +1353,10 @@ class ftreeFileMgrCellReceptor{
       var SQL = `INSERT INTO ftreeFileMgr.tblRepoFolder 
         (repoID_master, rfoldID_master, rfoldRepoID, rfoldName, rfoldParentID) 
         VALUES ('${rec.repoID_master}', ${rec.rfoldID_master}, ${rec.rfoldRepoID}, '${rec.rfoldName}', ${rec.rfoldParentID});`;
-      console.log(SQL);
+     //console.log(SQL);
       con.query(SQL, (err, result, fields) => {
         if (err) {
-          console.log('Error inserting folder:', err);
+         //console.log('Error inserting folder:', err);
           resolve(null);
           return;
         }
@@ -1376,7 +1376,7 @@ class ftreeFileMgrCellReceptor{
   doInsertRepoFileMgr(rec) {
     return new Promise(async (resolve,reject) => {
       const fileMgrExists = await this.repoFileMgrExists(rec.repoID_master,rec.smgrID_master);
-      console.log('fileMgrExists',fileMgrExists);
+     //console.log('fileMgrExists',fileMgrExists);
       if (fileMgrExists) {
         resolve(null);
         return;
@@ -1388,10 +1388,10 @@ class ftreeFileMgrCellReceptor{
       VALUES ('${rec.repoID_master}', ${rec.smgrID_master}, ${rec.smgrRepoID}, '${rec.smgrFileName}', '${rec.smgrCheckSum}',${rec.smgrDate ? `'${rec.smgrDate}'` : 'NULL'}, 
       ${rec.smgrExpires ? `'${rec.smgrExpires}'` : 'NULL'}, ${rec.smgrEncrypted}, '${rec.smgrFileType}', ${rec.smgrFileSize},${rec.smgrShardSize}, ${rec.smgrFVersionNbr}, '${rec.smgrSignature}', 
       '${rec.smgrShardList}', ${rec.smgrFileFolderID}, '${rec.smgrFilePath}');`;
-      console.log(SQL);
+     //console.log(SQL);
       con.query(SQL, (err, result, fields) => {
         if (err) {
-          console.log('Error inserting folder:', err);
+         //console.log('Error inserting folder:', err);
           resolve(null);
           return;
         }
@@ -1404,11 +1404,13 @@ class ftreeFileMgrCellReceptor{
   }
   createLocalRepo(repo){
     return new Promise((resolve,reject)=>{
+     //console.log(`createLocalRepo repo`,repo);
       const repoID_master =  hashToBase58(repo.name + repo.from);
       var SQL = "INSERT INTO `ftreeFileMgr`.`tblRepo` " +
       "(`repoID_master`,`repoName`,`repoPubKey`,`repoOwner`,`repoLastUpdate`,`repoSignature`,`repoHash`,`repoCopies`,`repoType`) " +
       "VALUES ('"+repoID_master+"','"+repo.name+"','"+repo.pubKey+"','"+repo.from+"',now(),'NS','NA',"+repo.nCopys+",'Master');" +
       "SELECT LAST_INSERT_ID() AS newRepoID;";
+     //console.log(`createLocalRepo SQL`,SQL);
       var newRepoID = null
       return pool.getConnection((err, con)=>{
         if (err){ return dbConFail(resolve,'CreateLocalRepo Conection Failed');}
@@ -1428,15 +1430,15 @@ class ftreeFileMgrCellReceptor{
 	        });
 	        const rhash = await this.getRepoHash(repo,newRepoID,con)
                 const sig = await this.updateAndSignRepo(newRepoID,repo.from+repo.name+rhash,rhash,con);		
-                console.log('YYYYYYYYY:',sig);
+               //console.log('YYYYYYYYY:',sig);
 		if (!sig){
 		  return dbFail(con,resolve,'Update Signature Failed');	
 		}
 		con.commit((err)=> {
                   if (err) {return dbFail(con,resolve,'Local Commit Failed');}
 	  	  else {
-		    console.log('New RepoID IS:',newRepoID);
-                    return dbResult(con,resolve,newRepoID);
+		   //console.log('New RepoID IS:',newRepoID);
+                    return dbResult(con,resolve,repoID_master);
 	          }
 		});
 	      }		
@@ -1454,7 +1456,7 @@ class ftreeFileMgrCellReceptor{
 
         return con.query(SQL , (err, result,fields)=>{
           if (err){
-            console.log(err);
+           //console.log(err);
             con.release();
             return resolve(null);
           }
@@ -1472,7 +1474,7 @@ class ftreeFileMgrCellReceptor{
 
         return con.query(SQL , (err, result,fields)=>{
           if (err){
-            console.log(err);
+           //console.log(err);
 	    con.release();
             return resolve(null);
           }
@@ -1485,13 +1487,13 @@ class ftreeFileMgrCellReceptor{
   updateAndSignRepo(repoID_master,token,rhash,con){
     return new Promise((resolve,reject)=>{
       var signature = this.shardToken.signToken(token);
-      console.log('Signing Token: ',token);
+     //console.log('Signing Token: ',token);
       var SQL = "update `ftreeFileMgr`.`tblRepo` " +
       "set repoPubKey = '"+this.shardToken.publicKey+"',repoSignature = '"+signature+"',repoHash = '"+rhash+"',repoLastUpdate=now() "+
       "where repoID_master = '"+repoID_master+"'";
       con.query(SQL , (err, result,fields)=>{
         if (err){
-          console.log(err);
+         //console.log(err);
           resolve(false);
         }
         else {
@@ -1505,7 +1507,7 @@ class ftreeFileMgrCellReceptor{
       var SQL = "select repoID_master from  `ftreeFileMgr`.`tblRepo` where repoOwner='"+r.from+"' and repoName='"+r.name+"'";
       con.query(SQL , async (err, result,fields)=>{
         if (err){
-          console.log(err);
+         //console.log(err);
           resolve(null);
      	  return;	
         }
@@ -1514,7 +1516,7 @@ class ftreeFileMgrCellReceptor{
 	    resolve(result[0].repoID_master);
             return;		  
           }	
-          console.log('Repo File Not Found: '+SQL);
+         //console.log('Repo File Not Found: '+SQL);
 	  resolve(null);
         }
       });
@@ -1525,7 +1527,7 @@ class ftreeFileMgrCellReceptor{
       var SQL = "select repoCopies from  `ftreeFileMgr`.`tblRepo` where repoOwner='"+r.from+"' and repoName='"+r.name+"'";
       con.query(SQL , async (err, result,fields)=>{
         if (err){
-          console.log(err);
+         //console.log(err);
           resolve(null);
           return;
         }
@@ -1534,7 +1536,7 @@ class ftreeFileMgrCellReceptor{
             resolve(result[0].repoCopies);
             return;
           }
-          console.log('Repo File Not Found: '+SQL);
+         //console.log('Repo File Not Found: '+SQL);
           resolve(null);
         }
       });
@@ -1542,7 +1544,7 @@ class ftreeFileMgrCellReceptor{
   }
   insertLocalFileShard(s,fileID,repoID_master,shardNbr,con){
     return new Promise(async (resolve,reject)=>{
-      console.log('InsertLocalFileShard::',s);
+     //console.log('InsertLocalFileShard::',s);
       s.startPos = s.startPos ?? 0;
       const curDate = new Date().toISOString().slice(0, 19).replace('T', ' ');
 
@@ -1551,8 +1553,8 @@ class ftreeFileMgrCellReceptor{
         "('"+repoID_master+"',"+fileID+","+s.startPos+",'"+s.shardID+"',"+s.nStored+",'"+curDate+"','"+curDate+"',0,'"+s.shardHID+"')";
       con.query(SQL , async (err, result,fields)=>{
         if (err){
-          console.log(err);
-          console.log('s::',s);
+         //console.log(err);
+         //console.log('s::',s);
           resolve(false);
         }
         else {
@@ -1560,7 +1562,7 @@ class ftreeFileMgrCellReceptor{
           const uSQL = `update ftreeFileMgr.tblShardFiles set sfilID_master = ${sfilID_master} where sfilID = ${result.insertId}`;
           con.query(uSQL , async (err, result,fields)=>{
             if (err){
-              console.log(err);
+             //console.log(err);
               resolve(false);
             }
             else { 
@@ -1585,7 +1587,7 @@ class ftreeFileMgrCellReceptor{
     return new Promise(async (resolve,reject)=>{
       var fileID = null;
       var repoID_master = null;
-      console.log('getRepFileID::',repo);
+     //console.log('getRepFileID::',repo);
       var f = repo.file;
       var SQL = "SELECT tblRepo.repoID_master,smgrID_master FROM ftreeFileMgr.tblRepo " + 
         "inner join ftreeFileMgr.tblShardFileMgr on `tblRepo`.`repoID_master` = `tblShardFileMgr`.`repoID_master` " +
@@ -1597,7 +1599,7 @@ class ftreeFileMgrCellReceptor{
           if (err){
             return dbFail(con,resolve,'getRepoFileID::sql look failed'+SQL);
           }
-          console.log(SQL,result);
+         //console.log(SQL,result);
           if (result.length === 0){
             return dbFail(con,resolve,'getRepoFileID::sql empty set'+SQL);
           }		  
@@ -1622,7 +1624,7 @@ class ftreeFileMgrCellReceptor{
       var SQL = "Delete From `ftreeFileMgr`.`tblShardFileMgr` where repoID_master = '"+repoID_master+"' and smgrID_master = "+repoFileID+";"+
         "Delete From `ftreeFileMgr`.`tblShardFiles` where repoID_master = '"+repoID_master+"' and sfilFileMgrID = "+repoFileID;
 
-      console.log('deleteLocalRepoFile::',SQL);
+     //console.log('deleteLocalRepoFile::',SQL);
 
       return pool.getConnection((err, con)=>{
         if (err){ return dbConFail(resolve,'DeleteLocalRepFile::getConnection Failed');}
@@ -1633,7 +1635,7 @@ class ftreeFileMgrCellReceptor{
           var actionFail = null;
 	  result.forEach((rec,index)=>{
             //check each result for success;
-	    console.log('delete result::',rec);
+	   //console.log('delete result::',rec);
 	    if(index === 1){
              // newRFileID = rec[0].newRFileID;
             }
@@ -1660,7 +1662,7 @@ class ftreeFileMgrCellReceptor{
       if (repo.folderID === null || repo.folderID == ''){
         repo.folderID = 'null';
       }
-      console.log(repo);
+     //console.log(repo);
       // Update *** the smgrFileSize field is now used to store the file pointer for random access.
       f.chunksize = f.chunksize ?? 0;
 
@@ -1694,7 +1696,7 @@ class ftreeFileMgrCellReceptor{
         if (err){ return dbConFail(resolve,'InsertLocalRepFile::getConnection Failed');}
         return con.query(SQL,params, async (err, result,fields)=>{
           if (err){
-            console.log(err,SQL,params);
+           //console.log(err,SQL,params);
             return dbFail(con,resolve,'Insert File Record Failed'+SQL);
           }
           var newRFileID = result.insertId;
@@ -1709,7 +1711,7 @@ class ftreeFileMgrCellReceptor{
 	      const rhash = await this.getRepoHash(repo,repoID_master,con);
               await this.updateAndSignRepo(repoID_master,repo.from+repo.name+rhash,rhash,con);
             }		    
-            console.log('XXXXXXXXXXX');
+           //console.log('XXXXXXXXXXX');
 	    return dbResult(con,resolve,repoID_master);
           }
           else {
@@ -1720,7 +1722,7 @@ class ftreeFileMgrCellReceptor{
     });
   }
   async reqInsertRSfile(j,res){
-    console.log('Insert Repo Shard File:',j);
+   //console.log('Insert Repo Shard File:',j);
     var newFileRepoID = null;
     if (await this.repoFileExists(j.repo.file.filename,j.repo.name,j.repo.from,j.repo.path) > 0){
       res.end('{"result":false,"nRecs":0,"repo":"Repo'+j.repo.name+' File Aready Exists: '+j.repo.file+'"}');
@@ -1733,7 +1735,7 @@ class ftreeFileMgrCellReceptor{
       return;
     }
     newFileRepoID = pj.value;  
-    console.log('Got newFileID: ',newFileRepoID);
+   //console.log('Got newFileID: ',newFileRepoID);
 
     j.repo.data = await this.getLocalRepoRec(newFileRepoID);
 
@@ -1754,7 +1756,7 @@ class ftreeFileMgrCellReceptor{
         }
       }
       catch(err) {
-        console.log('repo storage failed on:',IP);
+       //console.log('repo storage failed on:',IP);
       }
       if (n==IPs.length -1){
         res.end('{"result":"repoInsertFileOK","nStored":'+nStored+',"repo":'+JSON.stringify(j)+',"hosts":'+JSON.stringify(hosts)+'}');
@@ -1764,7 +1766,7 @@ class ftreeFileMgrCellReceptor{
     return;
   }
   async reqDeleteRSfile(j,res){
-    console.log('Delete Repo Shard File:',j);
+   //console.log('Delete Repo Shard File:',j);
     var delFileRepoID = null;
     const pj = await this.deleteLocalRepoFile(j.repo);
     if (!pj.result){
@@ -1772,12 +1774,12 @@ class ftreeFileMgrCellReceptor{
       return;
     }
     delFileRepoID = pj.value;
-    console.log('Got delFileID: ',delFileRepoID);
+   //console.log('Got delFileID: ',delFileRepoID);
 
     j.repo.data = await this.getLocalRepoRec(delFileRepoID);
 
     var IPs = await this.peer.getActiveRepoList(j);
-    console.log('activeRepoList::',IPs);
+   //console.log('activeRepoList::',IPs);
     if (IPs.length == 0){
       res.end('{"result":false,"nRecs":0,"repo":"No Nodes Available For File Delete"}');
       return;
@@ -1794,7 +1796,7 @@ class ftreeFileMgrCellReceptor{
         }
       }
       catch(err) {
-        console.log('repo delete file failed on:',IP);
+       //console.log('repo delete file failed on:',IP);
       }
       if (n==IPs.length -1){
         res.end('{"result":"repoDeleteFileOK","nStored":'+nStored+',"repo":'+JSON.stringify(j)+',"hosts":'+JSON.stringify(hosts)+'}');
@@ -1828,17 +1830,17 @@ function createConnection() {
   });
   connection.connect((err) => {
     if (err) {
-      console.error('Error connecting to database:', err);
+     //console.error('Error connecting to database:', err);
       setTimeout(createConnection, 2000); // Retry connection
     } else {
-      console.log('Connected to database');
+     //console.log('Connected to database');
     }
   });
 
   connection.on('error', (err) => {
-    console.error('BORG:MySQL Error:', err);
+   //console.error('BORG:MySQL Error:', err);
     if (err.code === 'PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR' || err.code === 'ECONNRESET') {
-      console.log('Reconnecting after fatal error...');
+     //console.log('Reconnecting after fatal error...');
       connection.destroy();
       con = createConnection(); // Reconnect after fatal error
     }
@@ -1850,7 +1852,7 @@ function createConnection() {
 function heartbeat() {
   con.ping((err) => {
     if (err) {
-      console.error('BORG::mySQL::Heartbeat failed, attempting to reconnect...', err);
+     //console.error('BORG::mySQL::Heartbeat failed, attempting to reconnect...', err);
       con.destroy();
       con = createConnection();
     }
@@ -1873,16 +1875,16 @@ var pool  = mysqlp.createPool({
 
 pool.on('connection', (connection) => {
   connection.on('error', (err) => {
-    console.error('BORG:POOL:Connection error:', err);
+   //console.error('BORG:POOL:Connection error:', err);
     if (err.code === 'PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR') {
-      console.log('Removing faulty connection...');
+     //console.log('Removing faulty connection...');
       connection.destroy(); // Remove bad connection
     }
   });
 });
 
 function dbConFail(resolve,msg){
-  console.log(msg);
+ //console.log(msg);
   return resolve({result:false,msg:'dbERROR : '+msg});
 }
 function dbResult(con,resolve,value){
@@ -1892,7 +1894,7 @@ function dbResult(con,resolve,value){
 function dbFail(con,resolve,msg){
   con.rollback();
   con.release();
-  console.log('dbFAIL::',msg);
+ //console.log('dbFAIL::',msg);
   return resolve({result:false,msg:'dbERROR : '+msg});
 }
 function getRandomInt(max) {
@@ -1918,7 +1920,7 @@ class ftreeFileMgrObj {
   }	  
   setNetErrHandle(){
     this.net.on('mkyRejoin',(j)=>{
-      console.log('Network Drop Detected',j);
+     //console.log('Network Drop Detected',j);
       this.status = 'starting';
       this.init();
     });
@@ -1952,12 +1954,12 @@ class ftreeFileMgrObj {
       const req = https.request(options, res => {
         var rdata = '';
         res.on('data', d => {
-          console.log(d);
+         //console.log(d);
           rdata += d;
         });
         res.on('end',()=>{
           var reply = null;
-          console.log('getGold Rate returned',rdata);
+         //console.log('getGold Rate returned',rdata);
           try {reply = JSON.parse(rdata);}
           catch(err) {reply = {mkyRate:0.0};}
           resolve(reply.mkyRate);
@@ -1965,7 +1967,7 @@ class ftreeFileMgrObj {
       });
 
       req.on('error', error => {
-        console.error(error)
+       //console.error(error)
         resolve(0.0);
       });
 
@@ -1988,7 +1990,7 @@ class ftreeFileMgrObj {
         }
         return con.query(SQL, async (err, result, fields)=>{
           if (err) {return dbFail(con,resolve,err+SQL);}
-          console.log('Database Reset: connection released');
+         //console.log('Database Reset: connection released');
           return dbResult(con,resolve,'OK');
         });
       });
@@ -2015,7 +2017,7 @@ class ftreeFileMgrObj {
     const msg = j.msg;
   }
   async handleReq(res,j){
-    console.log('reqHandle::->Check dbCon.state::',con.state);
+   //console.log('reqHandle::->Check dbCon.state::',con.state);
     if (con.state === 'disconnected') {
       await con.connect();
     }
@@ -2071,7 +2073,10 @@ class ftreeFileMgrObj {
     }
     //console.log('bcast received: ',j);
     if (!j.msg.to) {return;}
-    if (j.remIp == this.net.nIp) {console.log('ignoring bcast to self',this.net.nIp);return;} // ignore bcasts to self.
+    if (j.remIp == this.net.nIp) {
+      //console.log('ignoring bcast to self',this.net.nIp);
+      return;
+    } 
     if (j.msg.to == 'ftreeCells'){
       if (j.msg.req){
         if (j.msg.req == 'hello'){
@@ -2105,11 +2110,11 @@ class ftreeFileMgrObj {
           this.doDeleteShardByOwner(j.msg,j.remIp);
         }
         if (j.msg.req == 'sendNodeList'){
-          console.log('DOPOW xxxx',j.remIp);
+         //console.log('DOPOW xxxx',j.remIp);
           this.doPow(j.msg,j.remIp);
         }
         if (j.msg.req == 'stopNodeGenIP'){
-          console.log('DOPOW stopNodeGenIP-XX Received:',j.remIp);
+         //console.log('DOPOW stopNodeGenIP-XX Received:',j.remIp);
           this.doPowStop(j.remIp,j.msg.reqId);
         }
       }
@@ -2132,7 +2137,7 @@ class ftreeFileMgrObj {
     // check public key matches the remotes address
     var mkybc = bitcoin.payments.p2pkh({ pubkey: new Buffer.from(''+sig.pubKey, 'hex') });
     if (sig.ownMUID !== mkybc.address){
-      console.log('remote wallet address does not match publickey',sig,mkybc.address);
+     //console.log('remote wallet address does not match publickey',sig,mkybc.address);
       return false;
     }
     //verify the signature token with the public key
@@ -2144,7 +2149,7 @@ class ftreeFileMgrObj {
   =================================================================================
   */
    async doSendMyMasterRIP(j,remIp){
-     console.log(`doSendMyMasterRIP():: req-> `,j);
+    //console.log(`doSendMyMasterRIP():: req-> `,j);
      const result = await this.receptor.locateMyRepoLocal(j.owner);
      if (result) {
        var qres = {
@@ -2159,15 +2164,15 @@ class ftreeFileMgrObj {
    }
    doSendMyRepoList(j,remIp){
      var SQL = `select * from ftreeFileMgr.tblRepo where repoOwner = '${j.repoOwner}' and repoType = 'Public' limit ${j.limit} offset ${j.offset}`;
-     console.log('doSendMyRepos: '+SQL,j);
+    //console.log('doSendMyRepos: '+SQL,j);
      con.query(SQL , async(err, result,fields)=>{
        if (err){
-         console.log('error reading repo ',err);
+        //console.log('error reading repo ',err);
        }
        else {
          var repo = null;
          if (result.length == 0){
-           console.log('repo Not Found On This Node.');
+          //console.log('repo Not Found On This Node.');
            return;
          }
          else {
@@ -2187,16 +2192,16 @@ class ftreeFileMgrObj {
                WHERE repoID_master = '${j.repoID_master}' 
                LIMIT ${j.limit} OFFSET ${j.offset}`;
     
-    console.log('doSendMyFolderList: ' + SQL, j);
+   //console.log('doSendMyFolderList: ' + SQL, j);
 
     con.query(SQL, async (err, result, fields) => {
         if (err) {
-            console.log('Error reading folders', err);
+           //console.log('Error reading folders', err);
             return;
         }
 
         if (result.length === 0) {
-            console.log('Folder Not Found On This Node.');
+           //console.log('Folder Not Found On This Node.');
             return;
         }
 
@@ -2214,16 +2219,16 @@ class ftreeFileMgrObj {
                WHERE repoID_master = '${j.repoID_master}'
                LIMIT ${j.limit} OFFSET ${j.offset}`;
 
-    console.log('doSendMyFileMgrList: ' + SQL, j);
+   //console.log('doSendMyFileMgrList: ' + SQL, j);
 
     con.query(SQL, async (err, result, fields) => {
         if (err) {
-            console.log('Error reading folders', err);
+           //console.log('Error reading folders', err);
             return;
         }
 
         if (result.length === 0) {
-            console.log('Repo FileMgr Not Found On This Node.');
+           //console.log('Repo FileMgr Not Found On This Node.');
             return;
         }
 
@@ -2238,15 +2243,15 @@ class ftreeFileMgrObj {
   }
   doSendActiveRepo(j,remIp){
      var SQL = "select * from ftreeFileMgr.tblRepo where repoOwner = '"+j.repo.from+"' and repoName = '"+j.repo.name+"'";
-     console.log('doSendActiveRep: '+SQL,j);
+    //console.log('doSendActiveRep: '+SQL,j);
      con.query(SQL , async(err, result,fields)=>{
        if (err){
-         console.log('error reading repo ',err);
+        //console.log('error reading repo ',err);
        }
        else {
          var repo = null;
          if (result.length == 0){
-           console.log('repo Not Found On This Node.');
+          //console.log('repo Not Found On This Node.');
            return;
          }
          else {
@@ -2264,15 +2269,15 @@ class ftreeFileMgrObj {
   }
   doSendActiveRepoFolder(j,remIp){
      var SQL = "select * from ftreeFileMgr.tblRepoFolder where rfoldID_master = '"+j.repo.folder.fmasterID+"' and repoID_master = '"+j.repo.repoID_master+"'";
-     console.log('doSendActiveRepoFolder: '+SQL,j);
+    //console.log('doSendActiveRepoFolder: '+SQL,j);
      con.query(SQL , async(err, result,fields)=>{
        if (err){
-         console.log('error reading repo folder ',err);
+        //console.log('error reading repo folder ',err);
        }
        else {
          var repo = null;
          if (result.length == 0){
-           console.log('repo folder Not Found On This Node.');
+          //console.log('repo folder Not Found On This Node.');
            return;
          }
          else {
@@ -2290,15 +2295,15 @@ class ftreeFileMgrObj {
   }
   doSendActiveRepoFile(j,remIp){
      var SQL = "select * from ftreeFileMgr.tblShardFileMgr where smgrID_master = '"+j.repo.file.fileID_master+"' and repoID_master = '"+j.repo.repoID_master+"'";
-     console.log('doSendActiveRepoFile: '+SQL,j);
+    //console.log('doSendActiveRepoFile: '+SQL,j);
      con.query(SQL , async(err, result,fields)=>{
        if (err){
-         console.log('error reading repo file ',err);
+        //console.log('error reading repo file ',err);
        }
        else {
          var repo = null;
          if (result.length == 0){
-           console.log('repo file Not Found On This Node.');
+          //console.log('repo file Not Found On This Node.');
            return;
          }
          else {
@@ -2316,15 +2321,15 @@ class ftreeFileMgrObj {
   }
   doSendActiveRepoShard(j,remIp){
     var SQL = "select * from ftreeFileMgr.tblShardFiles where sfilID_master = '"+j.repo.shard.shardID_master+"' and repoID_master = '"+j.repo.repoID_master+"'";
-    console.log('doSendActiveRepoShard: '+SQL,j);
+   //console.log('doSendActiveRepoShard: '+SQL,j);
     con.query(SQL , async(err, result,fields)=>{
       if (err){
-        console.log('error reading repo shard ',err);
+       //console.log('error reading repo shard ',err);
       }
       else {
         var repo = null;
         if (result.length == 0){
-          console.log('repo shard Not Found On This Node.');
+         //console.log('repo shard Not Found On This Node.');
           return;
         }
         else {
@@ -2389,11 +2394,11 @@ class ftreeFileMgrObj {
       var SQL = "update `ftreeFileMgr`.`tblRepo` " +
       "set repoSignature = '"+repo.data.repoSignature+"',repoHash = '"+repo.data.repoHash+"',repoLastUpdate='"+repo.data.repoLastUpdate+
       "' where repoID_master = '"+repoID_master+"'";
-      console.log('Updating Repo Hash: ',repo);
-      console.log('Updating Repo Hash: ',SQL);
+     //console.log('Updating Repo Hash: ',repo);
+     //console.log('Updating Repo Hash: ',SQL);
       con.query(SQL , (err, result,fields)=>{
         if (err){
-          console.log(err);
+         //console.log(err);
           resolve(false);
         }
         else {
@@ -2404,6 +2409,7 @@ class ftreeFileMgrObj {
   }
   storeRepo(j,remIp){
     console.log('got full request store repo',j);
+/*X?X NOT FINISHED
     j.repo.signature = this.composeRepoSig(j.repo.data);
     console.log('got request store repo',j.repo.signature);
     if (!this.isValidSig(j.repo.signature)){
@@ -2411,8 +2417,9 @@ class ftreeFileMgrObj {
       this.net.sendReply(remIp,{reply : 'repoStoreRes',reqId : j.reqId, result :false,error : "Invalid Signature For Request"});
       return;
     }
+*/
     var SQL = "select repoID_master from ftreeFileMgr.tblRepo where repoID_master = '"+j.repo.data.repoID_master+"'";
-
+    console.log(`storeRepo():: SQL`,SQL);
     con.query(SQL , async(err, result,fields)=>{
       if (err){
         console.log(err);
@@ -2476,6 +2483,9 @@ class ftreeFileMgrObj {
         "VALUES ('"+repoID_master+"','"+d.repoName+"','"+d.repoPubKey+"','"+d.repoOwner+"','"+d.repoLastUpdate+"','"+d.repoSignature+"','"+d.repoHash+"',"+d.repoCopies+
         ",'Public');" +
         "SELECT LAST_INSERT_ID() AS newRepoID;";
+
+      console.log(`REMOTE:createNewRepo():: SQL`,SQL);
+
       con.query(SQL , async (err, result,fields)=>{
         if (err){
           console.log(err);
@@ -2495,7 +2505,7 @@ class ftreeFileMgrObj {
   }
   createNewRepoFolder(r){
     return new Promise((resolve,reject)=>{
-      console.log('CreateNewRepoFolder::',r);
+     //console.log('CreateNewRepoFolder::',r);
       const d = r.data;
       const f = r.folder;
       var SQL = "INSERT INTO `ftreeFileMgr`.`tblRepoFolder` (`repoID_master`,`rfoldID_master`,`rfoldName`,`rfoldParentID`) "+
@@ -2503,7 +2513,7 @@ class ftreeFileMgrObj {
           "SELECT LAST_INSERT_ID() AS newFolderID;";
       con.query(SQL , async (err, result,fields)=>{
         if (err){
-          console.log(err);
+         //console.log(err);
           resolve(null);
         }
         else {
@@ -2519,13 +2529,13 @@ class ftreeFileMgrObj {
     });
   }
   storeRepoFolder(j,remIp){
-    console.log('got full request store repo Folder',j);
+   //console.log('got full request store repo Folder',j);
     
     var SQL = "select rfoldID from ftreeFileMgr.tblRepoFolder where repoID_master = '"+j.repo.data.repoID_master+"' and rfoldID_master = '"+j.repo.folder.fmasterID+"'";
-    console.log(SQL);
+   //console.log(SQL);
     con.query(SQL , async(err, result,fields)=>{
       if (err){
-        console.log(err);
+       //console.log(err);
         var qres = {
           reply  : 'repoStoreFolderRes',
           reqId  : j.reqId,
@@ -2538,7 +2548,7 @@ class ftreeFileMgrObj {
       }
       else {
         var rfoldID_master = null;
-        console.log(result);
+       //console.log(result);
         if (result.length == 0){
           rfoldID_master = await this.createNewRepoFolder(j.repo);
           console.log('New Repo Folder Created:',rfoldID_master);
@@ -2560,7 +2570,7 @@ class ftreeFileMgrObj {
               result : true,
               rfoldID_master : rfoldID_master
             }
-            console.log('sending repoStoreFolderRes:'+remIp,qres);
+           //console.log('sending repoStoreFolderRes:'+remIp,qres);
             this.net.sendReply(remIp,qres);
           }
         }
@@ -2572,14 +2582,14 @@ class ftreeFileMgrObj {
             error  : 'Something Fishy Happend',
             rfoldID_master : rfoldID_master
           }
-          console.log('sending storeRepoFolder:'+remIp,qres);
+         //console.log('sending storeRepoFolder:'+remIp,qres);
           this.net.sendReply(remIp,qres);
         }
       }
     });
   }
   storeRepoFile(j, remIp) {
-    console.log('Received file storage request', j);
+   //console.log('Received file storage request', j);
   
     const SQL = `
       SELECT smgrID FROM ftreeFileMgr.tblShardFileMgr 
@@ -2587,11 +2597,11 @@ class ftreeFileMgrObj {
       AND smgrID_master = '${j.repo.file.fileID_master}'
     `;
   
-    console.log('File check SQL:', SQL);
+   //console.log('File check SQL:', SQL);
   
     con.query(SQL, async (err, result, fields) => {
       if (err) {
-        console.error('Database error:', err);
+       //console.error('Database error:', err);
         this.net.sendReply(remIp, {
           reply: 'repoStoreFileRes',
           result: false,
@@ -2606,7 +2616,7 @@ class ftreeFileMgrObj {
       if (result.length === 0) {
         try {
           smgrID_master = await this.createNewRepoFile(j.repo);
-          console.log('New file record created:', smgrID_master);
+         //console.log('New file record created:', smgrID_master);
         
           if (!smgrID_master) {
             this.net.sendReply(remIp, {
@@ -2626,7 +2636,7 @@ class ftreeFileMgrObj {
             checksum: j.repo.file.checksum
           });
         } catch (createErr) {
-          console.error('File creation error:', createErr);
+         //console.error('File creation error:', createErr);
           this.net.sendReply(remIp, {
             reply: 'repoStoreFileRes',
             result: false,
@@ -2634,7 +2644,7 @@ class ftreeFileMgrObj {
           });
         }
       } else {
-        console.log('File already exists:', result[0].smgrID);
+       //console.log('File already exists:', result[0].smgrID);
         this.net.sendReply(remIp, {
           reply: 'repoStoreFileRes',
           result: false,
@@ -2645,7 +2655,7 @@ class ftreeFileMgrObj {
     });
   }
   storeRepoShard(j, remIp) {
-    console.log('Received shard storage request', j);
+   //console.log('Received shard storage request', j);
 
     const SQL = `
       SELECT sfilID FROM ftreeFileMgr.tblShardFiles
@@ -2653,11 +2663,11 @@ class ftreeFileMgrObj {
       AND sfilID_master = '${j.repo.shard.shardID_master}'
     `;
 
-    console.log('Shard check SQL:', SQL);
+   //console.log('Shard check SQL:', SQL);
 
     con.query(SQL, async (err, result, fields) => {
       if (err) {
-        console.error('Database error:', err);
+       //console.error('Database error:', err);
         this.net.sendReply(remIp, {
           reply  : 'repoStoreShardRes',
           reqId  : j.reqId,
@@ -2673,7 +2683,7 @@ class ftreeFileMgrObj {
       if (result.length === 0) {
         try {
           sfilID_master = await this.createNewRepoShard(j.repo);
-          console.log('New shard record created:', sfilID_master);
+         //console.log('New shard record created:', sfilID_master);
 
           if (!sfilID_master) {
             this.net.sendReply(remIp, {
@@ -2694,7 +2704,7 @@ class ftreeFileMgrObj {
             shardHash     : j.repo.shard.sfilShardHash
           });
         } catch (createErr) {
-          console.error('Shard creation error:', createErr);
+         //console.error('Shard creation error:', createErr);
           this.net.sendReply(remIp, {
             reply  : 'repoStoreShardRes',
             reqId  : j.reqId,
@@ -2703,7 +2713,7 @@ class ftreeFileMgrObj {
           });
         }
       } else {
-        console.log('Shard already exists:', result[0].sfilID);
+       //console.log('Shard already exists:', result[0].sfilID);
         this.net.sendReply(remIp, {
           reply  : 'repoStoreShardRes',
           reqId  : j.reqId,
@@ -2736,10 +2746,10 @@ class ftreeFileMgrObj {
     return new Promise((resolve, reject) => {
       con.query(fileSQL, (err, result) => {
         if (err) {
-          console.error('File insertion error:', err);
+         //console.error('File insertion error:', err);
           reject(err);
         } else {
-          console.log('Inserted file with ID:', result.insertId);
+         //console.log('Inserted file with ID:', result.insertId);
           resolve(result.insertId);
         }
       });
@@ -2762,10 +2772,10 @@ class ftreeFileMgrObj {
     return new Promise((resolve, reject) => {
       con.query(shardSQL, (err, result) => {
         if (err) {
-          console.error('Shard insertion error:', err);
+         //console.error('Shard insertion error:', err);
           reject(err);
         } else {
-          console.log('Inserted shard with ID:', result.insertId);
+         //console.log('Inserted shard with ID:', result.insertId);
           resolve(result.insertId);
         }
       });
@@ -2793,14 +2803,14 @@ class ftreeFileMgrObj {
     this.net.broadcast(req);
   }
   getActiveRepoList(j){
-    console.log('getActiveRepoList',j);
+   //console.log('getActiveRepoList',j);
     return new Promise( (resolve,reject)=>{
       var mkyReply = null;
       const maxIP = j.repo.data.repoCopies;
-      console.log('Check repo nCopys::',maxIP,j.repo.name);
+     //console.log('Check repo nCopys::',maxIP,j.repo.name);
       var   IPs = [];
       const gtime = setTimeout( ()=>{
-        console.log('getActiveRepoList Request Timeout:');
+       //console.log('getActiveRepoList Request Timeout:');
         this.net.removeListener('mkyReply', mkyReply);
         resolve(IPs);
       },1.5*1000);
@@ -2834,20 +2844,23 @@ class ftreeFileMgrObj {
     });
   }
   verifyActiveRepo(r){
-     //console.log('verifyActiveRepo: ',r.repo.repoName);
+     console.log('verifyActiveRepo: ',r);
+/*X?X NOT FINISHED needs borgHUI_sig
      var signature = this.composeRepoSig(r.repo);
-     //console.log('building ActiveRep Signature',signature);
+     console.log('building ActiveRep Signature',signature);
      if (this.isValidSig(signature)){ 
        //console.log('ActiveRep Signature Is Valid:');
        return true;
      }
+*/
+     return true;
      return false;
   }	  
   locateMyMasterRepo(muid){
     return new Promise( (resolve,reject)=>{
       var mkyReply = null;
       const gtime = setTimeout( ()=>{
-        console.log('locateMyMasterRepo():: Request Timeout:');
+       //console.log('locateMyMasterRepo():: Request Timeout:');
         this.net.removeListener('mkyReply', mkyReply);
         resolve(null);
       },1.5*1000);
@@ -2862,7 +2875,7 @@ class ftreeFileMgrObj {
 
       this.net.broadcast(req);
       this.net.on('mkyReply', mkyReply = (r)=>{
-        console.log(`locateMyMasterRepo():: heard reply: `, r);
+       //console.log(`locateMyMasterRepo():: heard reply: `, r);
         if (r.req == 'sendMyMasterRIPResult' && r.reqId == reqId){
           resolve(r);
         }
@@ -2875,10 +2888,10 @@ class ftreeFileMgrObj {
     return new Promise( (resolve,reject)=>{
       var mkyReply = null;
       const maxIP = j.repo.data.repoCopies;
-      console.log('Check repoFolder nCopys::',maxIP,j.repo.name);
+     //console.log('Check repoFolder nCopys::',maxIP,j.repo.name);
       var   IPs = [];
       const gtime = setTimeout( ()=>{
-        console.log('getActiveRepoFolder Request Timeout:');
+       //console.log('getActiveRepoFolder Request Timeout:');
         this.net.removeListener('mkyReply', mkyReply);
         resolve(IPs);
       },1.5*1000);
@@ -2912,11 +2925,11 @@ class ftreeFileMgrObj {
     return new Promise((resolve, reject) => {
       let mkyReply = null;
       const maxIP = j.repo.data.repoCopies;
-      console.log('Check repoFile nCopys::', maxIP, j.repo.name);
+     //console.log('Check repoFile nCopys::', maxIP, j.repo.name);
       let IPs = [];
     
       const gtime = setTimeout(() => {
-        console.log('getActiveRepoFile Request Timeout:');
+       //console.log('getActiveRepoFile Request Timeout:');
         this.net.removeListener('mkyReply', mkyReply);
         resolve(IPs);
       }, 1.5 * 1000);
@@ -2950,11 +2963,11 @@ class ftreeFileMgrObj {
     return new Promise((resolve, reject) => {
       let mkyReply = null;
       const maxIP = j.repo.data.repoCopies;
-      console.log('Check repoShard nCopys::', maxIP, j.repo.name);
+     //console.log('Check repoShard nCopys::', maxIP, j.repo.name);
       let IPs = [];
 
       const gtime = setTimeout(() => {
-        console.log('getActiveRepoShard Request Timeout:');
+       //console.log('getActiveRepoShard Request Timeout:');
         this.net.removeListener('mkyReply', mkyReply);
         resolve(IPs);
       }, 1.5 * 1000);
@@ -3000,7 +3013,7 @@ class ftreeFileMgrObj {
       const maxIP = this.myPeers.length || 3;
       var   results = [];
       const gtime = setTimeout( ()=>{
-        console.log('Send My Remote Repos List Request Timeout:');
+       //console.log('Send My Remote Repos List Request Timeout:');
         this.net.removeListener('mkyReply', mkyReply);
         resolve(results);
       },2.5*1000);
@@ -3013,11 +3026,11 @@ class ftreeFileMgrObj {
         limit     : limit,
         offset    : offset
       }
-      console.log(msg);
+     //console.log(msg);
       this.net.broadcast(msg);    
       this.net.on('mkyReply', mkyReply = (r)=>{
         if (r.req == 'sendMyRepoListResult' && reqId == r.reqId){
-          console.log('mkyReply Remote Repo List:',r.remIp);
+         //console.log('mkyReply Remote Repo List:',r.remIp);
           if (results.length <= maxIP){
             results.push({result:r.result,remIp:r.remIp});
           }
@@ -3038,7 +3051,7 @@ class ftreeFileMgrObj {
 
         // Set timeout to handle request failures
         const gtime = setTimeout(() => {
-            console.log('Send My Remote Folders List Request Timeout:');
+           //console.log('Send My Remote Folders List Request Timeout:');
             this.net.removeListener('mkyReply', mkyReply);
             resolve(results);
         }, 2.5 * 1000);
@@ -3054,13 +3067,13 @@ class ftreeFileMgrObj {
             offset        : offset
         };
 
-        console.log(msg);
+       //console.log(msg);
         this.net.broadcast(msg);
 
         // Listen for remote responses
         this.net.on('mkyReply', mkyReply = (r) => {
             if (r.req === 'sendMyFolderListResult' && reqId == r.reqId) {
-                console.log('mkyReply Remote Folder List:', r.remIp);
+               //console.log('mkyReply Remote Folder List:', r.remIp);
                 if (results.length <= maxIP) {
                     results.push({ result: r.result, remIp: r.remIp });
                 } else {
@@ -3080,7 +3093,7 @@ class ftreeFileMgrObj {
 
         // Set timeout to handle request failures
         const gtime = setTimeout(() => {
-            console.log('Send My Remote FileMgr List Request Timeout:');
+           //console.log('Send My Remote FileMgr List Request Timeout:');
             this.net.removeListener('mkyReply', mkyReply);
             resolve(results);
         }, 2.5 * 1000);
@@ -3096,13 +3109,13 @@ class ftreeFileMgrObj {
             offset        : offset
         };
 
-        console.log(msg);
+       //console.log(msg);
         this.net.broadcast(msg);
 
         // Listen for remote responses
         this.net.on('mkyReply', mkyReply = (r) => {
             if (r.req === 'sendMyFileMgrListResult' && reqId == r.reqId) {
-                console.log('mkyReply Remote FileMgr List:', r.remIp);
+               //console.log('mkyReply Remote FileMgr List:', r.remIp);
                 if (results.length <= maxIP) {
                     results.push({ result: r.result, remIp: r.remIp });
                 } else {
@@ -3116,12 +3129,12 @@ class ftreeFileMgrObj {
   }
   receptorReqNodeList(j,excludeIps=[]){
     return new Promise( (resolve,reject)=>{
-      console.log('receptorReqNodeList::',j);
+     //console.log('receptorReqNodeList::',j);
       var mkyReply = null;
       const maxIP = j.repo.nCopys;
       var   IPs = [];
       const gtime = setTimeout( ()=>{
-        console.log('Send Node List Request Timeout:');
+       //console.log('Send Node List Request Timeout:');
         this.net.removeListener('mkyReply', mkyReply);
         resolve(IPs);
       },1.5*1000);
@@ -3133,13 +3146,13 @@ class ftreeFileMgrObj {
         reqId  : reqId,
         nodes  : maxIP,
         xnodes : excludeIps,
-        work   : crypto.randomBytes(20).toString('hex') 
+        work   : reqId 
       }
 
       this.net.broadcast(req);
       this.net.on('mkyReply', mkyReply = (r)=>{
         if (r.req == 'pNodeListGenIP' && reqId == r.reqId){
-          console.log('mkyReply NodeGen is:',r.remIp);
+         //console.log('mkyReply NodeGen is:',r.remIp);
           if (IPs.length <= maxIP){
             IPs.push(r.remIp);
           }
@@ -3185,7 +3198,7 @@ class ftreeFileMgrObj {
     });
     if (availTranNodes != this.myPeers.length){
       availTranNodes = this.myPeers.length;
-      console.log('availTranNodes is now',availTranNodes);
+     //console.log('availTranNodes is now',availTranNodes);
     }
     return;
   }
@@ -3207,12 +3220,12 @@ class ftreeFileMgrObj {
     return new Promise( (resolve,reject)=>{
       var mkyReply = null;
       const gtime = setTimeout( ()=>{
-        console.log('Update Repo Insert File Timeout:');
+       //console.log('Update Repo Insert File Timeout:');
         this.net.removeListener('mkyReply', mkyReply);
         resolve(null);
       },5000);
 
-      console.log('Store Repo To: ',toIp);
+     //console.log('Store Repo To: ',toIp);
       const reqId = crypto.randomUUID();
       var req = {
         req   : 'updateRepoInsertFile',
@@ -3235,11 +3248,11 @@ class ftreeFileMgrObj {
     return new Promise( (resolve,reject)=>{
       var mkyReply = null;
       const gtime = setTimeout( ()=>{
-        console.log('Update Repo Delete File Timeout:');
+       //console.log('Update Repo Delete File Timeout:');
         this.net.removeListener('mkyReply', mkyReply);
         resolve(null);
       },5000);
-      console.log('Delete Repo File On: ',toIp);
+     //console.log('Delete Repo File On: ',toIp);
 
       const reqId = crypto.randomUUID();
       var req = {
@@ -3259,8 +3272,8 @@ class ftreeFileMgrObj {
     });
   }
   receptorReqCreateRepo(j,toIp){
-    //console.log('receptorReqCreateRepo',j);
-    return new Promise( (resolve,reject)=>{	  
+    console.log('receptorReqCreateRepo',j);
+    return new Promise( async (resolve,reject)=>{	  
       var mkyReply = null;
       const gtime = setTimeout( ()=>{
         console.log('Create New Repo Timeout:');
@@ -3268,15 +3281,15 @@ class ftreeFileMgrObj {
         resolve(null);
       },5000);  
       console.log('Store Repo To: ',toIp);
-      //j.repo.signature = this.composeRepoSig(j.repo.data);
 
+      //j.repo.signature = this.composeRepoSig(j.repo.data);
       const reqId = crypto.randomUUID();
       var req = {
         req   : 'storeRepo',
         reqId : reqId,
 	repo  : j.repo
       }
-
+      console.log(` receptorReqCreateRepo():: req`,req);
       this.net.sendMsg(toIp,req);
       this.net.on('mkyReply',mkyReply = (r) =>{
         if (r.reply == 'repoStoreRes' && r.remIp == toIp && reqId == r.reqId){ 
@@ -3292,11 +3305,11 @@ class ftreeFileMgrObj {
     return new Promise( (resolve,reject)=>{
       var mkyReply = null;
       const gtime = setTimeout( ()=>{
-        console.log('Create New Repo Timeout:');
+       //console.log('Create New Repo Timeout:');
         this.net.removeListener('mkyReply', mkyReply);
         resolve(null);
       },5000);
-      console.log('Store Repo To: ',toIp);
+     //console.log('Store Repo To: ',toIp);
       //j.repo.signature = this.composeRepoSig(j.repo.data);
 
       const reqId = crypto.randomUUID();
@@ -3320,12 +3333,12 @@ class ftreeFileMgrObj {
     return new Promise((resolve, reject) => {
       let mkyReply = null;
       const gtime = setTimeout(() => {
-        console.log('Create New File Timeout:');
+       //console.log('Create New File Timeout:');
         this.net.removeListener('mkyReply', mkyReply);
         resolve(null);
       }, 5000);
 
-      console.log('Store File To:', toIp);
+     //console.log('Store File To:', toIp);
 
       const reqId = crypto.randomUUID();
       const req = {
@@ -3348,12 +3361,12 @@ class ftreeFileMgrObj {
     return new Promise((resolve, reject) => {
       let mkyReply = null;
       const gtime = setTimeout(() => {
-        console.log('Create New Shard Timeout:');
+       //console.log('Create New Shard Timeout:');
         this.net.removeListener('mkyReply', mkyReply);
         resolve(null);
       }, 5000);
 
-      console.log('Store Shard To:', toIp);
+     //console.log('Store Shard To:', toIp);
 
       const reqId = crypto.randomUUID();
       const req = {
