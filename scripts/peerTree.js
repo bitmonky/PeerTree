@@ -5035,45 +5035,65 @@ class PeerTreeNet extends  EventEmitter {
       this.rQue     = [];
       this.msgMgr   = new MkyMsgQMgr();
    } 
-   verifyLogin(j){
-     //console.error('PeerTreeNet.verifyLogin():: verify:->',j);
-     const tokTime = Number(j.sesTok.replace(j.ownMUID,''));
-     if (isNaN(tokTime)){
-        return {result:false,msg:'Invalid Signature Token'};
-     }
 
-     if (!j.pubKey) {
-       //console.error('PeerTreeNet.verifyLogin():: pubkey is missing',j.pubKey);
-       return {result:false,msg:'Public Key Is Misssing'};
-     }
+  verifyLogin(msg) {
+    const j = msg.borgToken;
 
-     if (!j.sig || j.sig.length === 0) {
-       return {result:false,msg:'No signature found'};
-     }
+    // Validate timestamp
+    const tokTime = Number(j.reqTime);
+    if (isNaN(tokTime)) {
+      return { result:false, msg:'Invalid reqTime' };
+    }
 
-     // Prevent replay attacks
-     const lastAttempt = this.logins.get(j.ownMUID);
-     if (lastAttempt && tokTime <= lastAttempt) {
-       return { result: false, msg: 'Replay attack detected: tokTime must be newer' };
-     }
+    // Freshness window (30 seconds)
+    if (tokTime < Date.now() - 30000) {
+      return { result:false, msg:'Token expired' };
+    }
 
-     // Store the latest timestamp
-     this.logins.set(j.ownMUID, tokTime);
+    // Validate pubkey
+    if (!j.pubKey) {
+      return { result:false, msg:'Public Key Missing' };
+    }
+
+    // Validate signature exists
+    if (!j.sesSig || j.sesSig.length === 0) {
+      return { result:false, msg:'No signature found' };
+    }
+
+    // Replay protection (per user)
+    const replayKey = `${j.Address}:${j.reqId}`;
+    if (this.logins.has(replayKey)) {
+       return { result:false, msg:'Replay attack: reqId already used' };
+    }
+
+    // Store replay entry
+     this.logins.set(replayKey, {
+       tokTime,
+       borgHUID: j.Address,
+       service: msg?.req
+     });
      this.saveLoginsToFile();
 
-     // check public key matches the remotes address
-     var mkybc = bitcoin.payments.p2pkh({ pubkey: Buffer.from(''+j.pubKey, 'hex') });
-     if (j.ownMUID !== mkybc.address){
-       //console.error('PeerTreeNet.verifyLogin():: remote wallet address does not match publickey',j.ownMUID);
-       return {result:false,msg:'No Address Not Matching Public Key:'+mkybc.address+'-'+j.ownMUID};
+     // Validate address matches pubkey
+     const mkybc = bitcoin.payments.p2pkh({
+       pubkey: Buffer.from(j.pubKey, 'hex')
+     });
+
+     if (j.Address !== mkybc.address) {
+       return {
+         result:false,
+         msg:`Address mismatch: ${mkybc.address} != ${j.Address}`
+       };
      }
+
+     // Verify signature
      const publicKey = ec.keyFromPublic(j.pubKey, 'hex');
      const msgHash   = calculateHash(j.sesTok);
-     const rj = {
-       result : publicKey.verify(msgHash, j.sig),
-       msg : 'keyVerificationComplete'
+
+     return {
+       result: publicKey.verify(msgHash, j.sesSig),
+       msg: 'keyVerificationComplete'
      };
-     return rj;
    }
    saveLoginsToFile() {
      fs.writeFileSync(this.loginsFile, JSON.stringify(Object.fromEntries(this.logins), null, 2));
