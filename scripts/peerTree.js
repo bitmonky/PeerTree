@@ -19,7 +19,7 @@ const errorLog = fs.createWriteStream(process.title+'NodeErrors.log', { flags: '
 
 /*
 ********************
-Override Date clase so that all nodes use one unifide time dictated By the root node.
+Override Date class so that all nodes use one unifide time dictated By the root node.
 Capture the real Date constructor and real Date.now
 ********************
 */
@@ -5036,43 +5036,41 @@ class PeerTreeNet extends  EventEmitter {
       this.msgMgr   = new MkyMsgQMgr();
    } 
 
-  verifyLogin(msg) {
-    const j = msg.borgToken;
+   verifyLogin(r) {
+     console.log(`verifyLogin():: `,r);
 
-    // Validate timestamp
-    const tokTime = Number(j.reqTime);
-    if (isNaN(tokTime)) {
-      return { result:false, msg:'Invalid reqTime' };
-    }
+     if (!r.hasOwnProperty('borgToken')) {
+       return { result:false, msg:'BorgToken NOT set' };
+     }
+     const j = r.borgToken;
 
-    // Freshness window (30 seconds)
-    if (tokTime < Date.now() - 30000) {
-      return { result:false, msg:'Token expired' };
-    }
+     // Validate timestamp
+     const tokTime = Number(j.reqTime);
+     if (isNaN(tokTime)) {
+       return { result:false, msg:'Invalid reqTime' };
+     }
 
-    // Validate pubkey
-    if (!j.pubKey) {
-      return { result:false, msg:'Public Key Missing' };
-    }
+     // Freshness window (30 seconds)
+     const curTime = Date.now();
+     if (tokTime < curTime - 30000 || tokTime > curTime + 30000) {
+       return { result:false, msg:'Token expired' };
+     }
 
-    // Validate signature exists
-    if (!j.sesSig || j.sesSig.length === 0) {
-      return { result:false, msg:'No signature found' };
-    }
+     // Validate pubkey
+     if (!j.pubKey) {
+       return { result:false, msg:'Public Key Missing' };
+     }
 
-    // Replay protection (per user)
-    const replayKey = `${j.Address}:${j.reqId}`;
-    if (this.logins.has(replayKey)) {
+     // Validate signature exists
+     if (!j.sesSig || j.sesSig.length === 0) {
+       return { result:false, msg:'No signature found' };
+     }
+
+     // Replay protection (per user)
+     const replayKey = `${j.Address}:${j.reqId}`;
+     if (this.logins.has(replayKey)) {
        return { result:false, msg:'Replay attack: reqId already used' };
-    }
-
-    // Store replay entry
-     this.logins.set(replayKey, {
-       tokTime,
-       borgHUID: j.Address,
-       service: msg?.req
-     });
-     this.saveLoginsToFile();
+     }
 
      // Validate address matches pubkey
      const mkybc = bitcoin.payments.p2pkh({
@@ -5088,12 +5086,24 @@ class PeerTreeNet extends  EventEmitter {
 
      // Verify signature
      const publicKey = ec.keyFromPublic(j.pubKey, 'hex');
-     const msgHash   = calculateHash(j.sesTok);
+     const msgHash   = this.calculateHash(j.sesTok);
 
-     return {
-       result: publicKey.verify(msgHash, j.sesSig),
-       msg: 'keyVerificationComplete'
+     const vf = {
+       result : publicKey.verify(msgHash, j.sesSig),
+       msg    : 'keyVerificationComplete'
      };
+
+     if (vf.result){
+       // Store replay entry
+       this.logins.set(replayKey, {
+         tokTime  : tokTime,
+         borgHUID : j.Address,
+         service  : r.msg?.req
+       });
+       this.saveLoginsToFile();
+     }
+     return vf;
+
    }
    saveLoginsToFile() {
      fs.writeFileSync(this.loginsFile, JSON.stringify(Object.fromEntries(this.logins), null, 2));

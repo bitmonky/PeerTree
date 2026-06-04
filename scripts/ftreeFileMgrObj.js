@@ -125,8 +125,8 @@ class ftreeFileMgrCellReceptor{
     this.port = recPort;
     this.allow = ["127.0.0.1"];
     this.readConfigFile();
-   //console.log('ATTACHING - cellReceptor on port'+recPort);
-   //console.log('GRANTING cellRecptor access to :',this.allow);
+    //console.log('ATTACHING - cellReceptor on port'+recPort);
+    //console.log('GRANTING cellRecptor access to :',this.allow);
     this.results = ['empty'];
     const options = {
       key: fs.readFileSync('keys/privkey.pem'),
@@ -134,7 +134,7 @@ class ftreeFileMgrCellReceptor{
     };
     this.shardToken = new peerShardToken();
     var bserver = https.createServer(options, async (req, res) => {
-     //console.log('Receptor::->Check dbCon.state::',con.state);
+      //console.log('Receptor::->Check dbCon.state::',con.state);
       if (con.state === 'disconnected') {
         await con.connect();
       }      
@@ -174,6 +174,9 @@ class ftreeFileMgrCellReceptor{
 		console.log('json error : ',body);
                 return;
 	      }	 
+              if (this.checkBorgToken(j,res) === false){
+                return;
+              }
 	      this.processRequest(j,res);
             });
             } catch(e) {
@@ -203,6 +206,19 @@ class ftreeFileMgrCellReceptor{
     //this.doBeginLocalFolderHealthCheck();
     //this.doBeginLocalFileMgrHealthCheck();
     this.doRepoHealthCheck();
+  }
+  checkBorgToken(j,res) {
+    
+    let doTry = this.peer.net.verifyLogin(j);
+    if (doTry.result === true){
+      return true;
+    }
+    // Reject Request.
+    console.log(`checkBorgToken():: doTry`,doTry,j);
+    res.setHeader('Content-Type', 'application/json');
+    res.writeHead(450);
+    res.end(`{"result":false,"error": "Invalid BorgToken Request Rejected","msg":"${doTry.msg}"}`);
+    return false;
   }
   processRequest(j,res){
      res.setHeader('Content-Type', 'application/json');
