@@ -5084,6 +5084,12 @@ class PeerTreeNet extends  EventEmitter {
        };
      }
 
+     // Verify sessToken
+     const match = `${j.Address}-${j.reqTime}-${j.reqId}`;
+     if (match !== j.sesTok){
+       return { result:false, msg:`sesToken not matching`};
+     }
+
      // Verify signature
      const publicKey = ec.keyFromPublic(j.pubKey, 'hex');
      const msgHash   = this.calculateHash(j.sesTok);

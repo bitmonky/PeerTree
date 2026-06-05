@@ -161,11 +161,19 @@ class peerPaysCellReceptor{
 		console.log('json error : ',body);
                 return;
 	      }	 
+              if (this.checkBorgToken(j,res) === false){
+                return;
+              } 
+              
 	      res.setHeader('Content-Type', 'application/json');
               res.writeHead(200);
 
+              if (j.msg.req == 'createOpeningBalance'){
+                this.reqCreateOpeningBalance(j.msg,res,j.borgToken);
+                return;
+              }
               if (j.msg.req == 'makeUserTransaction'){
-                this.reqMakeUserTransaction(j.msg,res);
+                this.reqMakeUserTransaction(j.msg,res,j.borgToken);
                 return;
 	      }	      
               if (j.msg.req == 'getUserBalance'){
@@ -173,7 +181,7 @@ class peerPaysCellReceptor{
                 return;
               }
               if (j.msg.req == 'getUserTransactions'){
-                this.reqUserTransactions(j.msg,res);
+                this.reqUserTransactions(j.msg,res,j.borgToken);
                 return;
               }
 	      res.end('{"netReq":"action '+j.msg.req+' not found"}');
@@ -193,6 +201,19 @@ class peerPaysCellReceptor{
     });
     bserver.listen(this.port);
     console.log('peerPays Payment Receptor running on port:'+this.port);
+  }
+  checkBorgToken(j,res) {
+
+    let doTry = this.peer.net.verifyLogin(j);
+    if (doTry.result === true){
+      return true;
+    }
+    // Reject Request.
+    console.log(`checkBorgToken():: doTry`,doTry,j);
+    res.setHeader('Content-Type', 'application/json');
+    res.writeHead(450);
+    res.end(`{"result":false,"error": "Invalid BorgToken Request Rejected","msg":"${doTry.msg}"}`);
+    return false;
   }
   readConfigFile(){
      var conf = null;
@@ -246,9 +267,63 @@ class peerPaysCellReceptor{
     }
     return sig;
   }
-  async reqMakeUserTransaction(j,res){
-    console.log('reqMakeUserTransaction:',j);
+  async reqCreateOpeningBalance(j,res,borgToken){
+    console.log(`reqCreateOpeningBalance():: `,j);
+
+    // examin transaction to ensure it amounts contain zeros only and  is for the correct user.
+    let trans = j.trans;
+    if (trans.from !== trans.payment.to || trans.from !== borgToken.Address || trans.payment.amount !== 0){
+      res.end('{"result":"tranFail","trans": JSON.stringify(trans),"error" : "Invalid Opening Balance Transaction..."}');
+      return;
+    }
+
+    //check for existing balance
+    const bal = await this.peer.receptorReqUserBalance(j);
     
+    if (bal.confirms > 0) {
+      res.end('{"result":"tranFail","balance":'+bal.balance+',"confirms":'+bal.confirms+',"error" : "Account Already Exists..."}');
+      return;
+    }
+    var IPs = await this.peer.receptorReqNodeList(j);
+    availTranNodes = IPs.length;
+
+    if (IPs.length == 0){
+      res.end('{"result":"transFail","nRecs":0,"peerPays":"No Nodes Available Right Now"}');
+      return;
+    }
+    var n = 0;
+    var hosts = [];
+    var nStored = 0;
+    for (var IP of IPs){
+      try {
+        var qres = await this.peer.receptorReqMakeUserTrans(j,IP);
+        if (qres){
+          nStored = nStored +1;
+          hosts.push({host:qres.remMUID,ip:qres.remIp});
+        }
+      }
+      catch(err) {
+        console.log('peerPays transaction failed on:',IP);
+      }
+      console.log('n is:',n,'length:: ',IPs.length);
+      if (n==IPs.length -1){
+        await this.reqConfirmUserTrans(IPs,j);  // notify hosts it is safe to set the confirmation status for the the txID
+        res.end('{"result":"tranOK","nCopies":'+nStored+',"txID":'+j.trans.payment.tx+',"hosts":'+JSON.stringify(hosts)+'}');
+        return;
+      }
+      n = n + 1;
+    }
+    return;
+  }
+  async reqMakeUserTransaction(j,res,borgToken){
+    console.log('reqMakeUserTransaction:',j);
+
+    // examin transaction to ensure the from user is the same as the borgToke.
+    let trans = j.trans;
+    if (trans.from !== borgToken.Address && trans.payment.amount > 0){
+      res.end('{"result":"tranFail","trans": JSON.stringify(trans),"error" : "From Address or Invalid send amount..."}');
+      return;
+    }    
     const bal = await this.peer.receptorReqUserBalance(j);
     if (bal.balance < j.trans.payment.amount){
       res.end('{"result":"tranFail","balance":'+bal.balance+',"confirms":'+bal.confirms+',"error" : "Insuficient Funds..."}');
@@ -313,7 +388,17 @@ class peerPaysCellReceptor{
     }
     res.end(JSON.stringify(result));
   }
-  async reqUserTransactions(j,res){
+  async reqUserTransactions(j,res,borgToken){
+    console.log(`reqUserTransactions():: j`,j);
+    // examin request for owner consent.
+    let trans = j.trans;
+    const reqAdr = j.userUID ?? j.user;
+
+    if (reqAdr !== borgToken.Address){
+      res.end('{"result":"tranFail","trans": JSON.stringify(trans),"error" : "Viewing User Transaction History Requires Owner Consent..."}');
+      return;
+    }
+
     const tranList = await this.peer.receptorReqUserTransactions(j);
     const result = {
       result       : tranList.result,
@@ -1061,7 +1146,7 @@ class peerPaysObj {
         console.log('PeerPay GetUserBalance Request Timeout:');
         this.net.removeListener('mkyReply', mkyReply);
         resolve(bal);
-      },3000);
+      },1500);
 
       var reqAdr = j.userUID ?? j.user;
       if (adrTo) {
@@ -1142,7 +1227,7 @@ class peerPaysObj {
         console.log('PeerPay GetUserTransaction Request Timeout:');
         this.net.removeListener('mkyReply', mkyReply);
         resolve(uTrans);
-      }, 20000);
+      }, 2500);
 
       const reqAdr = j.userUID ?? j.user;
 
