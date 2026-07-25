@@ -198,7 +198,7 @@ class bitMonkyWallet{
      });
    }
    sendNodeList(j){
-     const nfile = '/peerTree/keys/myNodeList-'+j.port+'-'+j.nodeType+'.net';
+     const nfile = 'keys/myNodeList-'+j.port+'-'+j.nodeType+'.net';
      try {
        const data = fs.readFileSync(nfile, 'utf8');
        return data;
