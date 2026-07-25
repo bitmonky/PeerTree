@@ -17,13 +17,11 @@ echo "=== BorgFarmer DB instaler ==="
 # ---------------------------------------------------------
 # Directory layout
 # ---------------------------------------------------------
-cd /peerTree
+cd /PeerTree
 
 # ---------------------------------------------------------
 # Download PeerTree core libs
 # ---------------------------------------------------------
-
-curl https://admin.bitmonky.com/bitMDis/shellFarmerDB.js     -o shellFarmerDB.js
 
 # ---------------------------------------------------------
 # Download BTrader organism files
@@ -71,7 +69,7 @@ mysql -e "FLUSH PRIVILEGES;"
 # ---------------------------------------------------------
 # Load schema (buy/sell/fills)
 # ---------------------------------------------------------
-mysql ${DBNAME} < /peerTree/mariadb/shellFarmer.sql
+mysql ${DBNAME} < /PeerTree/mariadb/shellFarmer.sql
 
 echo "Database initialized."
 
@@ -79,4 +77,4 @@ echo "Database initialized."
 # Done
 # ---------------------------------------------------------
 echo "=== ShellFarmerDB  install complete ==="
-echo "DB credentials stored in /peerTree/shellfarmerdbconf"
+echo "DB credentials stored in /PeerTree/shellfarmerdbconf"
