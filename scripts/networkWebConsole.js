@@ -6,12 +6,12 @@ PeerTree Web Moniter Tool
 Dust Removed: Date: Dec 28, 2022
 */
 
-const webCon = require('http');
+const webCon = require('https');
 const fs = require('fs');
 
 const options = {
-  //key: fs.readFileSync('/etc/letsencrypt/live/admin.bitmonky.com/privkey.pem'),
-  //cert: fs.readFileSync('/etc/letsencrypt/live/admin.bitmonky.com/fullchain.pem')
+  key: fs.readFileSync('keys/privkey.pem'),
+  cert: fs.readFileSync('keys/fullchain.pem')
 };
 class MkyWebConsole {
   constructor(network,db=null,bank=null,peerAppName='shardTreeCell'){
@@ -38,6 +38,9 @@ class MkyWebConsole {
             j = JSON.parse(msg);
             //console.log(j);
             if (j.req){
+              if (j.req == 'hello'){
+                 res.end(JSON.stringify({result:true,response:"helloBack"}));
+              }
               if (this.db){
                 this.dbMon.handleReq(j,res);
               } 
@@ -57,20 +60,24 @@ class MkyWebConsole {
                 var report = await this.sendConsole(j);
                 res.end(report);
               }
+              else if (j.what == 'simulateOutage'){
+                var report = this.simulateOutage(j.smode);
+                res.end(report);
+              }
               else if (j.what == 'flushLogs'){
                 var report = this.flushLogs();
                 res.end(report);
               }
               else { 
-                res.end("No what Handler Found For:\n\n "+JSON.stringify(j));
+                res.end(JSON.stringify({result:false,response:"No what Handler Found For:\n\n "+JSON.stringify(j)}));
               }  
             }
             else 
-              res.end("No Handler Found For:\n\n "+JSON.stringify(j));
+              res.end(JSON.stringify({result:false,response:"No Handler Found For:\n\n "+JSON.stringify(j)}));
           }
           catch(err) {
             //console.log("json parse error:",err);
-            res.end("JSON PARSE Error: \n\n"+msg+"\n\n"+err);
+            res.end(JSON.stringify({result:false,response: "JSON PARSE Error: \n\n"+msg+"\n\n"+err}));
           }
         }
         else {
@@ -123,7 +130,12 @@ class MkyWebConsole {
     }
     return JSON.stringify(erlogPg);
   }
+  simulateOutage(mode){
+    this.net.rnet.simulateOutage(mode);
+    return `simulateOutage():: ${mode}`;
+  }
   sendReport(){
+    this.net.rnet.r.sysTime = Date.now();
     var node = {
       r        : this.net.rnet.r,
       ip       : this.net.rnet.myIp,

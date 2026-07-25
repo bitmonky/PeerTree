@@ -153,7 +153,7 @@ class shardTreeCellReceptor{
     };
     this.shardToken = new peerShardToken();
     var bserver = https.createServer(options, (req, res) => {
-       console.log(`ShardTreeNet.srv:: heard `,req.url,req.method);
+       //console.log(`ShardTreeNet.srv:: heard `,req.url,req.method);
        req.on('error', (err) => {
          if (err.code === 'ECONNRESET') {
            console.log('ShardTreeNet.startServer():: REQ:Connection reset by peer');
@@ -292,6 +292,13 @@ class shardTreeCellReceptor{
 		console.log('json error : ',body);
                 return;
 	      }	 
+
+              // Validate Borg Token.
+              if (this.checkBorgToken(j,res) === false){
+                return;
+              }
+              j.msg.borgToken = j.borgToken;
+
               if (j.msg.req == 'storeShard'){
                 //console.log(`store shar:`,j);
                 res.setHeader('Content-Type', 'application/json');
@@ -369,17 +376,33 @@ class shardTreeCellReceptor{
     };
     return mToken;
   }
+  checkBorgToken(j,res) {
+
+    let doTry = this.peer.net.verifyLogin(j);
+    if (doTry.result === true){
+      return true;
+    }
+    // Reject Request.
+    console.log(`checkBorgToken():: doTry`,doTry,j);
+    res.setHeader('Content-Type', 'application/json');
+    let rc = 450;
+    if (doTry.msg == 'Token expired') rc = 451;
+
+    res.writeHead(rc);
+    res.end(`{"result":false,"error": "Invalid BorgToken Request Rejected","msg":"${doTry.msg}"}`);
+    return false;
+  }
   async reqDeleteShard(j,res){
 
-    j.shard.token = this.openShardKeyFile(j);
-    j.shard.signature = this.signRequest(j);
+    j.shard.pubKey = j.borgToken.pubKey;
 
-    j.shard.signature = this.signRequest(j);
+    const dLoc = await this.peer.deleteLocalShard(j);
+
     const dres = await this.peer.receptorReqDeleteMyShard(j);
-    if (dres.length == 0)
+    if (dres.length + dLoc == 0)
       res.end(JSON.stringify({result : 0, msg : 'no shards deleted'}));
     else
-      res.end(JSON.stringify({result:1,shardID:j.shard.hash,nDeleted:dres.length,hosts:dres}));
+      res.end(JSON.stringify({result:1,shardID:j.shard.hash,nDeleted:dres.length+dLoc,hosts:dres}));
   }
   bufferToBase64(arr){
     if (!Array.isArray(arr)) {
@@ -393,8 +416,14 @@ class shardTreeCellReceptor{
   }
   async reqRetrieveShard(j, res) {
     const stime = Date.now();
-    let shardBuf = await this.peer.receptorReqSendMyShard(j);
-    
+    let shardIsLocal = true;
+    let shardBuf = await this.peer.checkLocalForShard(j);
+
+    if (!shardBuf) {
+      shardBuf = await this.peer.receptorReqSendMyShard(j);
+      shardIsLocal = false;
+    }
+ 
     if (!shardBuf) {
       res.writeHead(200, {'Content-Type': 'application/json'});
       res.end('{"result":0,"msg":"no results found"}');
@@ -418,8 +447,12 @@ class shardTreeCellReceptor{
       'Content-Length': shardBuf.length
     });
     
-   //console.log(`reqRetrieveShard():: sending:`,shardBuf);
+    //console.log(`reqRetrieveShard():: sending:`,shardBuf);
     res.end(shardBuf);
+    if (shardIsLocal){
+      const shardCopy = Buffer.from(shardBuf);
+      this.peer.auditShardHealth(j.shard.hashID,j.shard.hash,shardCopy,2);
+    }
   }
   signRequest(j){
     const stoken = j.shard.token.ownMUID + new Date(); 
@@ -783,6 +816,10 @@ class shardTreeObj {
       this.doHandleSendByBin(j);
       return true;
     }
+    if (j.req === 'sendShardMeta'){
+      this.sendShardMeta(j);
+      return;
+    }
     if (j.req === 'waitForShard'){
       this.waitForShard(j);
       return true;
@@ -795,6 +832,10 @@ class shardTreeObj {
       this.storeShard(j,res);
       return true;
     }
+    if (j.req === 'deleteShard'){
+      this.doDeleteShard(j);
+      return;
+    }
     if (!this.isRoot && this.status != 'Online'){
       this.net.endRes(res,'');
       return true;
@@ -806,24 +847,39 @@ class shardTreeObj {
   }
   handleBCast(j){
     //console.log('bcast received: ',j);
-    if (j.remIp == this.net.nIp) {console.log('ignoring bcast to self',this.net.nIp);return;} // ignore bcasts to self.
+    if (j.remIp == this.net.nIp) {
+      //console.log('ignoring bcast to self',this.net.nIp);
+      return;
+    } 
     if (!j.msg.to) {return;}
     if (j.msg.to == 'shardCells'){
       this.updatePShardcellDB(j);  
       if (j.msg.req){
-        if (j.msg.req == 'sendShardHost')
+        if (j.msg.req == 'sendShardHost'){
           this.doSendShardHost(j.msg,j.remIp);
-        if (j.msg.req == 'sendShard')
+          return;
+        }
+        
+        if (j.msg.req == 'sendShard'){
           this.doSendShardToOwner(j.msg,j.remIp);
-        if (j.msg.req == 'deleteShard')
+          return;
+        }     
+        if (j.msg.req == 'shardAudit'){
+          this.doShardAudit(j.msg,j.remIp);
+          return;
+        }
+
+        if (j.msg.req == 'deleteShard'){
           this.doDeleteShardByOwner(j.msg,j.remIp);
+          return;
+        }
         if (j.msg.req == 'sendNodeList'){
-         //console.log('DOPOW xxxx',j.remIp);
           this.doPow(j.msg,j.remIp);
+          return;
         }
         if (j.msg.req == 'stopNodeGenIP'){
-         //console.log('DOPOW stopNodeGenIP-XX Received:',j.remIp);
           this.doPowStop(j.remIp);
+          return;
         }
       }
     } 
@@ -895,11 +951,168 @@ class shardTreeObj {
        }
     });
   }
+  doShardAudit(j,remIp){
+     var SQL = `SELECT count(*) nRec ,shardOwnerID as sownID FROM shardTree.shards where shardHash ='${j.hash}' and shardHashID = '${j.hashID}'`;
+     con.query(SQL , async(err, result,fields)=>{
+       if (err){
+         console.log(err,SQL);
+       }
+       else {
+         var sownID = null;
+         if (result[0].nRec == 0){
+           return;
+         }
+         else {
+           sownID = result[0].sownID;
+           var fsdat = null;
+           let fname = j.hash+'.srd';
+           if (sownID) fname = `${sownID}-${fname}`;
+           fname = ftreeRoot + fname;
+
+           try {
+             if (!fs.existsSync(fname)) {
+               console.log('error reading from srootTree::Shared Audit: Not On Node',fname);
+               return;  // file does not exist
+             } else {
+               var qres = {
+                 response : 'shardAuditResult',
+                 reqId    : j.reqId,
+                 status   : 'SHARD_AVAILABLE',
+                 shardId  : j.hash,
+                 shardHID : j.hashID
+               }
+               this.net.sendReply(remIp,qres);
+             }
+           }
+           catch (err) {
+             console.log('error reading from srootTree::Shared Audit: Not On Node',fname);
+           }
+           return;
+         }
+       }
+     });
+  }
+  async deleteLocalShard(j){
+    return new Promise((resolve)=>{
+      var SQL = `SELECT count(*) nRec ,shardOwnerID as sownID,shardOwnSignature FROM shardTree.shards where shardHash = ? and shardHashID = ?`;
+      const values = [j.shard.hash,j.shard.hashID];
+      console.log(`deleteLocalShard():: `,SQL,values,j);
+      
+      con.query(SQL,values, async(err, result,fields)=>{
+        if (err){
+          console.log(err);
+          resolve(0);
+          return;
+        }
+        else {
+          const tRec = result[0];
+          if (tRec.nRec == 0){
+            console.log(`deleteLocalShard():: shard dbRec not found `,result);
+            resolve(0);
+            return;
+          }
+          let sSig;
+          try {
+            sSig = JSON.parse(tRec.shardOwnSignature);
+          } catch(e) {
+            console.log(`deleteLocalShard():: `,e);
+            resolve(0);
+            return;
+          }
+          console.log(`deleteLocalShard():: sSig`,sSig,tRec); 
+          if (sSig.sig !== j.shard.delAuth){
+            console.log(`deleteLocalShard():: authFailed`,j.shard.delAuth,sSig.sig);
+            resolve(0);
+            return;
+          }
+          SQL = `Delete from shardTree.shards where shardHash = ? and shardHashID = ?`;
+          con.query(SQL ,values, async(err, result,fields)=>{
+            if (err){
+              console.log(`deleteLocalShard()::`,err);
+              resolve(0);
+              return;
+            }
+          });
+          const sownID = tRec.sownID;
+          var fsdat = null;
+          let fname = j.shard.hash+'.srd';
+          if (sownID) fname = `${sownID}-${fname}`;
+          fname = ftreeRoot + fname;
+          fs.unlink(fname, (err)=>{
+            if (err) {
+              console.log('shard delete local. File not found:',fname);
+              resolve(0);
+              return;
+            }
+            resolve(1);
+          });
+        }
+      });
+    });
+  }
+  async checkLocalForShard(j){
+    return new Promise((resolve)=>{
+      var SQL = `SELECT count(*) nRec ,shardOwnerID as sownID FROM shardTree.shards where shardHash ='${j.shard.hash}' and shardHashID = '${j.shard.hashID}'`;
+      if (j.shard?.isMemory === true) {
+        SQL = `SELECT count(*) nRec ,shardOwnerID as sownID FROM shardTree.shards where shardHash ='${j.shard.hash}'`;
+      }
+      //console.log(`checkLocalForShard():: `,SQL,j);
+
+      con.query(SQL , async(err, result,fields)=>{
+        if (err){
+          console.log(err);
+          resolve(null);
+          return;
+        }
+        else {
+          var sownID = null;
+          if (result[0].nRec == 0){
+            console.log('checkLocalForShard():: Shard pointer Not Found On This Node.');
+            resolve(null);
+            return;
+          }
+          else {
+            sownID = result[0].sownID;
+            var fsdat = null;
+            let fname = j.shard.hash+'.srd';
+            if (sownID) fname = `${sownID}-${fname}`;
+            fname = ftreeRoot + fname;
+
+            try {
+              if (!fs.existsSync(fname)) {
+                resovle(null);
+                console.log(`checkLocalForShard():: file note found`,fname);
+                return;  // file does not exist
+              } else {
+                console.log(`checkLocalForShard():: file found`,fname);
+                const fileBuf = await fs.promises.readFile(fname);
+                const crypto = require('crypto');
+                const hash = crypto.createHash('sha256').update(fileBuf).digest('hex');
+                if (hash === j.shard.hash) {
+                  resolve (fileBuf);
+                  return;
+                }
+                console.log(`checkLocalForShard():: file has not matching :(`);
+                resolve(null);
+                return;
+              }
+            }
+            catch (err) {
+              resolve(null); //console.log('error reading from srootTree::Shared Not On Node',fname);
+            }
+            return;
+          } 
+        }
+      });
+    });
+  }
   doSendShardToOwner(j,remIp){
      console.log('shard request from: ',remIp);
+  
      var SQL = `SELECT count(*) nRec ,shardOwnerID as sownID FROM shardTree.shards where shardHash ='${j.shard.hash}' and shardHashID = '${j.shard.hashID}'`;
-
-     console.log('doSendShardToOwner():: here is the req..',j,SQL);
+     if (j.shard?.isMemory === true) {
+       SQL = `SELECT count(*) nRec ,shardOwnerID as sownID FROM shardTree.shards where shardHash ='${j.shard.hash}'`;
+     }
 
      con.query(SQL , async(err, result,fields)=>{
        if (err){
@@ -908,7 +1121,7 @@ class shardTreeObj {
        else {
          var sownID = null;
          if (result[0].nRec == 0){
-           console.log('DoSendShardToOwner:: Shard pointer Not Found On This Node.');
+           //console.log('DoSendShardToOwner:: Shard pointer Not Found On This Node.');
            return;
          }
          else {
@@ -918,7 +1131,7 @@ class shardTreeObj {
            if (sownID) fname = `${sownID}-${fname}`;
            fname = ftreeRoot + fname;
 
-          //console.log(`doSendShardToOwner():: file`,fname);
+           //console.log(`doSendShardToOwner():: file`,fname);
            try {
              if (!fs.existsSync(fname)) {
                return;  // file does not exist
@@ -930,7 +1143,7 @@ class shardTreeObj {
                  shardId  : j.shard.hash,
                  shardHID : j.shard.hashID
                }
-              //console.log('sending shard result:',qres);
+               //console.log('sending shard result:',qres);
                this.net.sendReply(remIp,qres);
              }
            }    
@@ -1025,36 +1238,58 @@ class shardTreeObj {
   =======================================================
   */
   doDeleteShardByOwner(j,remIp){
-     if (!this.isValidSig(j.shard.signature)){
-      //console.log('Shard Signature Invalid... NOT deleted');
+     console.log(`doDeleteShardByOwner():: j`,j);
+
+     if (!j.shard.pubKey){
+       console.log(`Owner public key required... Delete failed`);
        return;
      }
-     var SQL = `select shardHash from shardTree.shards where shardHash='${j.shard.hash}' and shardHashID = '${j.shard.hashID}' `;
+
+     // Try to locate a shard by this owner.
+
+     var SQL = `select shardHash,shardOwnSignature from shardTree.shards where shardHash='${j.shard.hash}' and shardHashID = '${j.shard.hashID}' `;
      con.query(SQL , async(err, result,fields)=>{
        if (err){
-        //console.log('shard delete',err);
+         console.log('shard delete db error',err);
        }
        else {
          var sownID = null;
          if (result.length == 0){
-          //console.log('Shard Owner Not Found On This Node.');
+           console.log('Shard By This Owner  Not Found On This Node.');
            return;
          }
          else {
+           let sRec = result[0];
+           try{
+             let key       = JSON.parse(sRec.shardOwnSignature);
+             key.pubKey    = j.shard.pubKey;
+             key.ownMUID   = j.shard.ownerID;
+             key.signature = key.sig;
+
+             if (!this.isValidSig(key)){
+               console.log('Shard Signature Invalid... NOT deleted',j.shard,key);
+               return;
+             }
+           } catch(e) {
+             console.log(`doDeleteShardByOwner():: error `,e);
+             return;
+           }
+
            SQL = `select count(*) nRec from shardTree.shards where shardHash='${j.shard.hash}' `;
            con.query(SQL , async(err, result,fields)=>{
              if (err){
-               //console.log('shard delete',err);
+               console.log('doDeleteShardByOwner():: db error',err);
              }
              else {
                const nRec = result[0].nRec;
                // check for last shard pointer
                if (nRec == 1 ) { 
+                 console.log(`doDeleteShardByOwner():: last shard pointer... remove shard file`);
                  var fsdat = null;
                  const fname = `${ftreeRoot}${j.shard.hashID}.srd`;
                  fs.unlink(fname, (err)=>{
                    if (err) {
-                     //console.log('shard delete file not found:',fname);
+                     console.log('doDeleteShardByOwner():: shard delete file not found:',fname);
                    }
                  });
                }
@@ -1062,7 +1297,7 @@ class shardTreeObj {
                SQL = `delete from shardTree.shards where shardHash='${j.shard.hash}' and shardHashID = '${j.shard.hashID}' `;
                con.query(SQL , async(err, result,fields)=>{
                  if (err){
-                   //console.log('db shards delete shard error',err);
+                   console.log('doDeleteShardByOwner():: db error',err);
                  }
                  else if (result.affectedRows > 0) {
                    const qres = {
@@ -1072,11 +1307,11 @@ class shardTreeObj {
                      hostname : this.net.peerMUID,
                      hash     : j.shard.hash
                    }
-                   //console.log('sending shard delete result:',qres);
+                   console.log('sending shard delete result:',qres);
                    this.net.sendReply(remIp,qres);
                  }
                  else {
-                  //console.log(`no shard db record to delete.`);
+                   console.log(`doDeleteShardByOwner():: no shard db record to delete.`);
                  }
                });
              }
@@ -1200,7 +1435,7 @@ class shardTreeObj {
        //console.log(' receptorReqSendMyShard):: Send Shard Request Timeout:',j);
         this.net.removeListener('mkyReply', mkyReply);
         resolve(null);
-      },15950);
+      },1300);
      //console.log('bptorReqSendMyShard()::  request for shard data: ',j);
       var req = {
         to    : 'shardCells',
@@ -1229,9 +1464,17 @@ class shardTreeObj {
       shardId  : r.shardId,
       sownId   : r.sownId
     }
+    //console.log(`doSendByBinStream():: r`,ip,r);
     let doTry = await this.net.reqReply.waitForReply(ip,msg);
     if (doTry.result === 'OK'){
+      //console.log(`doSendByBinStream():: doTry`,doTry);
       const shardBuf = await this.doWaitForShard(r.shardId,doTry.strReqId);
+      if (shardBuf === null){
+        return null;
+      } 
+      const shardCopy = Buffer.from(shardBuf);
+      console.log(`this.auditShardHealth(${r.shardHID},${r.shardId},shardCopy);`);
+      this.auditShardHealth(r.shardHID,r.shardId,shardCopy);
       return shardBuf;
     }
     return null;
@@ -1243,7 +1486,7 @@ class shardTreeObj {
        //console.log('doWaitForShard():: wait for Shard binary Timeout:',shardId);
         this.net.removeListener('shardReady', mkyReply);
         resolve(null);
-      },950);
+      },1500);
 
       this.net.on('shardReady',mkyReply = (s) =>{
        //console.log(`doWaitForShard():: heard for reqId: ${reqId}`,s);
@@ -1290,6 +1533,245 @@ class shardTreeObj {
     
     this.net.sendReply(j.remIp, reply);  
     return true;
+  }
+  async auditShardHealth(shardId,hash,shard,nMin=3){
+     return new Promise((resolve) =>{
+       const reqId  = crypto.randomUUID();
+       const hosts  = new Set();
+       const bcast = {
+         to       : 'shardCells',
+         req      : 'shardAudit',
+         response : 'shardAuditResult',
+         reqId    : reqId,
+         hash     : hash,
+         hashID   : shardId
+         
+       }
+
+       var mkyReply = null;
+       const gtime = setTimeout( ()=>{
+         this.net.removeListener('mkyReply', mkyReply);
+         const nCopys = hosts.size;
+         console.log(`auditShardHealth():: nCopys Found: ${nCopys} of: ${nMin}`,shardId,hosts);
+         if (nCopys === nMin){
+           resolve('healthy');
+           return;
+         }
+         if (nCopys < nMin && nCopys > 0){
+           this.repairShardHealth(shardId,hash,hosts,shard); // look for a new node to replicate the shard.
+           resolve('replicating');
+           return;
+         }
+         if (nCopys > nMin ){
+           this.pruneShardCopys(shardId,hash,hosts);   
+           resolve('pruning');
+           return;
+         }
+         resolve('deadShard');
+      },3550);
+
+      this.net.on('mkyReply',mkyReply = (s) =>{
+        if (s.response === 'shardAuditResult' && s.reqId === reqId){
+          hosts.add(s.remIp);
+        }
+      });
+
+      this.net.broadcast(bcast);
+    });
+  }
+  async pruneShardCopys(shardId,hash,hosts){
+    console.log(`pruneShardCopys():: `,shardId,hosts.size);
+    // pic one shard randomly from hosts
+    const arr = [...hosts];
+
+    // Pick one randomly
+    const ip = arr[Math.floor(Math.random() * arr.length)];
+
+    var msg = {
+      req      : 'deleteShard',
+      response : 'deleteShardResult',         
+      shard : {
+        hash   : hash,
+        hashID : shardId,
+      }
+    }
+    let doTry = await this.net.reqReply.waitForReply(ip,msg);
+
+    if (doTry.result === 'OK'){
+      console.log(`pruneShardCopys():: failed`,doTry);
+      return false;
+    }
+    return true;
+  }
+  async doDeleteShard(j){
+     console.log(`audit delete Shard ():: j`,j);
+
+     const reply = {
+       req      : 'shardDeleteResult',
+       reqId    : j.reqID,
+       result   : 'OK'
+     }
+
+     // Try to locate a shard by this owner.
+
+     var SQL = `select shardHash,shardOwnSignature from shardTree.shards where shardHash='${j.shard.hash}' and shardHashID = '${j.shard.hashID}' `;
+     con.query(SQL , async(err, result,fields)=>{
+       if (err){
+         reply.result = 'FAIL_DB_ERR';
+         console.log(`doDeleteShard():: audit no shard db record to delete.`,err,SQL);
+         this.net.sendReply(j.remIp,reply);
+         return;
+       }
+       else {
+         if (result.length == 0){
+           console.log('Shard By This Owner  Not Found On This Node.');
+           reply.result = 'FAIL_DB_EMPTYSET';
+           this.net.sendReply(j.remIp,reply);
+           return;
+         }
+         else {
+           let sRec = result[0];
+
+           SQL = `select count(*) nRec from shardTree.shards where shardHash='${j.shard.hash}' `;
+           con.query(SQL , async(err, result,fields)=>{
+             if (err){
+               reply.result = 'FAIL_DB_ERR02';
+               console.log(`doDeleteShard():: audit no shard db record to delete.`,err,SQL);
+               this.net.sendReply(j.remIp,reply);
+               return;
+             }
+             else {
+               const nRec = result[0].nRec;
+               // check for last shard pointer
+               if (nRec == 1 ) {
+                 console.log(`doDeleteShardr():: audit last shard pointer... remove shard file`);
+                 var fsdat = null;
+                 const fname = `${ftreeRoot}${j.shard.hashID}.srd`;
+                 fs.unlink(fname, (err)=>{
+                   if (err) {
+                     console.log('doDeleteShard():: audit shard delete file not found:',fname);
+                   }
+                 });
+               }
+               // Delete shard pointer rec for this shard
+               SQL = `delete from shardTree.shards where shardHash='${j.shard.hash}' and shardHashID = '${j.shard.hashID}' `;
+               con.query(SQL , async(err, result,fields)=>{
+                 if (err){
+                   reply.result = 'FAIL_DB_ERR03';
+                   console.log(`doDeleteShard():: audit no shard db record to delete.`,err,SQL);
+                   this.net.sendReply(j.remIp,reply);
+                   return;
+                 }
+                 else if (result.affectedRows > 0) {
+                   console.log('sending shard audit delete result: OK',reply);
+                   this.net.sendReply(j.remIp,reply);
+                   return;
+                 }
+                 else {
+                   reply.result = 'FAIL_NOTFOUND';
+                   console.log(`doDeleteShardByOwner():: no shard db record to delete.`);
+                   this.net.sendReply(j.remIp,reply);
+                 }
+               });
+             }
+           });
+         }
+       }
+     });
+     return;
+  }
+  async repairShardHealth(shardId,hash,hosts,shard){
+    //console.log(`repairShardHealth():: `,shardId,hosts.size);
+    const j = {
+      shard : {
+        hash   : hash,
+        hashID : shardId, 
+        nCopys : 1
+      }
+    }
+    const arr = [...hosts];
+    var IPs = await this.receptorReqNodeList(j,arr);
+    j.hosts = arr;
+    //console.log(` repairShardHealth():: IPs found `,IPs);
+
+
+    if (IPs.length == 0){
+      return false;
+    }
+    var n = 0;
+    var hosts = [];
+    const results = [];
+
+    // Start all three calls concurrently
+
+    IPs.forEach((IP) => {
+      this.receptorReqRepairShard(j,IP,shard)
+     .then((r) => {
+        var rcon = { qres: r, IP: IP };
+        results.push(rcon);
+      })
+      .catch((e) => {
+         console.log('shard storage failed', e);
+      });
+    });
+    if (results.length > 0){
+      console.log(`repairShardHealth():: shard repair OK`,results);
+    }
+    return results;
+  }
+  receptorReqRepairShard(j,toIp,blob){
+    //console.log('receptorReqRepairShard',j);
+    return new Promise(async (resolve,reject)=>{
+      var mkyReply = null;
+      const gtime = setTimeout( ()=>{
+        console.log('receptorReqRepairShard():: Store Request Timeout:5000');
+        this.net.removeListener('mkyReply', mkyReply);
+        resolve(null);
+      },5000);
+
+      this.net.on('mkyReply',mkyReply = (r) =>{
+        console.log(`receptorRepairShard():: heard`,r);
+        if (r.shardStoreRes && j.shard.hash ===  r.shardStorHash && r.remIp === toIp){
+          clearTimeout(gtime);
+          this.net.removeListener('mkyReply', mkyReply);
+          resolve(r);
+        }
+      });
+
+      const msg = {
+        req      : 'waitForShard',
+        response : 'waitForShardResult',
+        shardId  : j.shard.hash,
+        sownId   : j.shard.from,
+        repair   : true
+      }
+
+      //console.log(`receptorRepairShard():: doTry`,toIp,msg);
+      let doTry = await this.net.reqReply.waitForReply(toIp,msg);
+      //console.log(`receptorRepairShard():: doTry`,doTry);
+      if (doTry.result !== 'OK'){
+        resolve(null);
+        return;
+      }
+
+      const dmsg = {
+        req      : 'getFile',
+        response : 'getFileResult',
+        filename : {
+          req    : 'storeShard',
+          repair : true,
+          hosts  : j.hosts,
+          shard  : j.shard
+        }
+      }
+      //console.log(`receptorRepairShard():: dmsg`,toIp,dmsg);
+      let doSend = await this.net.DStream.sendMsg(dmsg,toIp,'memFile',5,blob);
+      //console.log(`receptorReqRepairShard():: doSend `,doSend);
+      if (doSend.result !== 'STREAM_META_ACK'){
+        resolve(null);
+        return;
+      }
+    });
   }
   receptorReqStoreShard(j,toIp,blob){
     //console.log('receptorReqStoreShard',j);
@@ -1360,9 +1842,9 @@ class shardTreeObj {
       },950);
 
       this.net.on('shardReady',mkyReply = (s) =>{
-       //console.log(`waitForStoreShardBuf():: heard for reqId: ${shardId}`,s);
-        if (s.fileInfo.shard.hash === shardId){ 
-         //console.log(`waitForStoreShardBuf():: received shard`,shardId);
+        console.log(`waitForStoreShardBuf():: heard for reqId: ${shardId}`,s);
+        if (s.fileInfo?.shard?.hash === shardId || s.fileInfo === `ftree/${shardId}.srd`){ 
+          console.log(`waitForStoreShardBuf():: received shard`,shardId);
           clearTimeout(gtime);
           this.net.removeListener('shardReady', mkyReply);
           resolve(s);
@@ -1407,12 +1889,138 @@ class shardTreeObj {
       }
     });
   }
+  async getShardRecordFor(j){
+    const msg = {
+      req      : 'sendShardMeta',
+      response : 'sendShardMetaResult',
+      shard    : j.fileInfo.shard,
+    }
+    const arr = j.fileInfo.hosts;
+    const ip  = arr[Math.floor(Math.random() * arr.length)];
+    let doTry = await this.net.reqReply.waitForReply(ip,msg);
+
+    if (doTry.result !== 'OK'){
+      console.log(`getShardMetaFor:: failed`,doTry);
+      return [];
+    }
+    return doTry.tRec;  
+  }
+  async sendShardMeta(j){
+    const reply = {
+      response : 'sendShardMetaResult',
+      reqId    : j.reqId,
+      result   : 'OK',
+      tRec     : []
+    }
+
+    // 1. Check DB for existing shard record and get signature data.
+    const SQL = `SELECT shardOwnerID, shardHash, shardDate, shardExpire, shardHashID, shardOwnSignature FROM shardTree.shards WHERE shardHashID = ? AND shardHash = ? limit 1`;
+    const values = [j.shard.hashID,j.shard.hash];
+    await new Promise((resolve, reject) => {
+      con.query(SQL,values, (err, result) => {
+        if (err) {
+          console.log(``,SQL,err);
+          resolve([]);
+          reply.result = 'FAILED_ON_DBQRY';
+          return;
+        } 
+        if (result.length > 0) {
+          reply.tRec = result[0];
+          console.log("SendShardMeta():: shard record exists in DB",result);
+          resolve(result[0]);
+        }
+      }); 
+    });   
+    this.net.sendReply(j.remIp,reply);
+    return;
+  }
+  async writeShardToDisk(tRec, shardBuf) {
+    const shardHash = tRec.shardHash;
+    const shardFile = ftreeRoot + shardHash + '.srd';
+
+    try {
+      let fileExists = true;
+      let stats;
+
+      try {
+        stats = await fs.promises.stat(shardFile);
+      } catch (err) {
+        if (err.code === 'ENOENT') {
+          fileExists = false;   // file does not exist → normal case
+        } else {
+          throw err;            // real error → bubble up
+        }
+      }
+
+      if (fileExists) {
+        if (stats.size === 0) {
+          await fs.promises.unlink(shardFile).catch(() => {});
+        } else {
+          const fileBuf = await fs.promises.readFile(shardFile);
+          const crypto = require('crypto');
+          const hash = crypto.createHash('sha256').update(fileBuf).digest('hex');
+
+          if (hash === shardHash) {
+            return true; // already valid
+          }
+
+          // Hash mismatch → delete corrupted file
+          await fs.promises.unlink(shardFile).catch(() => {});
+        }
+      }
+
+      console.log("writeShardToDisk():: Writing repair shard:", shardFile);
+      await fs.promises.writeFile(shardFile, shardBuf);
+      return true;
+    }
+    catch (err) {
+      console.log(`writeShardToDisk():: audit`, err);
+      return false;
+    }
+  }
   async storeShard(j,remIp,tShardId){
-   //console.log(`storeShare():: j is `,j.fileInfo.shard.hash,tShardId);
+    //console.log(`storeShare():: j is `,j.fileInfo.shard.hash,tShardId);
     j.shard = j.fileInfo.shard;
     j.shard.data = j.buffer;
 
-    //console.log('got request store shard',j.shard.signature);
+    console.log('got request store shard',j);
+    if (j.fileInfo.repair){
+      const tRec = await this.getShardRecordFor(j);
+      if (tRec.length === 0){
+        console.log('Shard Data Invalid... NOT stored');
+        this.net.endRes(remIp,`{"shardStoreRes":false,"shardID":"${j.shard.hash}","error":"Shard Data Invalid... NOT stored"}`);
+        return;
+      } 
+      console.log(`storeShard():: shard repair found tRec`,tRec);
+      const SQL = ` INSERT INTO shardTree.shards (shardOwnerID, shardHash, shardDate, shardExpire, shardHashID, shardOwnSignature) VALUES (?, ?, ?, ?, ?, ?)`;
+
+      const params = [
+        tRec.shardOwnerID,
+        tRec.shardHash,
+        tRec.shardDate,
+        tRec.shardExpire,
+        tRec.shardHashID,
+        tRec.shardOwnSignature
+      ];
+
+      con.query(SQL, params, async(err, result,fields)=>{
+        if (err) {
+          this.net.endRes(remIp, `{"shardStoreRes":false,"error":"${err}"}`);
+          return;
+        }
+        if (result && result.affectedRows === 1){
+          let doTry = await this.writeShardToDisk(tRec,j.buffer);
+          if (doTry){
+            this.net.endRes(remIp, `{"shardStoreRes":true,"shardId":"${j.shard.hash}"}`);
+            return;
+          }
+        }
+        this.net.endRes(remIp,`{"shardStoreRes":false,"shardID":"${j.shard.hash}","error":"Audit Repair Shard Failed"}`);
+        return;
+      });
+      return;
+    }
+
     if (!this.isValidSig(j.shard.signature)){
       //console.log('Shard Signature Invalid... NOT stored');
       this.net.endRes(remIp,`{"shardStoreRes":false,"shardID":"${j.shard.hash}","error":"Invalid Signature For Request"}`);
@@ -1441,6 +2049,7 @@ class shardTreeObj {
 	}
       }
 */
+  
       const shardHash = j.shard.hash;
       const shardFile = ftreeRoot+shardHash + '.srd';
       try {
@@ -1454,7 +2063,7 @@ class shardTreeObj {
        // 2. If DB says shard exists → verify file
        if (result.nRec > 0) {
         //console.log("Shard record exists in DB");
-
+         
          try {
            const stats = await fs.promises.stat(shardFile);
 

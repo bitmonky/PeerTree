@@ -74,11 +74,34 @@ class PtreeReceptorObj {
         res.writeHead(400);
         return res.end('Invalid JSON');
       }
+      // Validate Borg Token.
+      if (this.checkBorgToken(json,res) === false){
+        return;
+      }
+      json.msg.borgToken = json.borgToken;
 
       this.handleReq(json, res,req);
     });
   }
+  checkBorgToken(j,res) {
+    if (process.title === 'cronoTreeCell'){
+      return true;
+    }
 
+    let doTry = this.peer.net.verifyLogin(j);
+    if (doTry.result === true){
+      return true;
+    }
+    // Reject Request.
+    console.log(`checkBorgToken():: doTry`,doTry,j);
+    res.setHeader('Content-Type', 'application/json');
+    let rc = 450;
+    if (doTry.msg == 'Token expired') rc = 451;
+
+    res.writeHead(rc);
+    res.end(`{"result":false,"error": "Invalid BorgToken Request Rejected","msg":"${doTry.msg}"}`);
+    return false;
+  }
   // Subclasses override this
   handleReq(msg, res,req) {
     res.writeHead(500);

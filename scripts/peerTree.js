@@ -13,6 +13,8 @@ const bitcoin = require('bitcoinjs-lib');
 
 const {DStreamMgrObj} = require('./DStreamMgrObj.js');
 
+const db = require('./shellFarmerDB');
+
 //console.error('running::',process.title);
 // Create a writable stream to your desired file
 const errorLog = fs.createWriteStream(process.title+'NodeErrors.log', { flags: 'a' });
@@ -241,6 +243,85 @@ class MsgObj {
   constructor(obj) {
     Object.assign(this, obj);
   }
+}
+class BorgPortal {
+  constructor() {
+    this.pfile = 'keys/borgPortalsList.dat';
+    this.portals = [];
+    this.loadPortals();
+  }
+
+  loadPortals() {
+    try {
+      const data = fs.readFileSync(this.pfile, 'utf8');
+      this.portals = JSON.parse(data);
+    } catch (error) {
+      console.log("borgPortalsList Update.. file doesn't exist. Initializing empty portals list.");
+      this.portals = [];
+    }
+  }
+  testConnect(url) {
+     url = `https://${url}`;
+     //console.log('trying url',url);
+     return new Promise((resolve) => {
+      const options = {
+        method: 'HEAD',
+        agent: new https.Agent({ rejectUnauthorized: false })
+      };
+
+      const req = https.request(url, options, (res) => {
+        resolve(res.statusCode === 200);
+      });
+
+      req.on('error', () => resolve(false));
+      req.end();
+    });
+  }
+  getPortalsAll(netName){
+    console.log(`getPortalsAll():: service name `,netName);
+    const index = this.portals.findIndex(portal => portal.netName === netName);
+    console.log(`applyCronoTreeTime():: index is `,index);
+    if (index === -1) {
+      return null;
+    }
+
+    return {port: this.portals[index].recpPort, nodes:[...this.portals[index].activeNodes]};
+  }
+  async selectPortal(netName) {
+    //console.log(`selectPortal():: `,this.portals);
+    const index = this.portals.findIndex(portal => portal.netName === netName);
+
+    if (index === -1) {
+      return { host: 'localhost', port: 80 };
+    }
+
+    let activeNodes = [...this.portals[index].activeNodes]; // Copy active nodes
+
+    while (activeNodes.length > 0) {
+      // Randomly select an index
+      const rnodeIndex = Math.floor(Math.random() * activeNodes.length);
+      const node = activeNodes[rnodeIndex];
+
+      const host = node.ip;
+      const port = this.portals[index].recpPort || 443;
+
+      const target = `${host}:${port}`;
+
+      const isConnected = await this.testConnect(target);
+
+      if (isConnected) {
+        //console.log(`Successful HTTPS connection: ${target}`);
+        return { host, port };
+      }
+
+      console.log(`Failed HTTPS check: ${target}, removing and retrying...`);
+      activeNodes.splice(rnodeIndex, 1);
+    }
+
+    // If no nodes worked, fall back
+    return { host: 'web.bitmonky.com', port: 443 };
+  }
+
 }
 /*
  * ======================================================================================
@@ -4993,16 +5074,23 @@ class MkyMsgQMgr {
 class PeerTreeNet extends  EventEmitter {
    constructor (options,network=null,port=1336,wmon=1339,maxPeers=2,portals=[]){
       super(); 
-      this.reqReplyObj = new PtreeGenRequestHandler(this);
-      this.reqReply    = new PtreeGenRequestHandler(this,false);
-      this.bcastMgr    = new PtreeMultiReplyHandler(this);
-      this.DStream     = new DStreamMgrObj(this);
+      this.reqReplyObj  = new PtreeGenRequestHandler(this);
+      this.reqReply     = new PtreeGenRequestHandler(this,false);
+      this.bcastMgr     = new PtreeMultiReplyHandler(this);
+      this.DStream      = new DStreamMgrObj(this);
+      this.portal       = new BorgPortal();
+      this.borgMasterID = this.getBorgMasterID();
 
       this.borgIOSkey  = 'default';
       this.nodeType    = 'router';
       this.pulseRate   = defPulse;	   
       this.minPulse    = 350;    // fastest allowed heartbeat (ms)
       this.maxPulse    = 5000;   // slowest allowed heartbeat (ms)
+
+      this.uStats = {
+         requests : 0,
+         data     : 0
+      }
 
       this.maxPeers = maxPeers;
       this.rootIp   = null;
@@ -5023,11 +5111,12 @@ class PeerTreeNet extends  EventEmitter {
       this.tmpDir       = `DStream/${network}/`;
       fs.mkdirSync(this.tmpDir, { recursive: true });
 
-      this.logins       = this.loadLoginsFromFile();
-      this.uStats = {
-         requests : 0,
-         data     : 0
-      }
+      this.initFarmerTools();
+   }
+   async initFarmerTools(){
+      this.db           = db.getConnectionSF();
+      this.loginMap     = await this.loadLoginsFromFile();
+      setInterval(() => {this.pruneLoginMapTimer();}, 60_000);
    } 
    doHotStartInitialize(){
       this.isStreaming = new Map;
@@ -5036,13 +5125,41 @@ class PeerTreeNet extends  EventEmitter {
       this.msgMgr   = new MkyMsgQMgr();
    } 
 
+   getBorgMasterID(){
+     return '1B1xrS6Xi6uhCoXcH8UzSETk81S2pmpWjQ';
+   }
+   deepClone(obj){
+     return clone(obj);
+   }
    verifyLogin(r) {
-     console.log(`verifyLogin():: `,r);
+     //console.log(`verifyLogin():: `,r);
 
      if (!r.hasOwnProperty('borgToken')) {
        return { result:false, msg:'BorgToken NOT set' };
      }
      const j = r.borgToken;
+
+/*   PROPOSED MSG TAMPERING TEST. 
+     const msg = r.msg;
+  
+     // NEW: Verify message hash
+     const fullMessage = JSON.stringify({
+       req: msg.req || 'unknown',
+       data: msg.data || msg,
+       timestamp: msg.timestamp || Date.now()
+     });
+  
+     const calculatedHash = crypto.createHash('sha256')
+       .update(fullMessage)
+       .digest('hex');
+  
+     if (j.msgHash !== calculatedHash) {
+       console.error('❌ Message tampered!');
+       console.error(`  Expected: ${j.msgHash}`);
+       console.error(`  Got:      ${calculatedHash}`);
+       return { result: false, msg: 'Message tampered with' };
+     }
+*/
 
      // Validate timestamp
      const tokTime = Number(j.reqTime);
@@ -5052,8 +5169,8 @@ class PeerTreeNet extends  EventEmitter {
 
      // Freshness window (30 seconds)
      const curTime = Date.now();
-     if (tokTime < curTime - 30000 || tokTime > curTime + 30000) {
-       return { result:false, msg:'Token expired' };
+     if (tokTime < curTime - 175000 || tokTime > curTime + 173000) {
+       return { result:false, msg:`Token expired tokTime ${tokTime} window ${curTime - tokTime}` };
      }
 
      // Validate pubkey
@@ -5068,7 +5185,7 @@ class PeerTreeNet extends  EventEmitter {
 
      // Replay protection (per user)
      const replayKey = `${j.Address}:${j.reqId}`;
-     if (this.logins.has(replayKey)) {
+     if (this.loginMap.get(replayKey)) {
        return { result:false, msg:'Replay attack: reqId already used' };
      }
 
@@ -5099,30 +5216,142 @@ class PeerTreeNet extends  EventEmitter {
        msg    : 'keyVerificationComplete'
      };
 
-     if (vf.result){
-       // Store replay entry
-       this.logins.set(replayKey, {
-         tokTime  : tokTime,
-         borgHUID : j.Address,
-         service  : r.msg?.req
+     if (vf.result) {
+       // Update in-memory map immediately (sync)
+       this.loginMap.set(replayKey, {
+         replayKey,
+         tokTime,
+         borgHUID  : j.Address,
+         service   : process.title,
+         request   : r.msg?.req || null,
+         borgToken : JSON.stringify(j),
+         borgTokenSig : j.sesSig,
+         signedPayload: j.sesTok,
+         createdAt : Date.now()
        });
-       this.saveLoginsToFile();
+
+       // Fire-and-forget DB write
+       this.writeReplayToDB({
+         replayKey,
+         tokTime,
+         borgHUID : j.Address,
+         service  : process.title,
+         request  : r.msg?.req || null,
+         borgToken: JSON.stringify(j),
+         borgTokenSig: j.sesSig,
+         signedPayload: j.sesTok
+       });
      }
      return vf;
-
    }
-   saveLoginsToFile() {
-     fs.writeFileSync(this.loginsFile, JSON.stringify(Object.fromEntries(this.logins), null, 2));
-     //console.error('PeerTreeNet.saveLoginsToFile():: Logins saved to file.');
-   }   
-   loadLoginsFromFile() {
+   async writeReplayToDB(entry) {
      try {
-        const data = fs.readFileSync(this.loginsFile, 'utf-8');
-        return new Map(Object.entries(JSON.parse(data)));
-     } catch (error) {
-        //console.error('PeerTreeNet.loadLoginsFromFile():: No previous logins found or error reading file: new Map created.');
-        return new Map();
+       await this.db.execute(
+         `INSERT INTO borg_replay_log
+          (replayKey, tokTime, borgHUID, service, request, borgToken, borgTokenSig, signedPayload)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         [
+           entry.replayKey,
+           entry.tokTime,
+           entry.borgHUID,
+           entry.service,
+           entry.request,
+           entry.borgToken,
+           entry.borgTokenSig,
+           entry.signedPayload
+         ]
+       );
+     } catch (err) {
+       if (err.code === 'ER_DUP_ENTRY') {
+         console.warn("writeReplayToDB(): duplicate replayKey (already logged)");
+         return;
+       }
+       console.error("writeReplayToDB() DB error:", err);
      }
+   }
+   pruneLoginMapTimer() {
+     const before = this.loginMap.size;
+     this.loginMap = this.pruneLoginMap(this.loginMap);
+     const after = this.loginMap.size;
+
+     console.log(`pruneLoginMapTimer():: pruned ${before - after} entries, kept ${after}`);
+   }
+   pruneLoginMap(loginMap) {
+     // console.log(`pruneLoginMap():: loginMap`,loginMap);
+     // Convert Map → array of [replayKey, row]
+     const entries = Array.from(loginMap.entries());
+
+     // Sort newest first
+     entries.sort((a, b) => b[1].tokTime - a[1].tokTime);
+
+     const seenMUIDs = new Set();
+     const pruned = new Map();
+
+     for (const [replayKey, row] of entries) {
+       if (!seenMUIDs.has(row.borgHUID)) {
+         pruned.set(replayKey, row);
+         seenMUIDs.add(row.borgHUID);
+       }
+       if (pruned.size >= 50) break;
+     }
+
+     return pruned;
+   }
+   async loadLoginsFromFile() {
+     try {
+       const rows = await this.readShellsDB();
+
+       // Convert array → Map keyed by replayKey
+       const result = new Map();
+       for (const row of rows) {
+         result.set(row.replayKey, row);
+       }
+
+       return result;
+
+     } catch (err) {
+       console.error("loadLoginsFromFile() DB error:", err);
+       return new Map();
+     }
+   }
+   readShellsDB(){
+     return new Promise((resolve) =>{
+       const SQL = `
+         SELECT l.* FROM shellFarmer.borg_replay_log l INNER JOIN (
+         SELECT borgHUID, MAX(tokTime) AS maxTok
+         FROM shellFarmer.borg_replay_log
+         GROUP BY borgHUID
+         ) AS latest ON l.borgHUID = latest.borgHUID AND l.tokTime = latest.maxTok ORDER BY l.tokTime DESC LIMIT 50
+         `;
+       this.db.query(SQL, (err, result,fields)=>{
+         if (err){
+           console.log(err);
+           resolve([]);
+           return;
+         }
+         resolve(result);
+       });
+     });
+   }
+   getBorgToken(){
+     const reqId   = crypto.randomUUID();
+     const reqTime = Date.now();
+     const btok    = `${this.peerMUID}-${reqTime}-${reqId}`;
+
+     const borgToken = {
+       reqId   : reqId,
+       reqTime : reqTime,
+       Address : this.peerMUID,
+       sesTok  : btok,
+       pubKey  : this.publicKey,
+       sesSig  : this.signToken(btok),
+     }
+     return borgToken;
+   }
+   signToken(btok) {
+     const sig = this.signingKey.sign(this.calculateHash(btok), 'base64');
+     const hexSig = sig.toDER('hex');
+     return hexSig;
    }
    updatePortalsFile(borg){
      var portals = null;
@@ -5199,20 +5428,22 @@ class PeerTreeNet extends  EventEmitter {
          nodes =  fs.readFileSync(this.nodesFile);
        }
        catch {
-         //console.error('no nodes file found');resolve([]);
+         console.error('no nodes file found');resolve([]);
+         resolve([]);
+         return;
        }
        try {
          nodes = JSON.parse(nodes);
          //for (node of nodes)
          //  this.sendMsgCX(node.ip,'{"req":"nodeStatus"}');
-        //console.error(`PeerTreeNet.readNodeFile():: nodes read and parsed: `,this.nodesFile, nodes.length);
+         //console.error(`PeerTreeNet.readNodeFile():: nodes read and parsed: `,this.nodesFile, nodes.length);
          resolve(nodes);
        }
        catch {
-        //console.error('PeerTreeNet.readNodeFile():: Could Not JSON Parse:: ',this.nodesFile,nodes);resolve([]);
+         console.error('PeerTreeNet.readNodeFile():: Could Not JSON Parse:: ',this.nodesFile,nodes);resolve([]);
+         resolve([]);
        }
      });
-
    }
    tryNodeIp(){
      const max = this.PTnodes.length;
@@ -6618,65 +6849,40 @@ class PeerTreeNet extends  EventEmitter {
 
     return changed;
   }
- pruneContacts() {
-  // 1. Sort newest → oldest
-  const sorted = [...this.PTnodes].sort((a, b) => b.date - a.date);
-
-  // 2. Remove duplicates by IP (keep the newest one because sorted)
-  const uniqueByIp = [];
-  const seen = new Set();
-
-  for (const node of sorted) {
-    if (!seen.has(node.ip)) {
-      seen.add(node.ip);
-      uniqueByIp.push(node);
-    }
-  }
-
-  // 3. Keep only the first 10
-  const pruned = uniqueByIp.slice(0, 10);
-
-  // 4. Detect if anything changed
-  const changed =
-    pruned.length !== this.PTnodes.length ||
-    pruned.some((node, i) => !this.PTnodes[i] || node.ip !== this.PTnodes[i].ip);
-
-  if (changed) {
-    this.PTnodes = pruned;
-
-    // Persist to disk
-    fs.writeFile(this.nodesFile, JSON.stringify(this.PTnodes), err => {
-      if (err) throw err;
-    });
-  }
-
-  return changed;
-}
-/*
- pruneContacts() {
-    // Sort newest → oldest
+  pruneContacts() {
+    // 1. Sort newest → oldest
     const sorted = [...this.PTnodes].sort((a, b) => b.date - a.date);
 
-    // Keep only the first 10
-    const pruned = sorted.slice(0, 10);
+    // 2. Remove duplicates by IP (keep the newest one because sorted)
+    const uniqueByIp = [];
+    const seen = new Set();
 
-    // Detect if anything changed
-    const changed = pruned.length !== this.PTnodes.length ||
-                  pruned.some((node, i) => node.ip !== this.PTnodes[i].ip);
+    for (const node of sorted) {
+      if (!seen.has(node.ip)) {
+        seen.add(node.ip);
+        uniqueByIp.push(node);
+      }
+    }
+
+    // 3. Keep only the first 10
+    const pruned = uniqueByIp.slice(0, 10);
+
+    // 4. Detect if anything changed
+    const changed =
+      pruned.length !== this.PTnodes.length ||
+      pruned.some((node, i) => !this.PTnodes[i] || node.ip !== this.PTnodes[i].ip);
 
     if (changed) {
       this.PTnodes = pruned;
 
       // Persist to disk
-      fs.writeFile(this.nodesFile, JSON.stringify(this.PTnodes), err => {
-        if (err) throw err;
-        ////console.error("PeerTreeNet.pruneContacts():: pruned node list saved to disk!");
+      fs.writeFile(this.nodesFile, JSON.stringify(this.PTnodes), { flag: 'w' }, err => {
+        if (err) console.log(`pruneContacts():: `,err);
       });
     }
 
     return changed;
   }
-*/
   handleBcast(j){
      
      if (j.msg.addMe){
