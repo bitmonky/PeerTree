@@ -1,7 +1,5 @@
 # The PeerTree Project
-IMPORTANT NOTE - PeerTree Has Been Moved Into The BorgIOS Project.
-
-Collective compute that belongs to everyone and can be denied by nobody.
+Takes the headaches out of P2P and lets you focus on the app you're building.
 
 ![main](images/main_new.png)
 
