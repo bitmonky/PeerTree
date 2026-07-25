@@ -3,7 +3,7 @@ IMPORTANT NOTE - PeerTree Has Been Moved Into The BorgIOS Project.
 
 Collective compute that belongs to everyone and can be denied by nobody.
 
-![main](images/main.png)
+![main](images/main_new.png)
 
 ## A Biological Model For Computation 
 
