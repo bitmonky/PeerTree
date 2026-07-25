@@ -5456,7 +5456,7 @@ class PeerTreeNet extends  EventEmitter {
      //console.error('PeerTreeNet.setUpNetwork():: begin');
      return new Promise( async (resolve,reject)=>{
        this.initHandlers();
-       this.nodesFile = '/peerTree/keys/myNodeList-'+this.port+'-'+this.nodeType+'.net';
+       this.nodesFile = 'keys/myNodeList-'+this.port+'-'+this.nodeType+'.net';
        this.PTnodes = await this.readNodeFile();
     
        this.nIp = null;
