@@ -3728,6 +3728,27 @@ class MkyRouting {
      }
      return reply?.result?.pCount ?? 0; 
    }
+   notInWhiteList(Ip){
+     // Check tblWhiteList for the Ip
+     // if not found return false;
+     return new Promise((resolve) =>{
+       const SQL = `SELECT count(*) as nRec FROM shellFarmer.tblWhiteList where nodeIp = ?`;
+       let params = [Ip]; 
+       this.net.db.query(SQL,params, (err, result,fields)=>{
+         if (err){
+           console.log(err);
+           resolve(true);
+           return;
+         }
+         if (result[0].nRec > 0){
+           resolve(false);
+           return;
+         }
+         resolve(true);
+       });
+     });
+   }
+
    // ********************************
    // Handler for incoming http request
    // ================================   
@@ -3748,7 +3769,11 @@ class MkyRouting {
        return true;
      }
      if (j.req === 'joinReq'){
-      //console.error ('MkyRouting.handleReq():: Starting:qued',remIp,j);
+       if (await this.notInWhiteList(remIp)){
+         this.net.endResCX(remIp,`{"addResult":"UKNOWN_NO_SOUP_4U","reqId":"${j.reqId}"}`);
+         return;
+       }
+       //console.error ('MkyRouting.handleReq():: Starting:qued',remIp,j);
        if (this.dropWatcher.has(j.nodeIp) || await this.rootSaysWhoHasNodeIp(j.nodeIp) !== null){
         //console.error(`handleReq():: req:joinReq Rejecting: `,j.nodeIp);
          this.net.endResCX(remIp,`{"addResult":"sorryTryNewRoot","reqId":"${j.reqId}"}`);
