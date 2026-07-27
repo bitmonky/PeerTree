@@ -1,3 +1,17 @@
+CREATE TABLE `tblWhiteList` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `nodeIP` varchar(84) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `unique_nodeIP` (`nodeIP`)
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+  
+CREATE TABLE `tblFarmer` (
+  `id` bigint(20) NOT NULL AUTO_INCREMENT,
+  `farmerMUID` varchar(84) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `unique_farmerMUID` (`farmerMUID`)
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+
 CREATE TABLE IF NOT EXISTS borg_replay_log (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
 
