@@ -39,10 +39,26 @@ safety property: the rater can crash, be re-run, or run twice concurrently and
 an access can still only ever be billed once. Packaging then stamps `invoiceNo`
 onto the open ledger rows, so a line can only belong to one invoice.
 
-Rates live in `tblRateCard` with an effective window and are never edited — a
-price change inserts a new row. An invoice from last month can therefore still
-be re-verified against the price that was actually in force, and the client can
-check that the rate it agreed to is the rate it was charged (`rateHash`).
+## Pricing comes from the network, priced at time of access
+
+Pricing is published per service type by a network pricing service. The node
+fetches the current card at the start of an invoicing run and caches it verbatim
+in `tblRateCard` — publisher identity, `cardVersion`, effective window and
+`rateSig` included. Cards are never edited; a price change is a new
+`cardVersion`.
+
+The rater then resolves the card whose effective window contains each access's
+`tokTime`, **not** the card current at invoicing time. Billing a period at
+today's price would charge last month's accesses at a rate the client never
+agreed to and could not check. Every card cited by a line is copied into the
+invoice's `rateProof`, so the client verifies the price under the publisher's
+signature without having to call the pricing service — and an invoice re-verifies
+years later even if the card is long superseded.
+
+One consequence worth stating: the pricing service is a trusted third party for
+price, and if it is unreachable a node cannot start an invoicing run. Cached
+cards make that survivable (invoice an old period from cache), but a node that
+has never fetched a card cannot bill.
 
 ## What the client can verify, item by item
 

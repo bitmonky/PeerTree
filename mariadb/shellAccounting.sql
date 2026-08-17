@@ -37,14 +37,18 @@ CREATE TABLE IF NOT EXISTS tblFarmerCell (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- ---------------------------------------------------------------------------
--- Rate card.  Immutable, signed, and versioned by effective window so an old
--- invoice can always be re-checked against the rate that was in force.
+-- Local cache of the network pricing service's published price list.  The node
+-- fetches the current card at the start of an invoicing run and stores it
+-- verbatim with the publisher's signature; rows are never edited, a price change
+-- arrives as a new cardVersion.  The rater resolves the card whose effective
+-- window contains each access's tokTime -- NOT the card current at invoicing
+-- time -- so an access is always charged the price that was in force when it
+-- happened, and an old invoice stays re-verifiable.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS tblRateCard (
   id            BIGINT AUTO_INCREMENT PRIMARY KEY,
 
-  farmerMUID    VARCHAR(84) NOT NULL,           -- seller (payout identity)
-  peerMUID      VARCHAR(100) NULL,              -- NULL = applies to all the farmer's cells
+  cardVersion   BIGINT NOT NULL,                -- publisher's monotonic version
   service       VARCHAR(100) NOT NULL,          -- matches borg_replay_log.service
   request       VARCHAR(100) NULL,              -- NULL = default rate for the service
   unit          ENUM('access','kbyte','second') NOT NULL DEFAULT 'access',
@@ -55,14 +59,17 @@ CREATE TABLE IF NOT EXISTS tblRateCard (
   effFrom       BIGINT NOT NULL,                -- ms epoch, inclusive
   effTo         BIGINT NULL,                    -- ms epoch, exclusive; NULL = open
 
+  publisherMUID VARCHAR(100) NOT NULL,          -- pricing service identity
+  publisherPub  VARCHAR(200) NOT NULL,
   rateHash      CHAR(64) NOT NULL,              -- sha256 of canonical rate JSON
-  rateSig       VARCHAR(200) NOT NULL,          -- seller signature over rateHash
-  issuerPubKey  VARCHAR(200) NOT NULL,
+  rateSig       VARCHAR(200) NOT NULL,          -- publisher signature over rateHash
+  fetchedAt     BIGINT NOT NULL,                -- when this cell cached it
+  fetchedFrom   VARCHAR(100) NULL,              -- IP/MUID the card was served by
 
   createdAt     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-  UNIQUE KEY unique_rate (farmerMUID, peerMUID, service, request, effFrom),
-  KEY idx_lookup (farmerMUID, service, request, effFrom, effTo)
+  UNIQUE KEY unique_rate (cardVersion, service, request),
+  KEY idx_lookup (service, request, effFrom, effTo)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- ---------------------------------------------------------------------------
@@ -136,6 +143,9 @@ CREATE TABLE IF NOT EXISTS tblInvoice (
   invoiceSig    VARCHAR(200) NOT NULL,          -- signerMUID signature over headerHash
   bindHash      CHAR(64) NOT NULL,              -- tblFarmerCell binding proving authority
   bindProof     TEXT NOT NULL,                  -- JSON: binding row + farmerSig/networkSig
+  rateProof     TEXT NOT NULL,                  -- JSON: every rate card cited by a line,
+                                                -- with publisher sigs, so the package is
+                                                -- verifiable without the pricing service
   headerHash    CHAR(64) NOT NULL,
 
   status        ENUM('draft','issued','sent','partpaid','paid','disputed','void')
