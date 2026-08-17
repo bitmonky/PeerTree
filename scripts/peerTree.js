@@ -5246,6 +5246,7 @@ class PeerTreeNet extends  EventEmitter {
          replayKey,
          tokTime,
          borgHUID  : j.Address,
+         peerMUID  : this.peerMUID,
          service   : process.title,
          request   : r.msg?.req || null,
          borgToken : JSON.stringify(j),
@@ -5259,6 +5260,7 @@ class PeerTreeNet extends  EventEmitter {
          replayKey,
          tokTime,
          borgHUID : j.Address,
+         peerMUID : this.peerMUID,
          service  : process.title,
          request  : r.msg?.req || null,
          borgToken: JSON.stringify(j),
@@ -5269,23 +5271,25 @@ class PeerTreeNet extends  EventEmitter {
      return vf;
    }
    async writeReplayToDB(entry) {
+     // peerMUID (mariadb/shellAccounting.sql) attributes the access to the cell
+     // that served it, which is what a shared DB needs in order to bill it.  The
+     // log is a security artifact first, so a node whose DB predates that column
+     // must still log the access.
+     const cols = this.replayLogHasPeer === false
+       ? ['replayKey','tokTime','borgHUID','service','request','borgToken','borgTokenSig','signedPayload']
+       : ['replayKey','tokTime','borgHUID','peerMUID','service','request','borgToken','borgTokenSig','signedPayload'];
      try {
        await this.db.execute(
-         `INSERT INTO borg_replay_log
-          (replayKey, tokTime, borgHUID, service, request, borgToken, borgTokenSig, signedPayload)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-         [
-           entry.replayKey,
-           entry.tokTime,
-           entry.borgHUID,
-           entry.service,
-           entry.request,
-           entry.borgToken,
-           entry.borgTokenSig,
-           entry.signedPayload
-         ]
+         `INSERT INTO borg_replay_log (${cols.join(', ')})
+          VALUES (${cols.map(() => '?').join(', ')})`,
+         cols.map(c => entry[c] ?? null)
        );
      } catch (err) {
+       if (err.code === 'ER_BAD_FIELD_ERROR' && this.replayLogHasPeer !== false) {
+         console.warn("writeReplayToDB():: borg_replay_log has no peerMUID column, accesses cannot be attributed for billing until shellAccounting.sql is applied");
+         this.replayLogHasPeer = false;
+         return this.writeReplayToDB(entry);
+       }
        if (err.code === 'ER_DUP_ENTRY') {
          console.warn("writeReplayToDB(): duplicate replayKey (already logged)");
          return;

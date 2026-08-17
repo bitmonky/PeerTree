@@ -328,11 +328,14 @@ CREATE TABLE IF NOT EXISTS tblInvoiceDispute (
 -- Needed on borg_replay_log for billing: which cell served the access, and how
 -- much work it was.  Without peerMUID a shared DB (as in test/selfrepair) mixes
 -- every cell's accesses into one table with no way to attribute them; the
--- farmer is then resolved through tblFarmerCell.
+-- farmer is then resolved through tblFarmerCell.  peerMUID is written by
+-- writeReplayToDB(); bytesIn/bytesOut/msgHash are reserved for the client-signed
+-- completion receipt and stay NULL until the client signs those quantities --
+-- a node-asserted value in them must never be billed (see ACCOUNTING.md).
 -- ---------------------------------------------------------------------------
--- ALTER TABLE borg_replay_log
---   ADD COLUMN peerMUID VARCHAR(100) NULL AFTER borgHUID,
---   ADD COLUMN bytesIn  BIGINT NULL,
---   ADD COLUMN bytesOut BIGINT NULL,
---   ADD COLUMN msgHash  CHAR(64) NULL,
---   ADD KEY idx_node_time (peerMUID, tokTime DESC);
+ALTER TABLE borg_replay_log
+  ADD COLUMN IF NOT EXISTS peerMUID VARCHAR(100) NULL AFTER borgHUID,
+  ADD COLUMN IF NOT EXISTS bytesIn  BIGINT NULL,
+  ADD COLUMN IF NOT EXISTS bytesOut BIGINT NULL,
+  ADD COLUMN IF NOT EXISTS msgHash  CHAR(64) NULL,
+  ADD KEY IF NOT EXISTS idx_node_time (peerMUID, tokTime DESC);

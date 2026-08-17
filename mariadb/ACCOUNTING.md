@@ -168,13 +168,16 @@ today; metered units need the receipt.
 
 ## Also required
 
-`borg_replay_log` has no column for the cell that served the request (`service`
-is `process.title`). With one shared MariaDB — the configuration the self-repair
-lab uses — every cell's accesses land in one table and cannot be attributed to a
-seller. The `ALTER TABLE` at the end of `shellAccounting.sql` adds `peerMUID`
-(plus optional `bytesIn`/`bytesOut`/`msgHash`) and should land before invoices
-are generated in a shared-DB deployment; the farmer is then resolved through
-`tblFarmerCell`.
+Attribution is done: the `ALTER TABLE` at the end of `shellAccounting.sql` adds
+`peerMUID` to `borg_replay_log` and `writeReplayToDB()` now writes the serving
+cell's MUID with every access, so a shared MariaDB — the configuration the
+self-repair lab uses — no longer mixes every cell's accesses into one
+unattributable table. The farmer is resolved from there through `tblFarmerCell`.
+Nodes whose DB predates the column keep logging (the write drops back to the old
+column list and warns), but their accesses cannot be billed until the migration
+is applied. `bytesIn`/`bytesOut`/`msgHash` are added by the same statement and
+stay NULL: they are reserved for the client-signed completion receipt, and a
+node-asserted value in them must never be billed.
 
 `tblFarmer` is currently written and read by nothing in `scripts/` — only the
 cell's own `peerMUID` is used — so registration needs to populate `tblFarmer`

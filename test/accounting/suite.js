@@ -147,17 +147,6 @@ async function resetTables(con){
   await q(con, `SET FOREIGN_KEY_CHECKS = 1`);
 }
 
-// The billing columns the accountant wants on the log (commented out in
-// shellAccounting.sql until the cell writes them) -- applied here so the
-// per-cell attribution path is exercised.
-async function addPeerMUIDColumn(con){
-  const row = await q1(con,
-    `SELECT count(*) AS n FROM information_schema.columns
-     WHERE table_schema = DATABASE() AND table_name = 'borg_replay_log' AND column_name = 'peerMUID'`);
-  if (row.n > 0) return;
-  await q(con, `ALTER TABLE borg_replay_log ADD COLUMN peerMUID VARCHAR(100) NULL AFTER borgHUID`);
-}
-
 // ------------------------------------------------------- access minting
 // Mints an access exactly as peerTree.verifyLogin() records one: sesTok is
 // '<Address>-<reqTime>-<reqId>', signed by the client over sha256(sesTok).
@@ -219,7 +208,6 @@ function rehash(inv){
 async function main(){
   const con = await waitForDB();
   await q(con, `USE ${process.env.DB_NAME || 'shellFarmer'}`);
-  await addPeerMUIDColumn(con);
   await resetTables(con);
 
   const publisher = identity();          // network pricing service
@@ -253,7 +241,8 @@ async function main(){
   ok(started === true, 'start() succeeded');
   eq(acc.farmerMUID, farmer.muid, 'farmerMUID read from tblFarmer');
   ok(!!acc.binding, 'tblFarmerCell binding found for this cell');
-  ok(acc.logHasPeerMUID === true, 'peerMUID column on borg_replay_log detected');
+  ok(acc.logHasPeerMUID === true,
+     'peerMUID column present from shellAccounting.sql, so accesses can be attributed');
   eq(acc.policy.graceMs, 0, 'policy loaded from tblBillingPolicy');
   acc.stop();
 

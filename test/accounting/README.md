@@ -15,9 +15,8 @@ To run against a DB you already have: `DB_HOST=... node test/accounting/suite.js
 Accesses are minted the way `peerTree.verifyLogin()` records them -- a
 client-signed `sesTok` of `<Address>-<reqTime>-<reqId>` written to
 `borg_replay_log` -- so what the rater reads is what a live cell would write.
-The suite adds the `peerMUID` column the accountant looks for (still commented
-out in `shellAccounting.sql` because the cell does not write it yet), which is
-what lets a shared DB attribute an access to the cell that served it.
+`peerMUID` comes from the schema's own migration, so the suite bills through the
+same attribution path a live shared-DB deployment uses.
 
 ## What it asserts
 
