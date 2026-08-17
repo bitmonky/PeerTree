@@ -12,7 +12,14 @@ const ec = new EC('secp256k1');
 const bitcoin = require('bitcoinjs-lib');
 
 const {DStreamMgrObj} = require('./DStreamMgrObj.js');
-const {SFarmAccountant} = require('./sFarmAccountant.js');
+// Cells are deployed by curling individual files, so a node updated before
+// sFarmAccountant.js is published must still serve; it just cannot bill.
+let SFarmAccountant = null;
+try {
+  ({SFarmAccountant} = require('./sFarmAccountant.js'));
+} catch (err) {
+  console.warn('peerTree:: sFarmAccountant.js unavailable, accounting disabled:',err.message);
+}
 
 const db = require('./shellFarmerDB');
 
@@ -5095,7 +5102,7 @@ class PeerTreeNet extends  EventEmitter {
       this.reqReply     = new PtreeGenRequestHandler(this,false);
       this.bcastMgr     = new PtreeMultiReplyHandler(this);
       this.DStream      = new DStreamMgrObj(this);
-      this.accountant   = new SFarmAccountant(this);
+      this.accountant   = SFarmAccountant ? new SFarmAccountant(this) : null;
       this.portal       = new BorgPortal();
       this.borgMasterID = this.getBorgMasterID();
 
@@ -5135,7 +5142,7 @@ class PeerTreeNet extends  EventEmitter {
       this.db           = db.getConnectionSF();
       this.loginMap     = await this.loadLoginsFromFile();
       setInterval(() => {this.pruneLoginMapTimer();}, 60_000);
-      this.accountant.start({priceServiceIp:this.options?.priceServiceIp})
+      this.accountant?.start({priceServiceIp:this.options?.priceServiceIp})
         .catch(err => console.error('PeerTreeNet.initFarmerTools():: accountant start failed',err));
    } 
    doHotStartInitialize(){
@@ -5267,7 +5274,7 @@ class PeerTreeNet extends  EventEmitter {
      return vf;
    }
    async writeReplayToDB(entry) {
-     // peerMUID (mariadb/shellAccounting.sql) attributes the access to the cell
+     // peerMUID (shellAccounting.sql) attributes the access to the cell
      // that served it, which is what a shared DB needs in order to bill it.  The
      // log is a security artifact first, so a node whose DB predates that column
      // must still log the access.
