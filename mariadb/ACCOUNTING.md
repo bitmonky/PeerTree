@@ -1,6 +1,9 @@
 # Shell accounting: from replay log to a verifiable invoice
 
 Schema: `mariadb/shellAccounting.sql`.
+Implementation: `scripts/sFarmAccountant.js` (`SFarmAccountant`), wired into
+`PeerTreeNet` as `this.accountant` and started from `initFarmerTools()` once the
+DB handle exists. Tests: `test/accounting/run.sh`.
 
 ```
 borg_replay_log  --rate-->  tblAccessLedger  --package-->  tblInvoice + tblInvoiceLine
@@ -85,8 +88,16 @@ client that never pays, which the daily cycle alone does not.
 
 `tblInvoiceRun` is taken before any invoice is written and is unique on
 `(farmerMUID, runKey)`, where `runKey` is `daily:<cycleIndex>` or
-`thresh:<borgHUID>:<cycleIndex>`. That row is the mutex: a retried cron tick, or
+`thresh:<borgHUID>:<nextSeq>`. That row is the mutex: a retried cron tick, or
 two cells of the same farmer sharing a DB, cannot both issue for the same cycle.
+A threshold run keys on the invoice number about to be issued rather than the
+cycle, so racing cells still agree on one claim while a heavy client can be
+invoiced more than once in a day.
+
+The watermark has one cost worth stating: an access whose `tokTime` lands behind
+`billedThrough` — a log write that arrived later than its timestamp — is never
+billed. `graceMs` is what keeps that window shut, so it must exceed the worst
+case lag between serving a request and the log row being visible.
 
 ## What the client can verify, item by item
 
@@ -141,15 +152,32 @@ prove:
 Billing on `unit='access'` with the msgHash binding enabled is fully provable
 today; metered units need the receipt.
 
+## What the code does with an unprovable charge
+
+`SFarmAccountant` refuses rather than guesses:
+
+- an access with no rate card in force at its `tokTime` is left unrated
+- a `kbyte`/`second` rate is left unrated entirely — there is no signed
+  measurement to bill from, and inventing one would be worse than not billing
+- an access carrying another cell's `peerMUID` is not billed by this cell
+- a cell with no unrevoked `tblFarmerCell` binding does not bill at all
+- a rate whose `rateHash`/`rateSig` does not verify under the publisher's key is
+  never cached, so it can never price a line
+- if a concurrent run claims any of the ledger rows an invoice was built from,
+  the invoice is voided rather than issued short
+
 ## Also required
 
-`borg_replay_log` has no column for the cell that served the request (`service`
-is `process.title`). With one shared MariaDB — the configuration the self-repair
-lab uses — every cell's accesses land in one table and cannot be attributed to a
-seller. The `ALTER TABLE` at the end of `shellAccounting.sql` adds `peerMUID`
-(plus optional `bytesIn`/`bytesOut`/`msgHash`) and should land before invoices
-are generated in a shared-DB deployment; the farmer is then resolved through
-`tblFarmerCell`.
+Attribution is done: the `ALTER TABLE` at the end of `shellAccounting.sql` adds
+`peerMUID` to `borg_replay_log` and `writeReplayToDB()` now writes the serving
+cell's MUID with every access, so a shared MariaDB — the configuration the
+self-repair lab uses — no longer mixes every cell's accesses into one
+unattributable table. The farmer is resolved from there through `tblFarmerCell`.
+Nodes whose DB predates the column keep logging (the write drops back to the old
+column list and warns), but their accesses cannot be billed until the migration
+is applied. `bytesIn`/`bytesOut`/`msgHash` are added by the same statement and
+stay NULL: they are reserved for the client-signed completion receipt, and a
+node-asserted value in them must never be billed.
 
 `tblFarmer` is currently written and read by nothing in `scripts/` — only the
 cell's own `peerMUID` is used — so registration needs to populate `tblFarmer`
