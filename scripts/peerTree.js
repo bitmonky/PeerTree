@@ -12,6 +12,7 @@ const ec = new EC('secp256k1');
 const bitcoin = require('bitcoinjs-lib');
 
 const {DStreamMgrObj} = require('./DStreamMgrObj.js');
+const {SFarmAccountant} = require('./sFarmAccountant.js');
 
 const db = require('./shellFarmerDB');
 
@@ -5098,6 +5099,7 @@ class PeerTreeNet extends  EventEmitter {
       this.reqReply     = new PtreeGenRequestHandler(this,false);
       this.bcastMgr     = new PtreeMultiReplyHandler(this);
       this.DStream      = new DStreamMgrObj(this);
+      this.accountant   = new SFarmAccountant(this);
       this.portal       = new BorgPortal();
       this.borgMasterID = this.getBorgMasterID();
 
@@ -5137,6 +5139,8 @@ class PeerTreeNet extends  EventEmitter {
       this.db           = db.getConnectionSF();
       this.loginMap     = await this.loadLoginsFromFile();
       setInterval(() => {this.pruneLoginMapTimer();}, 60_000);
+      this.accountant.start({priceServiceIp:this.options?.priceServiceIp})
+        .catch(err => console.error('PeerTreeNet.initFarmerTools():: accountant start failed',err));
    } 
    doHotStartInitialize(){
       this.isStreaming = new Map;

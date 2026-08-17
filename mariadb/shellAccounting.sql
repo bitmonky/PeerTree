@@ -10,6 +10,12 @@
 
 USE shellFarmer;
 
+-- borg_replay_log was created without an explicit charset, so on MariaDB 11 it
+-- lands on the server default (utf8mb4_uca1400_ai_ci) while the tables below are
+-- utf8mb4_general_ci like the rest of shellFarmer.  Joining replayKey across the
+-- two then fails with "Illegal mix of collations", so align the log first.
+ALTER TABLE borg_replay_log CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
+
 -- ---------------------------------------------------------------------------
 -- Farmer <-> cell binding, written at provisioning time.  The farmer address is
 -- the payout identity supplied by the owner when the node is registered; the
@@ -311,6 +317,7 @@ CREATE TABLE IF NOT EXISTS tblInvoiceDispute (
   resolution    ENUM('open','credited','rejected','withdrawn') NOT NULL DEFAULT 'open',
   resolvedAt    BIGINT NULL,
   creditAmount  DECIMAL(24,8) NOT NULL DEFAULT 0,
+  appliedTo     CHAR(36) NULL,                  -- invoice the credit was taken off
 
   KEY idx_invoice (invoiceNo, resolution),
   CONSTRAINT fk_dispute_invoice FOREIGN KEY (invoiceNo)

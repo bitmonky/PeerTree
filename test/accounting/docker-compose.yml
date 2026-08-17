@@ -1,0 +1,38 @@
+name: peertree-accounting
+
+services:
+  acctdb:
+    image: mariadb:11
+    container_name: pt-acctdb
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: shellFarmer
+      MARIADB_USER: shellfarmer
+      MARIADB_PASSWORD: shellfarmer
+    volumes:
+      - ./sql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  suite:
+    build:
+      context: ../..
+      dockerfile: test/accounting/Dockerfile
+    image: peertree-accounting:latest
+    container_name: pt-acct-suite
+    depends_on:
+      acctdb:
+        condition: service_healthy
+    environment:
+      DB_HOST: acctdb
+      DB_USER: shellfarmer
+      DB_PASS: shellfarmer
+      DB_NAME: shellFarmer
+      SCRIPTS: /peerTree/scripts
+      REPORT: /report/report.txt
+    volumes:
+      - ./report:/report
+    command: ["node", "/peerTree/test/accounting/suite.js"]
