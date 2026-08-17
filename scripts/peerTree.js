@@ -4273,12 +4273,7 @@ class MkyRouting {
        if (this.r.nodeNbr === this.r.lnode){
          this.r.rightNode = null;
        }
-       this.r.myNodes.forEach((child,index,object)=>{
-         if (child.nbr > this.r.lnode){
-           //console.error('MkyRouting.handleBcast():: droping dangling node from child nodes',j);
-           this.r.rightNode = null;
-         }
-       });
+       this.r.myNodes = this.r.myNodes.filter(child => !(child.nbr > this.r.lnode));
        return true;
      }
      if (j.msg.newLastHost){

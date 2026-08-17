@@ -107,8 +107,11 @@ function checkTree(states, expectedUp) {
       cur = byIp.get(next);
       if (!cur) { problems.push(`right chain hits dead/unknown ${short(next)}`); break; }
     }
-    if (chain.length !== live.length)
-      problems.push(`right chain threads ${chain.length} of ${live.length} live cells`);
+    if (chain.length !== live.length) {
+      const off = live.map(s => s.ip).filter(ip => !chain.includes(ip));
+      problems.push(`right chain threads ${chain.length} of ${live.length} live cells ` +
+        `[${chain.map(short).join('->')}] off chain: ${off.map(short).join(',')}`);
+    }
   }
   return { live, problems, rootIp: rootState && rootState.ip };
 }
