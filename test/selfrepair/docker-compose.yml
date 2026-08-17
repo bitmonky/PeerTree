@@ -1,0 +1,193 @@
+name: peertree-lab
+
+x-node: &node
+  build:
+    context: ../..
+    dockerfile: test/selfrepair/Dockerfile
+  image: peertree-lab:latest
+  depends_on:
+    ptdb:
+      condition: service_healthy
+  environment:
+    CELL: cronoTreeCell.js
+    NET_PORT: "13396"
+    NODE_TYPE: cronoTreeCell
+    DB_HOST: ptdb
+    DB_USER: shellfarmer
+    DB_PASS: shellfarmer
+  # cells intentionally process.exit(1) to re-bootstrap (pm2 semantics in prod)
+  restart: unless-stopped
+  cap_add:
+    - NET_ADMIN
+    - NET_RAW
+  stop_grace_period: 2s
+
+services:
+  ptdb:
+    image: mariadb:11
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: shellFarmer
+      MARIADB_USER: shellfarmer
+      MARIADB_PASSWORD: shellfarmer
+    volumes:
+      - ./sql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      ptnet:
+        ipv4_address: 198.51.100.5
+
+  n1:
+    <<: *node
+    container_name: pt-n1
+    environment:
+      CELL: cronoTreeCell.js
+      NET_PORT: "13396"
+      NODE_TYPE: cronoTreeCell
+      DB_HOST: ptdb
+      DB_USER: shellfarmer
+      DB_PASS: shellfarmer
+      NODE_NAME: n1
+    volumes:
+      - ./state/n1:/peerTree/keys
+    networks:
+      ptnet:
+        ipv4_address: 198.51.100.11
+
+  n2:
+    <<: *node
+    container_name: pt-n2
+    environment:
+      CELL: cronoTreeCell.js
+      NET_PORT: "13396"
+      NODE_TYPE: cronoTreeCell
+      DB_HOST: ptdb
+      DB_USER: shellfarmer
+      DB_PASS: shellfarmer
+      NODE_NAME: n2
+      BOOTSTRAP_IPS: 198.51.100.11
+    volumes:
+      - ./state/n2:/peerTree/keys
+    networks:
+      ptnet:
+        ipv4_address: 198.51.100.12
+
+  n3:
+    <<: *node
+    container_name: pt-n3
+    environment:
+      CELL: cronoTreeCell.js
+      NET_PORT: "13396"
+      NODE_TYPE: cronoTreeCell
+      DB_HOST: ptdb
+      DB_USER: shellfarmer
+      DB_PASS: shellfarmer
+      NODE_NAME: n3
+      BOOTSTRAP_IPS: 198.51.100.11,198.51.100.12
+    volumes:
+      - ./state/n3:/peerTree/keys
+    networks:
+      ptnet:
+        ipv4_address: 198.51.100.13
+
+  n4:
+    <<: *node
+    container_name: pt-n4
+    environment:
+      CELL: cronoTreeCell.js
+      NET_PORT: "13396"
+      NODE_TYPE: cronoTreeCell
+      DB_HOST: ptdb
+      DB_USER: shellfarmer
+      DB_PASS: shellfarmer
+      NODE_NAME: n4
+      BOOTSTRAP_IPS: 198.51.100.11,198.51.100.12,198.51.100.13
+    volumes:
+      - ./state/n4:/peerTree/keys
+    networks:
+      ptnet:
+        ipv4_address: 198.51.100.14
+
+  n5:
+    <<: *node
+    container_name: pt-n5
+    environment:
+      CELL: cronoTreeCell.js
+      NET_PORT: "13396"
+      NODE_TYPE: cronoTreeCell
+      DB_HOST: ptdb
+      DB_USER: shellfarmer
+      DB_PASS: shellfarmer
+      NODE_NAME: n5
+      BOOTSTRAP_IPS: 198.51.100.11,198.51.100.12,198.51.100.13,198.51.100.14
+    volumes:
+      - ./state/n5:/peerTree/keys
+    networks:
+      ptnet:
+        ipv4_address: 198.51.100.15
+
+  n6:
+    <<: *node
+    container_name: pt-n6
+    environment:
+      CELL: cronoTreeCell.js
+      NET_PORT: "13396"
+      NODE_TYPE: cronoTreeCell
+      DB_HOST: ptdb
+      DB_USER: shellfarmer
+      DB_PASS: shellfarmer
+      NODE_NAME: n6
+      BOOTSTRAP_IPS: 198.51.100.11,198.51.100.12,198.51.100.13,198.51.100.14,198.51.100.15
+    volumes:
+      - ./state/n6:/peerTree/keys
+    networks:
+      ptnet:
+        ipv4_address: 198.51.100.16
+
+  n7:
+    <<: *node
+    container_name: pt-n7
+    environment:
+      CELL: cronoTreeCell.js
+      NET_PORT: "13396"
+      NODE_TYPE: cronoTreeCell
+      DB_HOST: ptdb
+      DB_USER: shellfarmer
+      DB_PASS: shellfarmer
+      NODE_NAME: n7
+      BOOTSTRAP_IPS: 198.51.100.11,198.51.100.12,198.51.100.13,198.51.100.14,198.51.100.15,198.51.100.16
+    volumes:
+      - ./state/n7:/peerTree/keys
+    networks:
+      ptnet:
+        ipv4_address: 198.51.100.17
+
+  # instrumentation cell: an ordinary clone that can measure broadcast reach
+  probe:
+    <<: *node
+    container_name: pt-probe
+    environment:
+      CELL: probeCell.js
+      NET_PORT: "13396"
+      NODE_TYPE: cronoTreeCell
+      DB_HOST: ptdb
+      DB_USER: shellfarmer
+      DB_PASS: shellfarmer
+      NODE_NAME: probe
+      BOOTSTRAP_IPS: 198.51.100.11,198.51.100.12,198.51.100.13,198.51.100.14,198.51.100.15,198.51.100.16,198.51.100.17
+    volumes:
+      - ./state/probe:/peerTree/keys
+    networks:
+      ptnet:
+        ipv4_address: 198.51.100.18
+
+networks:
+  ptnet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 198.51.100.0/24
