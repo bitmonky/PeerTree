@@ -148,6 +148,8 @@ CREATE TABLE IF NOT EXISTS tblInvoice (
                                                 -- verifiable without the pricing service
   headerHash    CHAR(64) NOT NULL,
 
+  triggerType   ENUM('daily','threshold','manual','final') NOT NULL DEFAULT 'daily',
+  runId         BIGINT NULL,                    -- tblInvoiceRun that produced it
   status        ENUM('draft','issued','sent','partpaid','paid','disputed','void')
                 NOT NULL DEFAULT 'draft',
   issuedAt      BIGINT NULL,
@@ -197,6 +199,81 @@ CREATE TABLE IF NOT EXISTS tblInvoiceLine (
   KEY idx_invoice (invoiceNo),
   CONSTRAINT fk_line_invoice FOREIGN KEY (invoiceNo)
     REFERENCES tblInvoice(invoiceNo) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- ---------------------------------------------------------------------------
+-- Invoicing policy: daily cycle OR accrual threshold, whichever fires first.
+-- Published/held per farmer; thresholds keep a heavy client from running up an
+-- unbounded unbilled balance between daily runs, and minInvoice stops the daily
+-- cycle from emitting dust invoices that cost more to settle than they are
+-- worth (those accesses simply stay open and roll into the next run).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS tblBillingPolicy (
+  id            BIGINT AUTO_INCREMENT PRIMARY KEY,
+
+  farmerMUID    VARCHAR(84) NOT NULL,
+  cycleMs       BIGINT NOT NULL DEFAULT 86400000,   -- daily
+  cycleAnchor   BIGINT NOT NULL,                    -- ms epoch of cycle boundary 0
+  threshold     DECIMAL(24,8) NOT NULL,             -- accrued unbilled amount that
+                                                    -- forces an invoice early
+  minInvoice    DECIMAL(24,8) NOT NULL DEFAULT 0,   -- below this, defer to next cycle
+  graceMs       BIGINT NOT NULL DEFAULT 300000,     -- exclude accesses newer than this
+                                                    -- so in-flight writes are not split
+  dueMs         BIGINT NOT NULL DEFAULT 604800000,  -- dueAt = issuedAt + dueMs
+  currency      VARCHAR(12) NOT NULL DEFAULT 'BTC',
+  effFrom       BIGINT NOT NULL,
+  effTo         BIGINT NULL,
+
+  UNIQUE KEY unique_policy (farmerMUID, effFrom)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- ---------------------------------------------------------------------------
+-- Per-client billing account: the watermark that makes periods contiguous and
+-- gap-free, plus the running accrual the threshold test reads.  billedThrough is
+-- the exclusive end of the last issued period and becomes the next
+-- periodStart, so no access can be billed twice or skipped, whichever trigger
+-- fires.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS tblBillingAccount (
+  id            BIGINT AUTO_INCREMENT PRIMARY KEY,
+
+  farmerMUID    VARCHAR(84) NOT NULL,
+  borgHUID      VARCHAR(100) NOT NULL,
+  billedThrough BIGINT NOT NULL,                -- exclusive; next periodStart
+  lastSeq       BIGINT NOT NULL DEFAULT 0,
+  lastInvoiceNo CHAR(36) NULL,
+  lastMerkleRoot CHAR(64) NULL,
+  accrued       DECIMAL(24,8) NOT NULL DEFAULT 0,  -- rated but uninvoiced
+  accruedLines  INT NOT NULL DEFAULT 0,
+  outstanding   DECIMAL(24,8) NOT NULL DEFAULT 0,  -- issued but unpaid
+  lastRunAt     BIGINT NULL,
+  status        ENUM('active','suspended','closed') NOT NULL DEFAULT 'active',
+
+  UNIQUE KEY unique_account (farmerMUID, borgHUID),
+  KEY idx_due (status, accrued)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- ---------------------------------------------------------------------------
+-- One row per invoicing run, taken before any invoice is written.  unique_run
+-- is the mutex: two cells sharing a DB, or a retried cron tick, cannot both
+-- issue for the same cycle.  A run also records the rate card version it
+-- fetched, so a run is reproducible.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS tblInvoiceRun (
+  id            BIGINT AUTO_INCREMENT PRIMARY KEY,
+
+  farmerMUID    VARCHAR(84) NOT NULL,
+  runKey        VARCHAR(120) NOT NULL,          -- 'daily:<cycleIndex>' | 'thresh:<borgHUID>:<cycleIndex>'
+  triggerType   ENUM('daily','threshold','manual','final') NOT NULL,
+  cardVersion   BIGINT NULL,                    -- pricing card fetched for this run
+  startedAt     BIGINT NOT NULL,
+  finishedAt    BIGINT NULL,
+  invoiceCount  INT NOT NULL DEFAULT 0,
+  totalBilled   DECIMAL(24,8) NOT NULL DEFAULT 0,
+  state         ENUM('running','done','failed') NOT NULL DEFAULT 'running',
+  error         TEXT NULL,
+
+  UNIQUE KEY unique_run (farmerMUID, runKey)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- ---------------------------------------------------------------------------

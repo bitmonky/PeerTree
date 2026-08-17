@@ -60,6 +60,34 @@ price, and if it is unreachable a node cannot start an invoicing run. Cached
 cards make that survivable (invoice an old period from cache), but a node that
 has never fetched a card cannot bill.
 
+## When an invoice is cut
+
+Daily cycle **or** accrual threshold, whichever fires first (`tblBillingPolicy`):
+
+```
+every cycle tick (cycleMs, anchored on cycleAnchor):
+  for each active account: if accrued >= minInvoice -> issue
+on rating an access:
+  if account.accrued >= policy.threshold           -> issue that account now
+```
+
+Periods are defined by a watermark, not by the clock: `periodStart` is always the
+account's `billedThrough` and `periodEnd` is `now - graceMs`, so periods are
+contiguous and gap-free no matter which trigger fires or how late a run is. That
+is what keeps a threshold invoice in the middle of a day from splitting or
+double-billing the day's accesses. `graceMs` holds back the most recent few
+minutes so an access still being written cannot land after the boundary of an
+invoice that already closed.
+
+`minInvoice` suppresses dust: below it the daily run issues nothing and the
+accesses roll into the next cycle. `threshold` bounds the seller's exposure to a
+client that never pays, which the daily cycle alone does not.
+
+`tblInvoiceRun` is taken before any invoice is written and is unique on
+`(farmerMUID, runKey)`, where `runKey` is `daily:<cycleIndex>` or
+`thresh:<borgHUID>:<cycleIndex>`. That row is the mutex: a retried cron tick, or
+two cells of the same farmer sharing a DB, cannot both issue for the same cycle.
+
 ## What the client can verify, item by item
 
 Each `tblInvoiceLine` is self-contained. Verification of a line:
