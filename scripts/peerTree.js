@@ -1819,7 +1819,7 @@ class MkyRouting {
      // look for and remove lastnode child entry
      if (Array.isArray(this.r.myNodes)) {
        const last = this.r.myNodes.length - 1;
-       if (last >= 0 && this.r.myNodes[last] === j.remIp) {
+       if (last >= 0 && this.r.myNodes[last].ip === j.remIp) {
          this.r.myNodes.pop();
        }
      }
@@ -3333,7 +3333,7 @@ class MkyRouting {
         } 
         else {
           for (const child of children) {
-            if ( this.r.myNodes.findIndex(n => n.ip === child.Ip) !== -1) {
+            if ( this.r.myNodes.findIndex(n => n.ip === child.ip) !== -1) {
              //console.error(`rootSaysPBatchNodes():: root 'FAIL_CHILDUPLICATE'`);
               return false;
             }
@@ -3375,7 +3375,7 @@ class MkyRouting {
       } else {
         let dupFound = false;
         for (const child of j.children) {
-          if ( this.r.myNodes.findIndex(n => n.ip === child.Ip) !== -1) {
+          if ( this.r.myNodes.findIndex(n => n.ip === child.ip) !== -1) {
             reply.result = 'FAIL_CHILDUPLICATE';
             dupFound     = true;
             break;
