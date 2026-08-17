@@ -12,7 +12,6 @@ const ec = new EC('secp256k1');
 const bitcoin = require('bitcoinjs-lib');
 
 const {DStreamMgrObj} = require('./DStreamMgrObj.js');
-const {SFarmAccountant} = require('./sFarmAccountant.js');
 
 const db = require('./shellFarmerDB');
 
@@ -128,9 +127,8 @@ process.on('unhandledRejection', (reason, promise) => { // Updated
     } else {
        console.error('process.on():: unhandledRejection NoStack',reason);
     }
-    //errorLog.end(() => {
-       process.exit(1);
-    //});
+    console.log('unhandledRejection',reason);
+    process.exit(1);
 });
 
 var   defPulse            = 5*1000;
@@ -476,7 +474,7 @@ class PtreeMultiReplyHandler {
     this.net = net;
   }
 
-  getReplies(req, maxGroups = 1, timeout = 5000) {
+  getReplies(req, maxGroups = 3, timeout = 1250) {
     return new Promise((resolve) => {
 
 
@@ -505,7 +503,7 @@ class PtreeMultiReplyHandler {
       // -----------------------------------------
       this.net.on('xhrPostOK', sendOKListener = (j) => {
         //console.log(`getReplies():: heard `,j);
-        if (j.msg.reqId === reqId) {
+        if (j?.msg?.reqId === reqId) {
 
           this.net.removeListener('xhrPostOK', sendOKListener);
 
@@ -524,7 +522,7 @@ class PtreeMultiReplyHandler {
       // -----------------------------------------
       this.net.on('xhrFail', failListener = (j) => {
        //console.log(`getReplies():: heard `,j);
-        if (j.msg.req === action && j.msg.reqId === reqId) {
+        if (j?.msg?.req === action && j?.msg?.reqId === reqId) {
 
           clearTimeout(timer);
 
@@ -543,14 +541,11 @@ class PtreeMultiReplyHandler {
 
         if (
           j.reqId === reqId &&
-          j.req === action &&
-          j.response === response
+          j.response === response &&
+          j.result === 'OK'
         ) {
           // Create a grouping key (you can customize this)
-          const key = JSON.stringify({
-            remIp: j.remIp,
-            payload: j.payload || j.data || j.result || null
-          });
+          const key = j.remIp;
 
           if (groups.has(key)) {
             // Increment nCopies
@@ -5099,7 +5094,6 @@ class PeerTreeNet extends  EventEmitter {
       this.reqReply     = new PtreeGenRequestHandler(this,false);
       this.bcastMgr     = new PtreeMultiReplyHandler(this);
       this.DStream      = new DStreamMgrObj(this);
-      this.accountant   = new SFarmAccountant(this);
       this.portal       = new BorgPortal();
       this.borgMasterID = this.getBorgMasterID();
 
@@ -5139,8 +5133,6 @@ class PeerTreeNet extends  EventEmitter {
       this.db           = db.getConnectionSF();
       this.loginMap     = await this.loadLoginsFromFile();
       setInterval(() => {this.pruneLoginMapTimer();}, 60_000);
-      this.accountant.start({priceServiceIp:this.options?.priceServiceIp})
-        .catch(err => console.error('PeerTreeNet.initFarmerTools():: accountant start failed',err));
    } 
    doHotStartInitialize(){
       this.isStreaming = new Map;
@@ -5246,7 +5238,6 @@ class PeerTreeNet extends  EventEmitter {
          replayKey,
          tokTime,
          borgHUID  : j.Address,
-         peerMUID  : this.peerMUID,
          service   : process.title,
          request   : r.msg?.req || null,
          borgToken : JSON.stringify(j),
@@ -5260,7 +5251,6 @@ class PeerTreeNet extends  EventEmitter {
          replayKey,
          tokTime,
          borgHUID : j.Address,
-         peerMUID : this.peerMUID,
          service  : process.title,
          request  : r.msg?.req || null,
          borgToken: JSON.stringify(j),
@@ -5271,25 +5261,23 @@ class PeerTreeNet extends  EventEmitter {
      return vf;
    }
    async writeReplayToDB(entry) {
-     // peerMUID (mariadb/shellAccounting.sql) attributes the access to the cell
-     // that served it, which is what a shared DB needs in order to bill it.  The
-     // log is a security artifact first, so a node whose DB predates that column
-     // must still log the access.
-     const cols = this.replayLogHasPeer === false
-       ? ['replayKey','tokTime','borgHUID','service','request','borgToken','borgTokenSig','signedPayload']
-       : ['replayKey','tokTime','borgHUID','peerMUID','service','request','borgToken','borgTokenSig','signedPayload'];
      try {
        await this.db.execute(
-         `INSERT INTO borg_replay_log (${cols.join(', ')})
-          VALUES (${cols.map(() => '?').join(', ')})`,
-         cols.map(c => entry[c] ?? null)
+         `INSERT INTO borg_replay_log
+          (replayKey, tokTime, borgHUID, service, request, borgToken, borgTokenSig, signedPayload)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+         [
+           entry.replayKey,
+           entry.tokTime,
+           entry.borgHUID,
+           entry.service,
+           entry.request,
+           entry.borgToken,
+           entry.borgTokenSig,
+           entry.signedPayload
+         ]
        );
      } catch (err) {
-       if (err.code === 'ER_BAD_FIELD_ERROR' && this.replayLogHasPeer !== false) {
-         console.warn("writeReplayToDB():: borg_replay_log has no peerMUID column, accesses cannot be attributed for billing until shellAccounting.sql is applied");
-         this.replayLogHasPeer = false;
-         return this.writeReplayToDB(entry);
-       }
        if (err.code === 'ER_DUP_ENTRY') {
          console.warn("writeReplayToDB(): duplicate replayKey (already logged)");
          return;
@@ -6562,7 +6550,7 @@ class PeerTreeNet extends  EventEmitter {
         return;
       }
 
-      if (toHost == this.rnet.myIp)
+      if (toHost == this.rnet.myIp && msg.include  !== 'self')
         return;
 
       if(corx){
