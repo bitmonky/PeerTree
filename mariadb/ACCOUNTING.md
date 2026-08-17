@@ -10,6 +10,26 @@ borg_replay_log  --rate-->  tblAccessLedger  --package-->  tblInvoice + tblInvoi
                                         tblPayment / tblInvoiceDispute <-
 ```
 
+## Who the seller is
+
+Two identities, deliberately separate:
+
+| identity | table | role |
+| --- | --- | --- |
+| `farmerMUID` | `tblFarmer` | payout identity, supplied by the owner when the node is registered and provisioned |
+| `peerMUID` | cell wallet | signing identity of the cell that actually served the request |
+
+An invoice is *sold by* the farmer and *signed by* the cell, so `tblInvoice` carries
+both (`farmerMUID`, `signerMUID`) and `payAddress` defaults to `farmerMUID`. A
+signature from the cell alone would let a compromised cell name any payout
+address it likes, so the invoice also carries the provisioning-time binding
+(`tblFarmerCell`: `bindHash` + owner/network signatures, copied into
+`bindProof`). The client's authority check is therefore: `invoiceSig` verifies
+under the cell's key, the binding covers that cell and is not revoked, and
+`payAddress` matches the bound farmer. One farmer can own many cells, and
+invoice sequence numbers run per `(farmerMUID, borgHUID)` so a client sees one
+chained billing relationship per owner rather than one per cell.
+
 ## Why the ledger is separate from the log
 
 `borg_replay_log` is a security artifact and must stay append-only and untouched.
@@ -41,8 +61,10 @@ Each `tblInvoiceLine` is self-contained. Verification of a line:
    (`replayKey, tokTime, service, request, quantity, unit, unitPrice, amount,
    rateHash, borgTokenSig` — keys sorted, no whitespace).
 5. `merklePath` folded from `leafHash` must reproduce `tblInvoice.merkleRoot`.
-6. `invoiceSig` must verify against `headerHash` under `issuerPubKey`, and
-   `issuerPubKey` must hash to `nodeMUID` / `payAddress`.
+6. `invoiceSig` must verify against `headerHash` under `issuerPubKey`;
+   `issuerPubKey` must hash to `signerMUID`; and `bindProof` must show that
+   `signerMUID` was bound to `farmerMUID` (unrevoked) and that `payAddress`
+   belongs to that farmer.
 
 So the invoice is a signed commitment by the seller to a set of client-signed
 requests. The client pays by sending to `payAddress` (the seller's own MUID
@@ -77,9 +99,14 @@ today; metered units need the receipt.
 
 ## Also required
 
-`borg_replay_log` has no column for the node that served the request (`service`
+`borg_replay_log` has no column for the cell that served the request (`service`
 is `process.title`). With one shared MariaDB — the configuration the self-repair
 lab uses — every cell's accesses land in one table and cannot be attributed to a
-seller. The `ALTER TABLE` at the end of `shellAccounting.sql` adds `nodeMUID`
+seller. The `ALTER TABLE` at the end of `shellAccounting.sql` adds `peerMUID`
 (plus optional `bytesIn`/`bytesOut`/`msgHash`) and should land before invoices
-are generated in a shared-DB deployment.
+are generated in a shared-DB deployment; the farmer is then resolved through
+`tblFarmerCell`.
+
+`tblFarmer` is currently written and read by nothing in `scripts/` — only the
+cell's own `peerMUID` is used — so registration needs to populate `tblFarmer`
+and `tblFarmerCell` for any of this to resolve.
