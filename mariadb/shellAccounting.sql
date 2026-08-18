@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS tblRateCard (
   fetchedAt     BIGINT NOT NULL,                -- when this cell cached it
   fetchedFrom   VARCHAR(100) NULL,              -- IP/MUID the card was served by
 
-  createdAt     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  createdAt     BIGINT NOT NULL,                -- ms epoch, cronoTree cell clock
 
   UNIQUE KEY unique_rate (cardVersion, service, request),
   KEY idx_lookup (service, request, effFrom, effTo)
@@ -108,7 +108,7 @@ CREATE TABLE IF NOT EXISTS tblAccessLedger (
                                                 -- by the node (node = not provable)
   leafHash      CHAR(64) NOT NULL,              -- sha256 of canonical line JSON
   invoiceNo     CHAR(36) NULL,
-  ratedAt       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  ratedAt       BIGINT NOT NULL,                -- ms epoch, cronoTree cell clock
 
   UNIQUE KEY unique_access (replayKey),
   KEY idx_open (borgHUID, invoiceNo, tokTime),
@@ -163,7 +163,7 @@ CREATE TABLE IF NOT EXISTS tblInvoice (
   sentAt        BIGINT NULL,
   packageHash   CHAR(64) NULL,                  -- sha256 of the delivered .json package
 
-  createdAt     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  createdAt     BIGINT NOT NULL,                -- ms epoch, cronoTree cell clock
 
   UNIQUE KEY unique_invoice (invoiceNo),
   UNIQUE KEY unique_seq (farmerMUID, borgHUID, seq),
@@ -296,7 +296,7 @@ CREATE TABLE IF NOT EXISTS tblPayment (
   txid          VARCHAR(100) NULL,
   payerSig      VARCHAR(200) NULL,              -- client signature over headerHash = accept
   confirmedAt   BIGINT NULL,
-  createdAt     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  createdAt     BIGINT NOT NULL,                -- ms epoch, cronoTree cell clock
 
   UNIQUE KEY unique_txid (invoiceNo, txid),
   KEY idx_invoice (invoiceNo),
@@ -338,4 +338,5 @@ ALTER TABLE borg_replay_log
   ADD COLUMN IF NOT EXISTS bytesIn  BIGINT NULL,
   ADD COLUMN IF NOT EXISTS bytesOut BIGINT NULL,
   ADD COLUMN IF NOT EXISTS msgHash  CHAR(64) NULL,
+  ADD COLUMN IF NOT EXISTS logTime  BIGINT NULL,
   ADD KEY IF NOT EXISTS idx_node_time (peerMUID, tokTime DESC);

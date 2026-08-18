@@ -158,12 +158,12 @@ async function access(con, client, cell, opts = {}){
   const token   = { Address: client.muid, reqTime, reqId, sesTok, sesSig, pubKey: client.pub };
 
   const cols = ['replayKey','tokTime','borgHUID','service','request','borgToken','borgTokenSig',
-                'signedPayload','peerMUID'];
+                'signedPayload','peerMUID','logTime'];
   await q(con,
     `INSERT INTO borg_replay_log (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`,
     [`${client.muid}:${reqId}`, reqTime, client.muid, opts.service || 'cronoTreeCell',
      opts.request || 'getShard', JSON.stringify(token), sesSig, sesTok,
-     opts.peerMUID ?? cell.muid]);
+     opts.peerMUID ?? cell.muid, Date.now()]);
   return { replayKey: `${client.muid}:${reqId}`, tokTime: reqTime };
 }
 
@@ -477,6 +477,30 @@ async function main(){
        `SELECT count(*) AS n FROM tblInvoiceDispute
          WHERE appliedTo IS NULL AND resolution = 'credited'`)).n, 0,
      'credit cannot be applied twice');
+
+  // ------------------------------------------------------------------
+  // A cell's clock is cronoTree-corrected; the DB host's is not.  Any column
+  // the DB fills in itself would date an invoice off-network time, so every
+  // date has to arrive from the cell as ms epoch.
+  scenario('cell time: no date in the schema is derived by the database');
+  const dbDates = await q(con,
+    `SELECT TABLE_NAME t, COLUMN_NAME c, DATA_TYPE d, COLUMN_DEFAULT v, EXTRA e
+       FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND (DATA_TYPE IN ('timestamp','datetime','date')
+             OR COLUMN_DEFAULT LIKE '%current_timestamp%'
+             OR EXTRA LIKE '%current_timestamp%')`);
+  eq(dbDates.length, 0,
+     'no timestamp/datetime column, and no current_timestamp default, anywhere: ' +
+     dbDates.map(r => `${r.t}.${r.c}`).join(', '));
+
+  const timed = await q1(con,
+    `SELECT l.ratedAt, i.createdAt, p.createdAt AS paidAt, r.createdAt AS rateAt
+       FROM tblAccessLedger l, tblInvoice i, tblPayment p, tblRateCard r LIMIT 1`);
+  for (const [k, v] of Object.entries(timed)){
+    ok(Number(v) > 1600000000000 && Number(v) < Date.now() + 60000,
+       `${k} carries a cell-supplied ms epoch (${v})`);
+  }
 
   // ------------------------------------------------------------------
   scenario('unbound cell: a cell with no binding refuses to bill');

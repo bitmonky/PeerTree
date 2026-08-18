@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS borg_replay_log (
   borgTokenSig VARCHAR(200) NOT NULL, -- j.sesSig
   signedPayload TEXT NOT NULL,        -- j.sesTok
 
-  createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  logTime BIGINT NULL,                -- ms epoch, cronoTree cell clock (never the DB's)
 
   UNIQUE KEY unique_replay (replayKey),
 
