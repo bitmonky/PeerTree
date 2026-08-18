@@ -5268,7 +5268,8 @@ class PeerTreeNet extends  EventEmitter {
          request  : r.msg?.req || null,
          borgToken: JSON.stringify(j),
          borgTokenSig: j.sesSig,
-         signedPayload: j.sesTok
+         signedPayload: j.sesTok,
+         logTime  : Date.now()
        });
      }
      return vf;
@@ -5278,9 +5279,11 @@ class PeerTreeNet extends  EventEmitter {
      // that served it, which is what a shared DB needs in order to bill it.  The
      // log is a security artifact first, so a node whose DB predates that column
      // must still log the access.
-     const cols = this.replayLogHasPeer === false
+     // logTime is the cell's cronoTree-corrected clock: no date in the DB is ever
+    // derived by the DB, so every node's timeline agrees.
+    const cols = this.replayLogHasPeer === false
        ? ['replayKey','tokTime','borgHUID','service','request','borgToken','borgTokenSig','signedPayload']
-       : ['replayKey','tokTime','borgHUID','peerMUID','service','request','borgToken','borgTokenSig','signedPayload'];
+       : ['replayKey','tokTime','borgHUID','peerMUID','service','request','borgToken','borgTokenSig','signedPayload','logTime'];
      try {
        await this.db.execute(
          `INSERT INTO borg_replay_log (${cols.join(', ')})

@@ -183,12 +183,13 @@ class SFarmAccountant {
       await this.query(
         `INSERT IGNORE INTO tblRateCard
          (cardVersion, service, request, unit, unitPrice, currency, minCharge,
-          effFrom, effTo, publisherMUID, publisherPub, rateHash, rateSig, fetchedAt, fetchedFrom)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          effFrom, effTo, publisherMUID, publisherPub, rateHash, rateSig, fetchedAt, fetchedFrom,
+          createdAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [card.cardVersion, rate.service, rate.request ?? null, rate.unit,
          rate.unitPrice, rate.currency, rate.minCharge ?? 0,
          rate.effFrom, rate.effTo ?? null, card.publisherMUID, card.publisherPub,
-         rate.rateHash, rate.rateSig, Date.now(), ip]);
+         rate.rateHash, rate.rateSig, Date.now(), ip, Date.now()]);
       stored++;
     }
     this.cardVersion = Number(card.cardVersion);
@@ -297,12 +298,12 @@ class SFarmAccountant {
     await this.query(
       `INSERT IGNORE INTO tblAccessLedger
        (replayKey, logId, farmerMUID, peerMUID, borgHUID, tokTime, service, request,
-        quantity, unit, rateId, unitPrice, amount, currency, quantitySrc, leafHash)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        quantity, unit, rateId, unitPrice, amount, currency, quantitySrc, leafHash, ratedAt)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [row.replayKey, row.id, this.farmerMUID, peerMUID, row.borgHUID, line.tokTime,
        line.service, line.request, line.quantity, line.unit, rate.id, line.unitPrice,
        line.amount, rate.currency, rate.unit === 'access' ? 'token' : 'node',
-       this.leafHash(line)]);
+       this.leafHash(line), Date.now()]);
 
     this.stats.rated++;
     return line;
@@ -446,15 +447,15 @@ class SFarmAccountant {
        (invoiceNo, seq, farmerMUID, signerMUID, borgHUID, netName, periodStart, periodEnd,
         lineCount, subtotal, credits, total, currency, merkleRoot, prevInvoiceNo,
         prevMerkleRoot, payAddress, issuerPubKey, invoiceSig, bindHash, bindProof,
-        rateProof, headerHash, triggerType, runId, status, issuedAt, dueAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'issued',?,?)`,
+        rateProof, headerHash, triggerType, runId, status, issuedAt, dueAt, createdAt)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'issued',?,?,?)`,
       [header.invoiceNo, header.seq, header.farmerMUID, header.signerMUID, borgHUID,
        header.netName, periodStart, periodEnd, header.lineCount, header.subtotal,
        header.credits, header.total, header.currency, header.merkleRoot,
        header.prevInvoiceNo, header.prevMerkleRoot, header.payAddress,
        this.net.publicKey, this.signHash(headerHash), header.bindHash,
        JSON.stringify(this.bindProof()), JSON.stringify(rateProof), headerHash,
-       triggerType, runId, now, now + Number(this.policy.dueMs)]);
+       triggerType, runId, now, now + Number(this.policy.dueMs), now]);
 
     for (let i = 0; i < lines.length; i++){
       const l    = lines[i];
@@ -627,10 +628,11 @@ class SFarmAccountant {
     }
     await this.query(
       `INSERT IGNORE INTO tblPayment
-       (invoiceNo, borgHUID, amount, currency, method, txid, payerSig, confirmedAt)
-       VALUES (?,?,?,?,?,?,?,?)`,
+       (invoiceNo, borgHUID, amount, currency, method, txid, payerSig, confirmedAt, createdAt)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
       [j.invoiceNo, invoice.borgHUID, this.amt(j.amount), invoice.currency,
-       j.method || 'onchain', j.txid || null, j.payerSig || null, j.confirmedAt || null]);
+       j.method || 'onchain', j.txid || null, j.payerSig || null, j.confirmedAt || null,
+       Date.now()]);
 
     const paid = await this.queryOne(
       `SELECT COALESCE(SUM(amount),0) AS p FROM tblPayment WHERE invoiceNo = ?`, [j.invoiceNo]);
